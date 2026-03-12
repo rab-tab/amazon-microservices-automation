@@ -118,6 +118,25 @@ Fix: Check https://hub.docker.com/u/rabtab to see available tags
             }
         }
 
+        stage('Checkout Infrastructure') {
+            steps {
+                script {
+                    echo "📦 Checking out infrastructure configuration..."
+                    dir('../amazon-microservices') {
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: '*/main']],  // or '*/master' - check your branch name
+                            userRemoteConfigs: [[
+                                url: 'https://github.com/rab-tab/amazon-microservices',
+                                credentialsId: 'github-token'
+                            ]]
+                        ])
+                    }
+                    echo "✅ Infrastructure repo checked out"
+                }
+            }
+        }
+
         // ── Stage 2: Start Infrastructure ─────────────────────────
         // Start Kafka, Redis, PostgreSQL FIRST.
         // Services depend on these — starting them together causes
