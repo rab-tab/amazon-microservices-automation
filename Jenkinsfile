@@ -481,7 +481,7 @@ def waitForKafka(Map args) {
     echo "⏳ Waiting for Kafka (this takes ~30-60s on first start)..."
     while (elapsed < args.timeoutSecs) {
         def rc = sh(
-            script: "docker exec test-kafka kafka-topics --bootstrap-server kafka:29092 --list > /dev/null 2>&1",
+            script: "docker exec test-kafka kafka-topics --bootstrap-server localhost:29092 --list > /dev/null 2>&1",
             returnStatus: true
         )
         if (rc == 0) {
