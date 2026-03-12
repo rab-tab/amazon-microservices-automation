@@ -63,8 +63,8 @@ pipeline {
     }
 
     environment {
-        REGISTRY      = "localhost:5000"
-        PROJECT       = "amazon"
+        REGISTRY      = "rabtab"
+        PROJECT       = "amazon"  // images = rabtab/amazon-<service>:<tag>
         IMAGE_TAG     = "${params.IMAGE_TAG}"
         COMPOSE_FILE  = "../amazon-microservices/docker/ci/docker-compose.local.yml"
         MAVEN_OPTS    = "-Xmx256m -XX:+UseG1GC"
@@ -98,20 +98,19 @@ Skip E2E:     ${params.SKIP_E2E}
                 // Fail fast here rather than failing 20 minutes later
                 script {
                     def rc = sh(
-                        script: "docker pull ${REGISTRY}/${PROJECT}/user-service:${IMAGE_TAG} > /dev/null 2>&1",
+                        script: "docker pull ${REGISTRY}/amazon-user-service:${IMAGE_TAG} > /dev/null 2>&1",
                         returnStatus: true
                     )
                     if (rc != 0) {
                         error("""
-Image not found in local registry: ${REGISTRY}/${PROJECT}/user-service:${IMAGE_TAG}
+Image not found on Docker Hub: ${REGISTRY}/amazon-user-service:${IMAGE_TAG}
 
 Possible causes:
   1. Dev pipeline hasn't finished building yet
   2. IMAGE_TAG parameter is wrong
-  3. Local registry is not running (check: docker ps | grep registry)
-  4. Dev pipeline pushed to a different tag
+  3. Dev pipeline pushed to a different tag
 
-Fix: Check http://localhost:5001 to see available tags
+Fix: Check https://hub.docker.com/u/rabtab to see available tags
 """)
                     }
                     echo "✅ Image verified in registry"
