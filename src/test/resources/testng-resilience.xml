@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite name="Resilience4j Tests" verbose="1">
+  <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
+  <test name="Resilience Tests"><classes><class name="com.amazon.tests.tests.Resilience4jTest"/></classes></test>
+</suite>

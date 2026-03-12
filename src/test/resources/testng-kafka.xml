@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite name="Kafka Event Tests" verbose="1">
+  <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
+  <test name="Kafka Tests"><classes><class name="com.amazon.tests.tests.KafkaEventTest"/></classes></test>
+</suite>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite name="Amazon Microservices API Test Suite" verbose="2" parallel="none">
+
+    <listeners>
+        <listener class-name="com.amazon.tests.listeners.AllureTestListener"/>
+    </listeners>
+
+    <!-- Full Suite -->
+    <test name="Authentication Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.AuthApiTest"/>
+        </classes>
+    </test>
+
+    <test name="User Management Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.UserApiTest"/>
+        </classes>
+    </test>
+
+    <test name="Product Catalog Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.ProductApiTest"/>
+        </classes>
+    </test>
+
+    <test name="Order Management Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.OrderApiTest"/>
+        </classes>
+    </test>
+
+    <test name="Kafka Event Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.KafkaEventTest"/>
+        </classes>
+    </test>
+
+    <test name="Database Validation Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.DatabaseValidationTest"/>
+        </classes>
+    </test>
+
+    <test name="Resilience4j Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.Resilience4jTest"/>
+        </classes>
+    </test>
+
+    <test name="End-to-End Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.E2EPurchaseFlowTest"/>
+        </classes>
+    </test>
+
+</suite>

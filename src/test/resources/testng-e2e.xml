@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite name="E2E Tests" verbose="1">
+  <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
+  <test name="E2E Purchase Flow"><classes><class name="com.amazon.tests.tests.E2EPurchaseFlowTest"/></classes></test>
+</suite>
