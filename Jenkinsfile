@@ -125,7 +125,7 @@ Fix: Check https://hub.docker.com/u/rabtab to see available tags
                     dir('../amazon-microservices') {
                         checkout([
                             $class: 'GitSCM',
-                            branches: [[name: '*/main']],  // or '*/master' - check your branch name
+                            branches: [[name: '*/master']],  // or '*/master' - check your branch name
                             userRemoteConfigs: [[
                                 url: 'https://github.com/rab-tab/amazon-microservices',
                                 credentialsId: 'github-token'
