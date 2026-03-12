@@ -94,26 +94,63 @@ Triggered By: ${params.TRIGGERED_BY}
 Skip E2E:     ${params.SKIP_E2E}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
 
-                // Verify the image we're about to test actually exists
-                // Fail fast here rather than failing 20 minutes later
+                // ── Resolve per-service image tags ───────────────────
+                // For each service, try to pull IMAGE_TAG first.
+                // If it doesn't exist on Docker Hub (service wasn't changed
+                // in this commit), fall back to :latest.
+                // This means QA always runs with the best available image:
+                //   - Changed services  → tested at exact commit SHA
+                //   - Unchanged services → tested at last known good (latest)
                 script {
-                    def rc = sh(
-                        script: "docker pull ${REGISTRY}/amazon-user-service:${IMAGE_TAG} > /dev/null 2>&1",
-                        returnStatus: true
-                    )
-                    if (rc != 0) {
-                        error("""
-Image not found on Docker Hub: ${REGISTRY}/amazon-user-service:${IMAGE_TAG}
+                    def services = [
+                        'user-service', 'product-service', 'order-service',
+                        'payment-service', 'notification-service', 'api-gateway'
+                    ]
 
-Possible causes:
-  1. Dev pipeline hasn't finished building yet
-  2. IMAGE_TAG parameter is wrong
-  3. Dev pipeline pushed to a different tag
+                    def resolvedTags = [:]
 
-Fix: Check https://hub.docker.com/u/rabtab to see available tags
-""")
+                    services.each { svc ->
+                        def specificImage = "${REGISTRY}/amazon-${svc}:${IMAGE_TAG}"
+                        def rc = sh(
+                            script: "docker pull ${specificImage} > /dev/null 2>&1",
+                            returnStatus: true
+                        )
+                        if (rc == 0) {
+                            resolvedTags[svc] = IMAGE_TAG
+                            echo "✅ ${svc}: using tag ${IMAGE_TAG} (just built)"
+                        } else {
+                            def latestRc = sh(
+                                script: "docker pull ${REGISTRY}/amazon-${svc}:latest > /dev/null 2>&1",
+                                returnStatus: true
+                            )
+                            if (latestRc == 0) {
+                                resolvedTags[svc] = 'latest'
+                                echo "⏩ ${svc}: tag ${IMAGE_TAG} not found — using :latest"
+                            } else {
+                                error("❌ ${svc}: neither :${IMAGE_TAG} nor :latest found on Docker Hub. Run a full build first.")
+                            }
+                        }
                     }
-                    echo "✅ Image verified in registry"
+
+                    // Export per-service tags as env vars for docker-compose
+                    env.TAG_USER_SERVICE         = resolvedTags['user-service']
+                    env.TAG_PRODUCT_SERVICE      = resolvedTags['product-service']
+                    env.TAG_ORDER_SERVICE        = resolvedTags['order-service']
+                    env.TAG_PAYMENT_SERVICE      = resolvedTags['payment-service']
+                    env.TAG_NOTIFICATION_SERVICE = resolvedTags['notification-service']
+                    env.TAG_API_GATEWAY          = resolvedTags['api-gateway']
+
+                    echo """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 Resolved Image Tags
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+user-service:         ${env.TAG_USER_SERVICE}
+product-service:      ${env.TAG_PRODUCT_SERVICE}
+order-service:        ${env.TAG_ORDER_SERVICE}
+payment-service:      ${env.TAG_PAYMENT_SERVICE}
+notification-service: ${env.TAG_NOTIFICATION_SERVICE}
+api-gateway:          ${env.TAG_API_GATEWAY}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
                 }
             }
         }
@@ -125,7 +162,7 @@ Fix: Check https://hub.docker.com/u/rabtab to see available tags
                     dir('../amazon-microservices') {
                         checkout([
                             $class: 'GitSCM',
-                            branches: [[name: '*/master']],  // or '*/master' - check your branch name
+                            branches: [[name: '*/master']],
                             userRemoteConfigs: [[
                                 url: 'https://github.com/rab-tab/amazon-microservices',
                                 credentialsId: 'github-token'
@@ -161,7 +198,12 @@ Fix: Check https://hub.docker.com/u/rabtab to see available tags
 
                     // Start only infrastructure, not microservices yet
                     sh """
-                        export IMAGE_TAG=${IMAGE_TAG}
+                        export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
+                        export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
+                        export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
+                        export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
+                        export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
+                        export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                         docker-compose -f ${COMPOSE_FILE} up -d \
                             postgres redis zookeeper kafka zipkin
                     """
@@ -208,7 +250,12 @@ Fix: Check https://hub.docker.com/u/rabtab to see available tags
             steps {
                 script {
                     sh """
-                        export IMAGE_TAG=${IMAGE_TAG}
+                        export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
+                        export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
+                        export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
+                        export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
+                        export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
+                        export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                         docker-compose -f ${COMPOSE_FILE} up -d \
                             user-service product-service order-service \
                             payment-service notification-service api-gateway
@@ -324,7 +371,12 @@ Fix: Check https://hub.docker.com/u/rabtab to see available tags
                 // WHY always? If you only stop on success, failed builds
                 // leave containers running → next build fails with port conflicts
                 sh """
-                    export IMAGE_TAG=${IMAGE_TAG}
+                    export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
+                    export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
+                    export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
+                    export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
+                    export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
+                    export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                     docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
                     docker container prune -f --filter "label=project=amazon-local" 2>/dev/null || true
                     echo "✅ Containers stopped and cleaned up"
