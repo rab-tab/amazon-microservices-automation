@@ -205,7 +205,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
                         export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                         docker-compose -f ${COMPOSE_FILE} up -d \
-                            postgres redis zookeeper kafka zipkin
+                            postgres redis zookeeper kafka zipkin db-init
                     """
 
                     echo "Infrastructure containers started. Waiting for health checks..."
