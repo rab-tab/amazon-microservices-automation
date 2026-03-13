@@ -379,7 +379,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                     docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
                     docker container prune -f --filter "label=project=amazon-local" 2>/dev/null || true
-                    echo "✅ Containers stopped and cleaned up"
+                    echo "✅ Containers stopped and cleaned up (always block)"
                 """
 
                 // Collect final JUnit results for Jenkins trend charts
@@ -410,12 +410,24 @@ api-gateway:          ${env.TAG_API_GATEWAY}
 
         failure {
             script {
-                // On failure, dump service logs — essential for debugging
+                // Dump logs BEFORE docker-compose down so containers still exist
                 echo "=== Dumping service logs for debugging ==="
                 ['test-user-service','test-product-service','test-order-service',
-                 'test-payment-service','test-api-gateway','test-kafka'].each { container ->
-                    sh "docker logs ${container} --tail 30 2>/dev/null || echo '(${container} not running)'"
+                 'test-payment-service','test-notification-service','test-api-gateway',
+                 'test-kafka','test-postgres'].each { container ->
+                    echo "--- ${container} ---"
+                    sh "docker logs ${container} --tail 50 2>&1 || echo '(${container} not running)'"
                 }
+                // Now tear down
+                sh """
+                    export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
+                    export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
+                    export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
+                    export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
+                    export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
+                    export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
+                    docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
+                """
             }
         }
 
