@@ -226,7 +226,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                 // Kafka is the slowest to start (needs Zookeeper first)
                 // 90 seconds is realistic — Kafka JVM startup + topic init
                 script {
-                    waitForKafka(timeoutSecs: 90)
+                    waitForKafka(timeoutSecs: 180)
                 }
 
                 // ── Wait for Redis ───────────────────────────────
@@ -478,24 +478,27 @@ def waitForContainer(Map args) {
 
 def waitForKafka(Map args) {
     def elapsed = 0
-    echo "⏳ Waiting for Kafka (this takes ~30-60s on first start)..."
+    echo "⏳ Waiting for Kafka (this takes ~60-120s on first start)..."
     while (elapsed < args.timeoutSecs) {
-        // Use Docker's own healthcheck status — more reliable than running kafka-topics
-        // Docker healthcheck in compose uses: kafka-topics --bootstrap-server localhost:9092 --list
-        def rc = sh(
-            script: "docker inspect test-kafka --format '{{.State.Health.Status}}' 2>/dev/null | grep -q healthy",
-            returnStatus: true
-        )
-        if (rc == 0) {
+        // Check Docker health status — must be exactly 'healthy' not 'unhealthy'/'starting'
+        def status = sh(
+            script: "docker inspect test-kafka --format '{{.State.Health.Status}}' 2>/dev/null || echo 'unknown'",
+            returnStdout: true
+        ).trim()
+        echo "  Kafka health status: ${status} (${elapsed}/${args.timeoutSecs}s)"
+        if (status == 'healthy') {
             echo "✅ Kafka healthy after ${elapsed}s"
             return
         }
+        if (status == 'unhealthy') {
+            sh "docker logs test-kafka --tail 30 2>/dev/null || true"
+            error("❌ Kafka reported unhealthy")
+        }
         sleep(10)
         elapsed += 10
-        echo "  Still waiting for Kafka... (${elapsed}/${args.timeoutSecs}s)"
     }
     sh "docker logs test-kafka --tail 30 2>/dev/null || true"
-    error("❌ Kafka did not start within ${args.timeoutSecs}s")
+    error("❌ Kafka did not become healthy within ${args.timeoutSecs}s")
 }
 
 def waitForHttp(Map args) {
