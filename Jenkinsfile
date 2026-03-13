@@ -480,12 +480,14 @@ def waitForKafka(Map args) {
     def elapsed = 0
     echo "⏳ Waiting for Kafka (this takes ~30-60s on first start)..."
     while (elapsed < args.timeoutSecs) {
+        // Use Docker's own healthcheck status — more reliable than running kafka-topics
+        // Docker healthcheck in compose uses: kafka-topics --bootstrap-server localhost:9092 --list
         def rc = sh(
-            script: "docker exec test-kafka kafka-topics --bootstrap-server localhost:29092 --list > /dev/null 2>&1",
+            script: "docker inspect test-kafka --format '{{.State.Health.Status}}' 2>/dev/null | grep -q healthy",
             returnStatus: true
         )
         if (rc == 0) {
-            echo "✅ Kafka ready after ${elapsed}s"
+            echo "✅ Kafka healthy after ${elapsed}s"
             return
         }
         sleep(10)
