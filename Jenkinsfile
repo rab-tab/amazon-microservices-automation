@@ -70,7 +70,7 @@ pipeline {
         MAVEN_OPTS    = "-Xmx256m -XX:+UseG1GC"
 
         // Test connection properties — passed to Maven as -D flags
-        BASE_URL      = "http://localhost:8080"
+        BASE_URL      = "http://localhost:8090"
         DB_HOST       = "localhost"
         KAFKA_SERVERS = "localhost:9092"
         REDIS_HOST    = "localhost"
@@ -267,7 +267,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         [container: 'test-product-service', port: 8082, name: 'Product Service'],
                         [container: 'test-order-service',   port: 8083, name: 'Order Service'],
                         [container: 'test-payment-service', port: 8084, name: 'Payment Service'],
-                        [container: 'test-api-gateway',     port: 8080, name: 'API Gateway'],
+                        [container: 'test-api-gateway',     port: 8090, name: 'API Gateway'],
                     ]
 
                     services.each { svc ->
@@ -501,19 +501,19 @@ def waitForHttp(Map args) {
     def interval = 10
     echo "⏳ Waiting for ${args.description} at ${args.url}..."
     while (elapsed < args.timeoutSecs) {
-        def rc = sh(
-            // WHY -s not -sf? Spring Boot returns HTTP 503 when any health contributor
-            // is slow (e.g. Redis). -f makes curl fail on 503. We just check the body.
-            script: "curl -s ${args.url} 2>/dev/null | grep -q UP",
-            returnStatus: true
-        )
-        if (rc == 0) {
+        def response = sh(
+            script: "curl -s --max-time 5 ${args.url} 2>/dev/null || echo 'CURL_FAILED'",
+            returnStdout: true
+        ).trim()
+        if (response.contains('UP') || response.contains('"status":"UP"')) {
             echo "✅ ${args.description} is UP after ${elapsed}s"
             return
         }
         sleep(interval)
         elapsed += interval
-        echo "  ${args.description} not ready yet (${elapsed}/${args.timeoutSecs}s)"
+        // Print first 200 chars of response for debugging
+        def preview = response.length() > 200 ? response.substring(0, 200) : response
+        echo "  ${args.description} not ready yet (${elapsed}/${args.timeoutSecs}s) response: ${preview}"
     }
     error("❌ ${args.description} did not become healthy within ${args.timeoutSecs}s")
 }
