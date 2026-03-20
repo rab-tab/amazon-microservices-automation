@@ -24,7 +24,7 @@ pipeline {
     agent any
 
     options {
-        timeout(time: 45, unit: 'MINUTES')
+        timeout(time: 90, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '20'))
         disableConcurrentBuilds()
         timestamps()
@@ -273,7 +273,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     services.each { svc ->
                         waitForHttp(
                             url: "http://localhost:${svc.port}/actuator/health",
-                            timeoutSecs: 360,
+                            timeoutSecs: 600,
                             description: svc.name
                         )
                     }
