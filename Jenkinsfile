@@ -267,7 +267,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         [container: 'test-product-service', port: 8082, name: 'Product Service'],
                         [container: 'test-order-service',   port: 8083, name: 'Order Service'],
                         [container: 'test-payment-service', port: 8084, name: 'Payment Service'],
-                        [container: 'test-api-gateway',     port: 8090, name: 'API Gateway'],
+                        [container: 'test-api-gateway',     port: 8080, name: 'API Gateway'],
                     ]
 
                     services.each { svc ->
