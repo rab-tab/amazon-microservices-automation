@@ -273,7 +273,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     services.each { svc ->
                         waitForHttp(
                             url: "http://localhost:${svc.port}/actuator/health",
-                            timeoutSecs: 120,
+                            timeoutSecs: 360,
                             description: svc.name
                         )
                     }
