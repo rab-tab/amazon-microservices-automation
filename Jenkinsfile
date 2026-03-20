@@ -502,7 +502,9 @@ def waitForHttp(Map args) {
     echo "⏳ Waiting for ${args.description} at ${args.url}..."
     while (elapsed < args.timeoutSecs) {
         def rc = sh(
-            script: "curl -sf ${args.url} | grep -q UP 2>/dev/null",
+            // WHY -s not -sf? Spring Boot returns HTTP 503 when any health contributor
+            // is slow (e.g. Redis). -f makes curl fail on 503. We just check the body.
+            script: "curl -s ${args.url} 2>/dev/null | grep -q UP",
             returnStatus: true
         )
         if (rc == 0) {
