@@ -364,12 +364,18 @@ api-gateway:          ${env.TAG_API_GATEWAY}
     // post {} runs AFTER all stages, in ALL cases (success/failure/aborted)
     post {
 
-        // always {} runs no matter what
+        // always {} runs no matter what — dump logs FIRST, then clean up
         always {
             script {
-                // Stop and remove all test containers
-                // WHY always? If you only stop on success, failed builds
-                // leave containers running → next build fails with port conflicts
+                // Dump service logs before tearing down — essential for debugging failures
+                echo "=== Service logs ==="
+                ['test-user-service','test-product-service','test-order-service',
+                 'test-payment-service','test-notification-service','test-api-gateway'].each { container ->
+                    echo "--- ${container} ---"
+                    sh "docker logs ${container} --tail 50 2>&1 || echo '(${container} not running)'"
+                }
+
+                // Now tear down — always, to avoid port conflicts on next build
                 sh """
                     export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
                     export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
@@ -379,7 +385,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                     docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
                     docker container prune -f --filter "label=project=amazon-local" 2>/dev/null || true
-                    echo "✅ Containers stopped and cleaned up (always block)"
+                    echo "✅ Containers stopped and cleaned up"
                 """
 
                 // Collect final JUnit results for Jenkins trend charts
@@ -406,29 +412,6 @@ api-gateway:          ${env.TAG_API_GATEWAY}
 ║  Image Tag: ${params.IMAGE_TAG}
 ║  This image should NOT be promoted to production      ║
 ╚══════════════════════════════════════════════════════╝"""
-        }
-
-        failure {
-            script {
-                // Dump logs BEFORE docker-compose down so containers still exist
-                echo "=== Dumping service logs for debugging ==="
-                ['test-user-service','test-product-service','test-order-service',
-                 'test-payment-service','test-notification-service','test-api-gateway',
-                 'test-kafka','test-postgres'].each { container ->
-                    echo "--- ${container} ---"
-                    sh "docker logs ${container} --tail 50 2>&1 || echo '(${container} not running)'"
-                }
-                // Now tear down
-                sh """
-                    export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
-                    export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
-                    export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
-                    export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
-                    export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
-                    export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
-                    docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
-                """
-            }
         }
 
         cleanup {
