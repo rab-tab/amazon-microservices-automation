@@ -109,28 +109,36 @@ Skip E2E:     ${params.SKIP_E2E}
 
                     def resolvedTags = [:]
 
+                    // WHY parallel pulls? Each docker pull is independent network I/O.
+                    // Sequential pulls waste 2-15s per image waiting for one to finish
+                    // before starting the next. Parallel cuts this to max(single pull time).
+                    def pullTasks = [:]
                     services.each { svc ->
-                        def specificImage = "${REGISTRY}/amazon-${svc}:${IMAGE_TAG}"
-                        def rc = sh(
-                            script: "docker pull ${specificImage} > /dev/null 2>&1",
-                            returnStatus: true
-                        )
-                        if (rc == 0) {
-                            resolvedTags[svc] = IMAGE_TAG
-                            echo "✅ ${svc}: using tag ${IMAGE_TAG} (just built)"
-                        } else {
-                            def latestRc = sh(
-                                script: "docker pull ${REGISTRY}/amazon-${svc}:latest > /dev/null 2>&1",
+                        def s = svc  // capture for closure
+                        pullTasks[s] = {
+                            def specificImage = "${REGISTRY}/amazon-${s}:${IMAGE_TAG}"
+                            def rc = sh(
+                                script: "docker pull ${specificImage} > /dev/null 2>&1",
                                 returnStatus: true
                             )
-                            if (latestRc == 0) {
-                                resolvedTags[svc] = 'latest'
-                                echo "⏩ ${svc}: tag ${IMAGE_TAG} not found — using :latest"
+                            if (rc == 0) {
+                                resolvedTags[s] = IMAGE_TAG
+                                echo "✅ ${s}: using tag ${IMAGE_TAG} (just built)"
                             } else {
-                                error("❌ ${svc}: neither :${IMAGE_TAG} nor :latest found on Docker Hub. Run a full build first.")
+                                def latestRc = sh(
+                                    script: "docker pull ${REGISTRY}/amazon-${s}:latest > /dev/null 2>&1",
+                                    returnStatus: true
+                                )
+                                if (latestRc == 0) {
+                                    resolvedTags[s] = 'latest'
+                                    echo "⏩ ${s}: tag ${IMAGE_TAG} not found — using :latest"
+                                } else {
+                                    error("❌ ${s}: neither :${IMAGE_TAG} nor :latest found on Docker Hub. Run a full build first.")
+                                }
                             }
                         }
                     }
+                    parallel pullTasks
 
                     // Export per-service tags as env vars for docker-compose
                     env.TAG_USER_SERVICE         = resolvedTags['user-service']
@@ -272,7 +280,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         [port: 8082, name: 'Product Service'],
                         [port: 8083, name: 'Order Service'],
                         [port: 8084, name: 'Payment Service'],
-                        [port: 8080, name: 'API Gateway'],
+                        [port: 8090, name: 'API Gateway'],  // compose maps 8090:8080
                     ]
                     serviceList.each { svc ->
                         def s = svc  // capture for closure
