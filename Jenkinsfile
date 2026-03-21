@@ -261,22 +261,30 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                             payment-service notification-service api-gateway
                     """
 
-                    // Wait for each service's Spring Boot health endpoint
-                    def services = [
-                        [container: 'test-user-service',    port: 8081, name: 'User Service'],
-                        [container: 'test-product-service', port: 8082, name: 'Product Service'],
-                        [container: 'test-order-service',   port: 8083, name: 'Order Service'],
-                        [container: 'test-payment-service', port: 8084, name: 'Payment Service'],
-                        [container: 'test-api-gateway',     port: 8080, name: 'API Gateway'],
+                    // WHY PARALLEL? Services all start simultaneously, so waiting
+                    // sequentially wastes time — user-service taking 430s blocked everything.
+                    // With parallel waits, all 5 run concurrently and we finish as soon
+                    // as the LAST one is ready, not sum(all startup times).
+                    echo "⏳ Waiting for all microservices in parallel..."
+                    def parallelChecks = [:]
+                    def serviceList = [
+                        [port: 8081, name: 'User Service'],
+                        [port: 8082, name: 'Product Service'],
+                        [port: 8083, name: 'Order Service'],
+                        [port: 8084, name: 'Payment Service'],
+                        [port: 8080, name: 'API Gateway'],
                     ]
-
-                    services.each { svc ->
-                        waitForHttp(
-                            url: "http://localhost:${svc.port}/actuator/health",
-                            timeoutSecs: 600,
-                            description: svc.name
-                        )
+                    serviceList.each { svc ->
+                        def s = svc  // capture for closure
+                        parallelChecks[s.name] = {
+                            waitForHttp(
+                                url: "http://localhost:${s.port}/actuator/health",
+                                timeoutSecs: 600,
+                                description: s.name
+                            )
+                        }
                     }
+                    parallel parallelChecks
 
                     echo "✅ All microservices are healthy!"
 
