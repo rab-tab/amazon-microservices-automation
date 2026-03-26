@@ -309,7 +309,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
             steps {
                 checkout scm   // Check out the test automation repo
                 sh '''
-                    cd test-automation 2>/dev/null || true
+                   // cd test-automation 2>/dev/null || true
                     mvn clean compile test-compile \
                         --no-transfer-progress \
                         -q
@@ -369,7 +369,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                 allure([
                     includeProperties: true,
                     reportBuildPolicy: 'ALWAYS',
-                    results: [[path: 'test-automation/target/allure-results']]
+                    results: [[path: 'target/allure-results']]
                 ])
                 echo "📊 Allure report: http://localhost:8090/job/automation-tests/${BUILD_NUMBER}/allure"
             }
@@ -443,7 +443,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
 def runTestSuite(String suite, String displayName) {
     echo "\n━━━ Running: ${displayName} ━━━"
     sh """
-        cd test-automation
+        //cd test-automation
         mvn test \
           -Dsurefire.suiteXmlFiles=src/test/resources/${suite} \
           -Dbase.url=${BASE_URL} \
@@ -464,7 +464,7 @@ def runTestSuite(String suite, String displayName) {
 
 def collectTestResults() {
     junit allowEmptyResults: true,
-          testResults: 'test-automation/target/surefire-reports/TEST-*.xml'
+          testResults: 'target/surefire-reports/TEST-*.xml'
 }
 
 def waitForContainer(Map args) {
