@@ -309,7 +309,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
             steps {
                 checkout scm   // Check out the test automation repo
                 sh '''
-                   // cd test-automation 2>/dev/null || true
+                   # cd test-automation 2>/dev/null || true
                     mvn clean compile test-compile \
                         --no-transfer-progress \
                         -q
@@ -443,7 +443,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
 def runTestSuite(String suite, String displayName) {
     echo "\n━━━ Running: ${displayName} ━━━"
     sh """
-        //cd test-automation
+        # cd test-automation
         mvn test \
           -Dsurefire.suiteXmlFiles=src/test/resources/${suite} \
           -Dbase.url=${BASE_URL} \
