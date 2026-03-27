@@ -1,23 +1,21 @@
-package com.amazon.tests.tests;
+package com.amazon.tests.tests.kafka;
 
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.*;
+import com.amazon.tests.tests.BaseTest;
+import com.amazon.tests.utils.AuthUtils;
+import com.amazon.tests.utils.KafkaTestConsumer;
+import com.amazon.tests.utils.TestDataFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
-import org.awaitility.Awaitility;
-import org.testng.annotations.*;
+import org.testng.annotations.Test;
 
-import java.math.BigDecimal;
-import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-//import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.*;
 
 /**
  * Kafka Event Verification Tests.

@@ -2,16 +2,15 @@ package com.amazon.tests.tests;
 
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.*;
+import com.amazon.tests.utils.AuthUtils;
+import com.amazon.tests.utils.TestDataFactory;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
-import org.awaitility.Awaitility;
-import org.testng.annotations.*;
+import org.testng.annotations.Test;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.*;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.restassured.RestAssured.given;
@@ -289,7 +288,7 @@ public class Resilience4jTest extends BaseTest {
             });
         }
 
-        latch.await(30, TimeUnit.SECONDS);
+        latch.await();
         executor.shutdown();
 
         logStep("Results — Successful: " + successCount.get()
