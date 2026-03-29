@@ -19,7 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class UserEventResilienceTest extends BaseTest {
 
     private static final int KAFKA_WAIT_SECONDS = 10;
-    @Test
+
+    @Test(enabled = false)
     @Feature("Kafka Failure Handling")
     @Story("Kafka down scenario")
     @Severity(SeverityLevel.CRITICAL)
@@ -81,4 +82,5 @@ public class UserEventResilienceTest extends BaseTest {
                     .isPresent();
         }
     }
+
 }

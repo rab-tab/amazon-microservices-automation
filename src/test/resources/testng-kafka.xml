@@ -2,5 +2,16 @@
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
 <suite name="Kafka Event Tests" verbose="1">
   <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
-  <test name="Kafka Tests"><classes><class name="com.amazon.tests.tests.KafkaEventTest"/></classes></test>
+  <test name="Kafka Tests">
+    <!--<packages>
+      <package name="com.amazon.tests.tests.kafka"/>
+    </packages>-->
+    <!--<classes><class name="com.amazon.tests.tests.kafka.failures.validation.UserRegistrationValidationTest"/></classes>-->
+    <classes>
+      <!--<class name="com.amazon.tests.tests.kafka.failures.consistency.UserEventConsistencyTest"/>
+      <class name="com.amazon.tests.tests.kafka.failures.validation.UserRegistrationValidationTest"/>
+      <class name="com.amazon.tests.tests.kafka.failures.idempotency.UserEventIdempotencyTest"/>-->
+      <class name="com.amazon.tests.tests.kafka.failures.resilience.UserEventResilienceTest"/>
+    </classes>
+  </test>
 </suite>

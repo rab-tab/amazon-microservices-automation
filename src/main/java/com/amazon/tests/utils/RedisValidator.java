@@ -5,8 +5,6 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
-import java.time.Duration;
-
 /**
  * Utility to verify Redis cache state in tests.
  * Uses Jedis to directly query the cache and assert
@@ -72,6 +70,15 @@ public class RedisValidator {
         } catch (Exception e) {
             log.warn("Redis key scan failed for pattern '{}': {}", pattern, e.getMessage());
             return 0;
+        }
+    }
+
+    public static void deleteKey(String key) {
+        try (Jedis jedis = pool.getResource()) {
+            jedis.del(key);
+            log.debug("Deleted Redis key '{}'", key);
+        } catch (Exception e) {
+            log.warn("Failed to delete Redis key '{}': {}", key, e.getMessage());
         }
     }
 

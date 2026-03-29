@@ -4,12 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.function.Predicate;
 
 /**
@@ -38,11 +41,23 @@ public class KafkaTestConsumer implements AutoCloseable {
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "50");
 
         this.consumer = new KafkaConsumer<>(props);
-        this.consumer.subscribe(Arrays.asList(topics));
+       // this.consumer.subscribe(Arrays.asList(topics));
         this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
         // Initial dummy poll to trigger partition assignment
-        consumer.poll(Duration.ofMillis(500));
+        //consumer.poll(Duration.ofMillis(500));
+
+        // ✅ Manual partition assignment
+        List<TopicPartition> partitions = new ArrayList<>();
+        for (String topic : topics) {
+            consumer.partitionsFor(topic).forEach(info ->
+                    partitions.add(new TopicPartition(info.topic(), info.partition()))
+            );
+        }
+        consumer.assign(partitions);
+
+        // Seek to beginning of all partitions to consume all messages
+        consumer.seekToBeginning(partitions);
         log.info("KafkaTestConsumer subscribed to topics: {}", Arrays.toString(topics));
     }
 
@@ -128,5 +143,19 @@ public class KafkaTestConsumer implements AutoCloseable {
         } catch (Exception e) {
             log.warn("Error closing KafkaTestConsumer: {}", e.getMessage());
         }
+    }
+
+    public void seekToBeginning() {
+        // Ensure partitions are assigned
+        consumer.poll(Duration.ofMillis(100));
+
+        Set<TopicPartition> partitions = consumer.assignment();
+
+        if (partitions.isEmpty()) {
+            throw new IllegalStateException("No partitions assigned to consumer");
+        }
+
+        log.info("Seeking to beginning for partitions: {}", partitions);
+        consumer.seekToBeginning(partitions);
     }
 }

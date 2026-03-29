@@ -2,16 +2,18 @@ package com.amazon.tests.tests;
 
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.*;
+import com.amazon.tests.utils.AuthUtils;
+import com.amazon.tests.utils.DatabaseValidator;
+import com.amazon.tests.utils.RedisValidator;
+import com.amazon.tests.utils.TestDataFactory;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
 import org.awaitility.Awaitility;
-import org.testng.annotations.*;
+import org.testng.annotations.Test;
 
-import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -408,8 +410,8 @@ public class DatabaseValidationTest extends BaseTest {
 
         // Payment saga is async — poll DB until payment appears
         Awaitility.await("Payment record should appear in DB after saga")
-                .atMost(20, TimeUnit.SECONDS)
-                .pollInterval(1, TimeUnit.SECONDS)
+                .atMost(Duration.ofSeconds(20))
+                .pollInterval(Duration.ofSeconds(1))
                 .untilAsserted(() -> {
                     assertThat(DatabaseValidator.paymentExistsForOrder(orderId)).isTrue();
                 });
@@ -462,8 +464,8 @@ public class DatabaseValidationTest extends BaseTest {
 
         // After saga completes, status should update
         Awaitility.await("Order status should change after payment saga")
-                .atMost(25, TimeUnit.SECONDS)
-                .pollInterval(2, TimeUnit.SECONDS)
+                .atMost(Duration.ofSeconds(5))
+                .pollInterval(Duration.ofSeconds(2))
                 .untilAsserted(() -> {
                     String status = DatabaseValidator.getOrderStatus(orderId);
                     assertThat(status).isIn("CONFIRMED", "PAYMENT_FAILED");
@@ -498,7 +500,7 @@ public class DatabaseValidationTest extends BaseTest {
 
         // After GET, user should be in Redis cache with TTL
         Awaitility.await("User should be cached in Redis")
-                .atMost(5, TimeUnit.SECONDS)
+                .atMost(Duration.ofSeconds(5))
                 .untilAsserted(() -> {
                     assertThat(RedisValidator.userCacheExists(userId)).isTrue();
                 });

@@ -3,11 +3,13 @@ package com.amazon.tests.tests.kafka.failures.consistency;
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.tests.BaseTest;
+import com.amazon.tests.utils.DatabaseValidator;
 import com.amazon.tests.utils.KafkaTestConsumer;
 import com.amazon.tests.utils.RedisValidator;
 import com.amazon.tests.utils.TestDataFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
+import io.restassured.response.Response;
 import org.testng.annotations.Test;
 
 import java.util.Optional;
@@ -21,7 +23,7 @@ public class UserEventConsistencyTest extends BaseTest {
 
     private static final int KAFKA_WAIT_SECONDS = 10;
 
-    @Test
+    @Test // PASSED
     @Story("user.registered topic — DB failure consistency")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify ghost event is produced when DB transaction fails after Kafka publish, causing inconsistency between DB and Kafka")
@@ -40,7 +42,7 @@ public class UserEventConsistencyTest extends BaseTest {
                     .body(user)
                     .when()
                     .post("/api/v1/auth/register")
-                    .then()
+                    .then().log().all()
                     .statusCode(500);
 
             logStep("Triggered simulated failure after Kafka publish");
@@ -60,12 +62,18 @@ public class UserEventConsistencyTest extends BaseTest {
             String userId = event.get().get("userId").asText();
 
             // 🔥 DB validation
-            given()
+            /*given()
                     .spec(RestAssuredConfig.getUserServiceSpec())
                     .when()
                     .get("/api/v1/users/{id}", userId)
                     .then()
-                    .statusCode(404);
+                    .statusCode(404);*/ // via api call
+
+            // 4️⃣ Direct DB validation using DatabaseValidator
+            boolean dbExists = DatabaseValidator.userExistsById(userId);
+            assertThat(dbExists)
+                    .as("DB should NOT contain user due to rollback")
+                    .isFalse();
 
             // 🔥 Redis validation (IMPORTANT)
             boolean cacheExists = RedisValidator.userCacheExists(userId);
@@ -77,4 +85,101 @@ public class UserEventConsistencyTest extends BaseTest {
             logStep("🚨 Ghost state confirmed: Kafka + Redis present, DB missing");
         }
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // 1. Kafka Failure AFTER DB Commit
+    // ─────────────────────────────────────────────────────────────
+    @Test
+    @Story("Kafka failure after DB commit")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify system inconsistency when DB commit succeeds but Kafka publish fails")
+    public void testKafkaFailureAfterDbCommit() {
+
+        TestModels.RegisterRequest user = TestDataFactory.createRandomUser();
+
+        try (KafkaTestConsumer consumer = new KafkaTestConsumer("user.registered")) {
+
+            Response response = given()
+                    .spec(RestAssuredConfig.getUserServiceSpec())
+                    .header("X-Fault", "kafka-down") // simulate Kafka failure
+                    .body(user)
+                    .when()
+                    .post("/api/v1/auth/register")
+                    .then()
+                    .extract().response();
+
+            // DB should still succeed (depending on implementation)
+            assertThat(response.statusCode()).isIn(201, 500);
+
+            // Extract userId if available
+            String userId = response.jsonPath().getString("user.id");
+
+            // Kafka SHOULD NOT have event (inconsistency)
+            Optional<JsonNode> event = consumer.waitForMessage(
+                    node -> node.has("email")
+                            && user.getEmail().equals(node.get("email").asText()),
+                    5
+            );
+
+            assertThat(event)
+                    .as("Kafka should NOT have event when publish fails")
+                    .isNotPresent();
+
+            // DB validation (if userId exists)
+            if (userId != null) {
+                given()
+                        .spec(RestAssuredConfig.getUserServiceSpec())
+                        .when()
+                        .get("/api/v1/users/{id}", userId)
+                        .then()
+                        .statusCode(200);
+            }
+
+            logStep("🚨 DB present but Kafka missing → inconsistency exposed");
+        }
+    }
+    // ─────────────────────────────────────────────────────────────
+    // 2. Redis Failure Scenario
+    // ─────────────────────────────────────────────────────────────
+    @Test
+    @Story("Redis failure during user registration")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify system behavior when Redis cache write fails but DB + Kafka succeed")
+    public void testRedisFailureDuringRegistration() {
+
+        TestModels.RegisterRequest user = TestDataFactory.createRandomUser();
+
+        try (KafkaTestConsumer consumer = new KafkaTestConsumer("user.registered")) {
+
+            Response response = given()
+                    .spec(RestAssuredConfig.getUserServiceSpec())
+                    .header("X-Fault", "redis-down")
+                    .body(user)
+                    .when()
+                    .post("/api/v1/auth/register")
+                    .then()
+                    .statusCode(201)
+                    .extract().response();
+
+            String userId = response.jsonPath().getString("user.id");
+
+            // Kafka should still have event
+            Optional<JsonNode> event = consumer.waitForMessage(
+                    node -> user.getEmail().equals(node.get("email").asText()),
+                    KAFKA_WAIT_SECONDS
+            );
+
+            assertThat(event).isPresent();
+
+            // Redis should NOT have cache
+            boolean cacheExists = RedisValidator.userCacheExists(userId);
+
+            assertThat(cacheExists)
+                    .as("Redis should fail but not affect correctness")
+                    .isFalse();
+
+            logStep("✅ Kafka + DB success, Redis failure tolerated");
+        }
+    }
+
 }
