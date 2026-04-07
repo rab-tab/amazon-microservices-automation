@@ -19,12 +19,12 @@ public class AuthUtils {
      * Register a user and return the auth response
      */
     public static TestModels.AuthResponse registerUser(TestModels.RegisterRequest request) {
-        Response response = given()
+        Response response = given().log().all()
                 .spec(RestAssuredConfig.getUserServiceSpec())
                 .body(request)
                 .when()
                 .post("/api/v1/auth/register")
-                .then()
+                .then().log().all()
                 .statusCode(201)
                 .extract()
                 .response();

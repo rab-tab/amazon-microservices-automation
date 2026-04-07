@@ -1,4 +1,4 @@
-package com.amazon.tests.tests.resiliency;
+package com.amazon.tests.tests.apiGateway.resiliency;
 
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;

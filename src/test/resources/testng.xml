@@ -45,7 +45,7 @@
 
     <test name="Resilience4j Tests">
         <classes>
-            <class name="com.amazon.tests.tests.resiliency.Resilience4jTest"/>
+            <class name="com.amazon.tests.tests.apiGateway.resiliency.Resilience4jTest"/>
         </classes>
     </test>
 

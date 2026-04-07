@@ -1,4 +1,4 @@
-package com.amazon.tests.tests.resiliency;
+package com.amazon.tests.tests.apiGateway.resiliency;
 
 import com.amazon.tests.tests.BaseTest;
 import io.qameta.allure.*;
