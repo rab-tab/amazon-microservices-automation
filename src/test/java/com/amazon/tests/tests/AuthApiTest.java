@@ -146,13 +146,12 @@ public class AuthApiTest extends BaseTest {
                 .statusCode(200)
                 .body("accessToken", notNullValue())
                 .body("tokenType", equalTo("Bearer"))
-                .body("expiresIn", greaterThan(0L))
                 .body("user.email", equalTo(registeredEmail))
                 .extract().response();
 
         TestModels.AuthResponse auth = response.as(TestModels.AuthResponse.class);
         assertThat(auth.getAccessToken()).isNotBlank();
-        authToken = auth.getAccessToken();
+        assertThat(auth.getExpiresIn()).isGreaterThan(0);
     }
 
     @Test(priority = 7)

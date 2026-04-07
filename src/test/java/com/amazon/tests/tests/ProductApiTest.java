@@ -128,7 +128,7 @@ public class ProductApiTest extends BaseTest {
     public void testGetNonExistentProduct() {
         given()
                 .spec(RestAssuredConfig.getProductServiceSpec())
-                .pathParam("id", "00000000-0000-0000-0000-000000000000")
+                .pathParam("id", "b10b2a0c-84ed-4511-9097-e17dfa74bb15")
                 .when()
                 .get("/api/v1/products/{id}")
                 .then()

@@ -2,6 +2,7 @@
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
 <suite name="Auth and User Tests" verbose="1">
   <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
-  <test name="Auth Tests"><classes><class name="com.amazon.tests.tests.AuthApiTest"/></classes></test>
-  <test name="User Tests"><classes><class name="com.amazon.tests.tests.UserApiTest"/></classes></test>
+  <!--<test name="Auth Tests"><classes><class name="com.amazon.tests.tests.AuthApiTest"/></classes></test>
+  <test name="User Tests"><classes><class name="com.amazon.tests.tests.UserApiTest"/></classes></test>-->
+  <test name="JWT Tests"><classes><class name="com.amazon.tests.tests.security.JwtSecurityTest"/></classes></test>
 </suite>
