@@ -20,7 +20,7 @@ public class CORSTest extends BaseTest {
     private static final String PRODUCT_SERVICE_URL = "http://localhost:8082";
     private static final String ORDER_SERVICE_URL = "http://localhost:8083";
 
-    @Test(priority = 30)
+    @Test
     @Story("CORS - Preflight Requests")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Gateway handles CORS preflight OPTIONS requests")
@@ -54,7 +54,7 @@ public class CORSTest extends BaseTest {
         }
     }
 
-    @Test(priority = 31)
+    @Test
     @Story("Headers - Custom Header Propagation")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Gateway propagates custom headers to backend services")
