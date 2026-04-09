@@ -5,10 +5,11 @@
    <!-- <test name="Authentication Tests"><classes><class name="com.amazon.tests.tests.apiGateway.authentication.AuthenticationTest"/></classes></test>
     <test name="JWT Security Tests"><classes><class name="com.amazon.tests.tests.apiGateway.security.JwtSecurityTest"/></classes></test>
     <test name="Timeout Tests"><classes><class name="com.amazon.tests.tests.apiGateway.errorHandling.TimeoutTests"/></classes></test>
-    <test name="Authentication Tests"><classes><class name="com.amazon.tests.tests.apiGateway.authentication.AuthenticationTest"/></classes></test>-->
-    <test name="Routing Tests"><classes><class name="com.amazon.tests.tests.apiGateway.routing.RoutingTest"/></classes></test>
+    <test name="Authentication Tests"><classes><class name="com.amazon.tests.tests.apiGateway.authentication.AuthenticationTest"/></classes></test>-
+    <test name="Routing Tests"><classes><class name="com.amazon.tests.tests.apiGateway.routing.RoutingTest"/></classes></test>-->
+    <test name="Rate Limiting Tests"><classes><class name="com.amazon.tests.tests.apiGateway.resiliency.RateLimiting"/></classes></test>
 
-   <!-- <test name="Observability Tests"><classes><class name="com.amazon.tests.tests.apiGateway.observability.MonitoringObservabilityTests"/></classes></test>
-      <test name="Security Tests"><classes><class name="com.amazon.tests.tests.apiGateway.security.CORSTest"/></classes></test>-->
+    <!--<test name="Observability Tests"><classes><class name="com.amazon.tests.tests.apiGateway.observability.MonitoringObservabilityTests"/></classes></test>
+    <test name="Security Tests"><classes><class name="com.amazon.tests.tests.apiGateway.security.CORSTest"/></classes></test>-->
 
 </suite>
