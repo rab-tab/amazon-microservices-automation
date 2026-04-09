@@ -8,10 +8,11 @@
     </packages>-->
     <!--<classes><class name="com.amazon.tests.tests.kafka.failures.validation.UserRegistrationValidationTest"/></classes>-->
     <classes>
-      <class name="com.amazon.tests.tests.kafka.failures.consistency.UserEventConsistencyTest"/>
+     <!-- <class name="com.amazon.tests.tests.kafka.failures.consistency.UserEventConsistencyTest"/>
       <class name="com.amazon.tests.tests.kafka.failures.validation.UserRegistrationValidationTest"/>
       <class name="com.amazon.tests.tests.kafka.failures.idempotency.UserEventIdempotencyTest"/>
-      <class name="com.amazon.tests.tests.kafka.failures.resilience.UserEventResilienceTest"/>
+      <class name="com.amazon.tests.tests.kafka.failures.resilience.UserEventResilienceTest"/>-->
+      <class name="com.amazon.tests.tests.kafka.orders.CreateOrderKafkaEventPublishingNegativeTest"/>
 
     </classes>
   </test>
