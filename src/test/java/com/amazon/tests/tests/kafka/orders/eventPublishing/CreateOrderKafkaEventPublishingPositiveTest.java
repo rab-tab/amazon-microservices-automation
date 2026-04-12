@@ -1,4 +1,4 @@
-package com.amazon.tests.tests.kafka.orders;
+package com.amazon.tests.tests.kafka.orders.eventPublishing;
 
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.tests.BaseTest;
