@@ -90,7 +90,7 @@ public class KafkaDeserializationFailureTests extends BaseTest {
     // CATEGORY 1: SCHEMA MISMATCH (Missing Required Fields)
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 60)
+    @Test(priority = 1)
     @Story("Deserialization Failures - Schema Mismatch")
     @Severity(SeverityLevel.NORMAL)
     @Description("Order missing required field: shippingAddress")
@@ -110,14 +110,14 @@ public class KafkaDeserializationFailureTests extends BaseTest {
                 // shippingAddress MISSING!
         );
 
-        Response resp = given()
+        Response resp = given().log().all()
                 .baseUri(GATEWAY_URL)
                 .header("Authorization", "Bearer " + validToken)
                 .contentType("application/json")
                 .body(invalidOrderData)
                 .when()
                 .post("/api/orders")
-                .then()
+                .then().log().all()
                 .extract()
                 .response();
 
@@ -140,7 +140,7 @@ public class KafkaDeserializationFailureTests extends BaseTest {
         logStep("  - Consumer never receives invalid data");
     }
 
-    @Test(priority = 61)
+    @Test(priority = 2)
     @Story("Deserialization Failures - Schema Mismatch")
     @Severity(SeverityLevel.NORMAL)
     @Description("Order with empty items array")
