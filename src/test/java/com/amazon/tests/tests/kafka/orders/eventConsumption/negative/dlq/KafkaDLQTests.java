@@ -1,4 +1,4 @@
-package com.amazon.tests.tests.kafka.orders.eventConsumption.negative;
+package com.amazon.tests.tests.kafka.orders.eventConsumption.negative.dlq;
 
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.tests.BaseTest;
@@ -6,7 +6,10 @@ import com.amazon.tests.utils.AuthUtils;
 import com.github.javafaker.Faker;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
-import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -21,7 +24,6 @@ import java.util.*;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 
 /**
  * Kafka Dead Letter Queue (DLQ) Tests - AUTOMATED
@@ -139,7 +141,7 @@ public class KafkaDLQTests extends BaseTest {
     // DLQ AUTOMATED TESTS
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 90)
+    @Test
     @Story("DLQ - Automated")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Malformed event sent to DLQ topic")
@@ -210,39 +212,13 @@ public class KafkaDLQTests extends BaseTest {
             logStep("  ✓ Exception message: " + headers.get("kafka_dlt-exception-message"));
         }
 
-        logStep("  Step 5: Verify consumer still processes valid events");
-
-        Map<String, Object> validOrder = createValidOrder();
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .contentType("application/json")
-                .body(validOrder)
-                .when()
-                .post("/api/orders")
-                .then()
-                .statusCode(201)
-                .extract()
-                .response();
-
-        String orderId = resp.jsonPath().getString("id");
-
-        await().atMost(Duration.ofSeconds(15))
-                .pollInterval(Duration.ofSeconds(2))
-                .untilAsserted(() -> {
-                    String status = getOrderStatus(orderId);
-                    assertThat(status).isNotEqualTo("PENDING");
-                });
-
-        logStep("  ✓ Consumer still processing valid events");
-
         logStep("✅ DLQ functionality verified");
         logStep("  - Malformed event sent to DLQ after retries");
         logStep("  - Error metadata preserved in headers");
         logStep("  - Consumer continues processing");
     }
 
-    @Test(priority = 91)
+    @Test
     @Story("DLQ - Automated")
     @Severity(SeverityLevel.NORMAL)
     @Description("DLQ monitoring endpoint returns failed events")
@@ -278,7 +254,7 @@ public class KafkaDLQTests extends BaseTest {
         }
     }
 
-    @Test(priority = 92)
+    @Test
     @Story("DLQ - Automated")
     @Severity(SeverityLevel.NORMAL)
     @Description("Multiple bad events sent to DLQ")

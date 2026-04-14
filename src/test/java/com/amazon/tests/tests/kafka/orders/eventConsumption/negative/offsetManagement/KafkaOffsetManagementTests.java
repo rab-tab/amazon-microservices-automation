@@ -1,4 +1,4 @@
-package com.amazon.tests.tests.kafka.orders.eventConsumption.negative;
+package com.amazon.tests.tests.kafka.orders.eventConsumption.negative.offsetManagement;
 
 
 import com.amazon.tests.models.TestModels;

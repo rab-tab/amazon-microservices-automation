@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @Epic("Amazon Microservices")
 @Feature("Kafka - Event Publishing")
-public class CreateOrderKafkaEventPublishingNegativeTest extends BaseTest {
+public class CreateOrderEventPublishingNegativeTest extends BaseTest {
 
     private static final String GATEWAY_URL = "http://localhost:8080";
     private static final Faker faker = new Faker();

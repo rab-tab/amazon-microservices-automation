@@ -39,7 +39,7 @@ import static org.awaitility.Awaitility.await;
  */
 @Epic("Amazon Microservices")
 @Feature("Kafka - Event Consumption")
-public class CreateOrderKafkaEventConsumptionPositiveTest extends BaseTest {
+public class CreateOrderEventConsumptionTest extends BaseTest {
 
     private static final String GATEWAY_URL = "http://localhost:8080";
     private static final Faker faker = new Faker();
