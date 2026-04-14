@@ -1,4 +1,4 @@
-package com.amazon.tests.tests.apiGateway.security;
+package com.amazon.tests.tests.apiGateway.authentication;
 
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.tests.BaseTest;

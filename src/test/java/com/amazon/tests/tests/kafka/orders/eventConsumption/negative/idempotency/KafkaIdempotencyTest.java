@@ -1,4 +1,4 @@
-package com.amazon.tests.tests.kafka.orders.eventConsumption.idempotency;
+package com.amazon.tests.tests.kafka.orders.eventConsumption.negative.idempotency;
 
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.tests.BaseTest;
@@ -172,73 +172,11 @@ public class KafkaIdempotencyTest extends BaseTest {
 
     }
 
-    @Test(enabled = false)
-    @Severity(SeverityLevel.CRITICAL)
-    @Description("Verify that duplicate PAYMENT_COMPLETED events don't update order status multiple times")
-    @Story("Duplicate Event Handling")
-    public void test02_DuplicatePaymentCompletedEvent_ShouldNotDuplicateUpdate() throws InterruptedException {
-        String orderId = createOrder();
-
-        // Wait for payment to complete
-        await().atMost(Duration.ofSeconds(KAFKA_PROCESSING_TIMEOUT_SECONDS))
-                .untilAsserted(() -> {
-                    Response orderResponse = getOrder(orderId);
-                    String status = orderResponse.jsonPath().getString("status");
-                    assertThat(status).isEqualTo("COMPLETED");
-                });
-
-        Response orderBeforeDuplicate = getOrder(orderId);
-        String updatedAtBefore = orderBeforeDuplicate.jsonPath().getString("updatedAt");
-
-        // Simulate duplicate PAYMENT_COMPLETED event
-        // In real scenario, this would be published to Kafka again
-        // Here we test via direct endpoint if available, or verify via logs
-
-        // Wait a bit and check order wasn't updated again
-        Thread.sleep(2000);
-
-        Response orderAfterDuplicate = getOrder(orderId);
-        String updatedAtAfter = orderAfterDuplicate.jsonPath().getString("updatedAt");
-
-        assertThat(updatedAtBefore).isEqualTo(updatedAtAfter)
-                .describedAs("Order should not be updated when duplicate payment event is processed");
-        assertThat(orderAfterDuplicate.jsonPath().getString("status")).isEqualTo("COMPLETED");
-    }
-
-    @Test(enabled = false)
-    @Severity(SeverityLevel.NORMAL)
-    @Description("Verify system behavior when duplicate detection fails")
-    @Story("Duplicate Event Handling - Negative")
-    public void test03_DuplicateDetectionFailure_ShouldLogError() {
-        // This test simulates what happens if idempotency check fails
-        // (e.g., Redis down, database constraint failure)
-
-        String orderId = createOrder();
-
-        await().atMost(Duration.ofSeconds(KAFKA_PROCESSING_TIMEOUT_SECONDS))
-                .untilAsserted(() -> {
-                    Response orderResponse = getOrder(orderId);
-                    assertThat(orderResponse.statusCode()).isEqualTo(200);
-                });
-
-        // Check metrics/logs endpoint to verify duplicate detection is working
-        Response metricsResponse = given()
-                .when()
-                .get("/actuator/metrics/kafka.consumer.duplicate.events")
-                .then()
-                .extract().response();
-
-        if (metricsResponse.statusCode() == 200) {
-            // Verify duplicate count metric exists and is being tracked
-            assertThat(metricsResponse.jsonPath().getMap("$")).isNotNull();
-        }
-    }
-
     // ═══════════════════════════════════════════════════════════════════════════
     // CATEGORY 2: OUT-OF-ORDER EVENTS
     // ═══════════════════════════════════════════════════════════════════════════
 
-    @Test(enabled = false)
+  /*  @Test(enabled = false)
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify PAYMENT_COMPLETED arriving before ORDER_CREATED is handled correctly")
     @Story("Out-of-Order Event Handling")
@@ -344,13 +282,13 @@ public class KafkaIdempotencyTest extends BaseTest {
                         .describedAs("Events should be ordered by timestamp");
             }
         }
-    }
+    }*/
 
     // ═══════════════════════════════════════════════════════════════════════════
     // CATEGORY 3: CONCURRENT PROCESSING OF SAME EVENT
     // ═══════════════════════════════════════════════════════════════════════════
 
-    @Test(enabled = false)
+    @Test
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify concurrent processing of same ORDER_CREATED event creates only one order")
     @Story("Concurrent Event Processing")
@@ -364,6 +302,7 @@ public class KafkaIdempotencyTest extends BaseTest {
             futures.add(executor.submit(() ->
                     given()
                             .header("Authorization", "Bearer " + userToken)
+                            .header("X-User-Id", userId)
                             .header("Idempotency-Key", idempotencyKey)
                             .body(createOrderRequest())
                             .when()
@@ -399,7 +338,8 @@ public class KafkaIdempotencyTest extends BaseTest {
             }
         }
 
-        assertThat(successCount).isGreaterThan(0).describedAs("At least one request should succeed");
+        assertThat(successCount).isEqualTo(CONCURRENT_THREADS)
+                .describedAs("All " + CONCURRENT_THREADS + " requests should succeed");
 
         // Verify only one payment exists
         String finalFirstOrderId = firstOrderId;
