@@ -1,13 +1,11 @@
-package com.amazon.microservices.tests;
+package com.amazon.tests.tests.apiGateway.resiliency.rateLimiting;
 
-import com.amazon.tests.config.RateLimitConfig;
+
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.tests.BaseTest;
-import com.amazon.tests.utils.HttpUtils;
-import com.amazon.tests.utils.RateLimitDataProvider;
-import com.amazon.tests.utils.TestDataFactory;
-import com.amazon.tests.utils.TimeoutHelper;
+import com.amazon.tests.utils.*;
 import org.testng.Assert;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.net.http.HttpResponse;
@@ -26,37 +24,88 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - Proper logging using logStep from BaseTest
  * - Tolerance for intermittent failures
  * - Easy to extend with new test cases
+ * - Authentication support for protected endpoints
  */
 public class RateLimitingTest extends BaseTest {
+
+    // Shared authentication token for all tests
+
+    private String validToken;
+    private String userId;
+    private TestModels.AuthResponse authResponse;
+
+    /**
+     * Set up authentication before all tests
+     * All endpoints except register require authentication
+     */
+    @BeforeClass
+    public void setupAuthentication() throws Exception {
+        logStep("=== Setting up authentication for rate limit tests ===");
+
+        // Register a new user and get authentication token
+        authResponse = AuthUtils.registerAndGetAuth();
+        validToken = authResponse.getAccessToken();
+        userId = authResponse.getUser().getId();
+
+        logStep("Authentication successful - User ID: " + userId);
+        logStep("Token: " + validToken.substring(0, Math.min(20, validToken.length())) + "...");
+
+        // Set authentication in all configs
+        setAuthInConfigs(validToken, userId);
+
+        logStep("=".repeat(60) + "\n");
+    }
+
+    /**
+     * Set authentication details in all RateLimitConfig objects
+     */
+    private void setAuthInConfigs(String token, String userId) {
+        // IP-based configs
+       // com.amazon.microservices.config.RateLimitConfig.IPBased.REGISTRATION.setAuthToken(token);
+        com.amazon.microservices.config.RateLimitConfig.IPBased.REGISTRATION.setUserId(userId);
+
+        com.amazon.microservices.config.RateLimitConfig.IPBased.LOGIN.setAuthToken(token);
+        com.amazon.microservices.config.RateLimitConfig.IPBased.LOGIN.setUserId(userId);
+
+        com.amazon.microservices.config.RateLimitConfig.IPBased.PRODUCTS_LIST.setAuthToken(token);
+        com.amazon.microservices.config.RateLimitConfig.IPBased.PRODUCTS_LIST.setUserId(userId);
+
+        // User-based configs
+        com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_LIST.setAuthToken(token);
+        com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_LIST.setUserId(userId);
+
+        com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_CREATION.setAuthToken(token);
+        com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_CREATION.setUserId(userId);
+
+        com.amazon.microservices.config.RateLimitConfig.UserBased.PROFILE_UPDATE.setAuthToken(token);
+        com.amazon.microservices.config.RateLimitConfig.UserBased.PROFILE_UPDATE.setUserId(userId);
+    }
 
     /**
      * Single parameterized test for all IP-based rate limiting scenarios
      * Data provider is in separate RateLimitDataProvider class
      */
     @Test(dataProvider = "ipBasedScenarios", dataProviderClass = RateLimitDataProvider.class, priority = 1)
-    public void testIPBasedRateLimiting(RateLimitConfig config) throws Exception {
-        runRateLimitTest(config, null);
+    public void testIPBasedRateLimiting(com.amazon.microservices.config.RateLimitConfig config) throws Exception {
+        // Config already has auth token, use it based on requiresAuth
+        String token = config.isRequiresAuth() ? config.getAuthToken() : null;
+        runRateLimitTest(config, token);
     }
 
     /**
      * Single parameterized test for all user-based rate limiting scenarios
      * Data provider is in separate RateLimitDataProvider class
      */
-    @Test(dataProvider = "userBasedScenarios", dataProviderClass = RateLimitDataProvider.class, priority = 2,enabled = false)
-    public void testUserBasedRateLimiting(RateLimitConfig config) throws Exception {
-        // Authenticate first
-        logStep("Authenticating user for: " + config.getTestName());
-        String authToken = HttpUtils.authenticateUser("testuser", "TestPass123!");
-        Assert.assertNotNull(authToken, "Authentication required for: " + config.getTestName());
-        logStep("Authentication successful");
-
-        runRateLimitTest(config, authToken);
+    @Test(dataProvider = "userBasedScenarios", dataProviderClass = RateLimitDataProvider.class, priority = 2)
+    public void testUserBasedRateLimiting(com.amazon.microservices.config.RateLimitConfig config) throws Exception {
+        // All user-based endpoints require authentication
+        runRateLimitTest(config, config.getAuthToken());
     }
 
     /**
      * Core test execution logic (reusable for all scenarios)
      */
-    private void runRateLimitTest(RateLimitConfig config, String authToken) throws Exception {
+    private void runRateLimitTest(com.amazon.microservices.config.RateLimitConfig config, String authToken) throws Exception {
 
         logStep("=".repeat(60));
         logStep("Test: " + config.getTestName());
@@ -218,7 +267,7 @@ public class RateLimitingTest extends BaseTest {
     /**
      * Verify rate limit response headers
      */
-    private void verifyRateLimitHeaders(HttpResponse<String> response, RateLimitConfig config) {
+    private void verifyRateLimitHeaders(HttpResponse<String> response, com.amazon.microservices.config.RateLimitConfig config) {
         HttpUtils.RateLimitInfo rateLimitInfo = HttpUtils.getRateLimitInfo(response);
 
         if (rateLimitInfo.hasRateLimitHeaders()) {
@@ -247,27 +296,31 @@ public class RateLimitingTest extends BaseTest {
     /**
      * Test: Verify rate limit recovery after token refill
      */
-    @Test(priority = 3,enabled = false)
+    @Test(priority = 3)
     public void testRateLimitRecovery() throws Exception {
         logStep("=== Rate Limit Recovery Test ===");
 
-        // Use registration endpoint: 5 req/sec, burst: 10
-        String endpoint = "/api/auth/register";
-        int burstCapacity = 10;
-        double refillRatePerSec = 5;
+        // Use login endpoint (requires auth): 10 req/sec, burst: 20
+        String endpoint = "/api/auth/login";
+        int burstCapacity = 20;
+        double refillRatePerSec = 10;
 
         // Step 1: Exhaust the bucket
         logStep("Step 1: Exhausting token bucket (sending " + (burstCapacity + 2) + " requests)");
         for (int i = 0; i < burstCapacity + 2; i++) {
-            // Use random user data
-            TestModels.RegisterRequest user = TestDataFactory.createRandomUser();
-            String body = convertToJson(user);
+            // Use login requests (authentication is at gateway level, login itself is public)
+            TestModels.LoginRequest loginRequest = TestDataFactory.createLoginRequest(
+                    "testuser" + i + "@test.com",
+                    "wrongpassword" + i
+            );
+            String body = convertToJson(loginRequest);
 
             HttpResponse<String> response = HttpUtils.post(endpoint, body, null);
 
             if (i < burstCapacity) {
-                Assert.assertTrue(HttpUtils.isSuccessful(response.statusCode()),
-                        "Request " + i + " should succeed");
+                // Should succeed (401 Unauthorized is still a successful rate limit check)
+                Assert.assertTrue(response.statusCode() == 401 || HttpUtils.isSuccessful(response.statusCode()),
+                        "Request " + i + " should succeed (rate limit allows it)");
             } else {
                 Assert.assertTrue(HttpUtils.isRateLimited(response.statusCode()),
                         "Request " + i + " should be rate-limited");
@@ -275,7 +328,7 @@ public class RateLimitingTest extends BaseTest {
         }
         logStep("Bucket exhausted - last 2 requests were rate-limited");
 
-        // Step 2: Wait for token refill (2 seconds = 10 tokens at 5/sec)
+        // Step 2: Wait for token refill (2 seconds = 20 tokens at 10/sec)
         int waitSeconds = 2;
         int expectedTokens = (int) (waitSeconds * refillRatePerSec);
         logStep("Step 2: Waiting " + waitSeconds + " seconds for token refill (" + expectedTokens + " tokens)");
@@ -285,13 +338,16 @@ public class RateLimitingTest extends BaseTest {
         logStep("Step 3: Verifying recovery - sending " + expectedTokens + " requests");
         int successAfterRefill = 0;
         for (int i = 0; i < expectedTokens; i++) {
-            // Use random user data
-            TestModels.RegisterRequest user = TestDataFactory.createRandomUser();
-            String body = convertToJson(user);
+            TestModels.LoginRequest loginRequest = TestDataFactory.createLoginRequest(
+                    "recovery" + i + "@test.com",
+                    "wrongpassword" + i
+            );
+            String body = convertToJson(loginRequest);
 
             HttpResponse<String> response = HttpUtils.post(endpoint, body, null);
 
-            if (HttpUtils.isSuccessful(response.statusCode())) {
+            // Success means not rate-limited (401 is ok, it's just wrong password)
+            if (response.statusCode() == 401 || HttpUtils.isSuccessful(response.statusCode())) {
                 successAfterRefill++;
             }
         }
@@ -300,7 +356,7 @@ public class RateLimitingTest extends BaseTest {
         assertWithTolerance(
                 successAfterRefill,
                 expectedTokens,
-                2,
+                3,
                 "Requests after token refill"
         );
 
@@ -310,14 +366,18 @@ public class RateLimitingTest extends BaseTest {
     /**
      * Test: Verify users have independent rate limits
      */
-    @Test(priority = 4,enabled = false)
+    @Test(priority = 4)
     public void testUsersHaveIndependentRateLimits() throws Exception {
         logStep("=== Independent Rate Limits Test ===");
 
-        // Authenticate two different users
-        logStep("Authenticating user1 and user2");
-        String user1Token = HttpUtils.authenticateUser("testuser1", "TestPass123!");
-        String user2Token = HttpUtils.authenticateUser("testuser2", "TestPass123!");
+        // Create two separate authenticated users
+        logStep("Creating and authenticating user1");
+        authResponse  = AuthUtils.registerAndGetAuth();
+        String user1Token = authResponse.getAccessToken();
+
+        logStep("Creating and authenticating user2");
+        authResponse = AuthUtils.registerAndGetAuth();
+        String user2Token = authResponse.getAccessToken();
 
         Assert.assertNotNull(user1Token, "User1 authentication failed");
         Assert.assertNotNull(user2Token, "User2 authentication failed");

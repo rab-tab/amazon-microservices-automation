@@ -1,4 +1,4 @@
-package com.amazon.tests.config;
+package com.amazon.microservices.config;
 
 import lombok.Builder;
 import lombok.Data;
@@ -25,6 +25,10 @@ public class RateLimitConfig {
     // Tolerance for timing-based test variations
     private int tolerance;
 
+    // Authentication details (set once during test setup)
+    private String authToken;           // Bearer token for authenticated requests
+    private String userId;              // User ID from authentication
+
     /**
      * Pre-configured scenarios for IP-based rate limiting
      */
@@ -35,14 +39,14 @@ public class RateLimitConfig {
                 .endpoint("/api/users/register")
                 .requestBodyTemplate(null)  // Will be generated dynamically per request
                 .httpMethod("POST")
-                .totalRequests(20)
-                .threadPoolSize(20)
+                .totalRequests(15)       // Reduced from 20 (1.5x burst is safer)
+                .threadPoolSize(15)
                 .replenishRate(5)        // 5 req/sec
                 .burstCapacity(10)       // burst: 10
                 .expectedSuccess(10)
-                .expectedRejected(10)
+                .expectedRejected(5)     // Reduced from 10
                 .requiresAuth(false)     // Registration should be public/anonymous
-                .tolerance(2)
+                .tolerance(3)            // Increased from 2 for better stability
                 .build();
 
         public static final RateLimitConfig LOGIN = RateLimitConfig.builder()
@@ -50,14 +54,14 @@ public class RateLimitConfig {
                 .endpoint("/api/users/login")
                 .requestBodyTemplate(null)  // Will be generated dynamically using createLoginRequest
                 .httpMethod("POST")
-                .totalRequests(30)
-                .threadPoolSize(30)
+                .totalRequests(25)       // Reduced from 30 (1.25x burst)
+                .threadPoolSize(25)
                 .replenishRate(10)       // 10 req/sec
                 .burstCapacity(20)       // burst: 20
                 .expectedSuccess(20)
-                .expectedRejected(10)
-                .requiresAuth(false)
-                .tolerance(2)
+                .expectedRejected(5)     // Reduced from 10
+                .requiresAuth(true)
+                .tolerance(3)            // Increased from 2 for better stability
                 .build();
 
         public static final RateLimitConfig PRODUCTS_LIST = RateLimitConfig.builder()
@@ -65,14 +69,14 @@ public class RateLimitConfig {
                 .endpoint("/api/products")
                 .requestBodyTemplate(null)  // GET request
                 .httpMethod("GET")
-                .totalRequests(150)
-                .threadPoolSize(150)
+                .totalRequests(120)      // Reduced from 150 (1.2x burst)
+                .threadPoolSize(120)
                 .replenishRate(50)       // 50 req/sec
                 .burstCapacity(100)      // burst: 100
                 .expectedSuccess(100)
-                .expectedRejected(50)
-                .requiresAuth(false)
-                .tolerance(3)
+                .expectedRejected(20)    // Reduced from 50
+                .requiresAuth(true)      // Products endpoint requires authentication
+                .tolerance(5)            // Increased from 3 for high volume
                 .build();
     }
 

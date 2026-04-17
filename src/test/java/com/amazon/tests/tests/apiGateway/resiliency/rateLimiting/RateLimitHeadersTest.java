@@ -1,7 +1,5 @@
 package com.amazon.tests.tests.apiGateway.resiliency.rateLimiting;
 
-
-import com.amazon.tests.config.RateLimitConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.tests.BaseTest;
 import com.amazon.tests.utils.HttpUtils;
@@ -25,7 +23,7 @@ public class RateLimitHeadersTest extends BaseTest {
      * Uses the same IP-based scenarios from RateLimitDataProvider
      */
     @Test(dataProvider = "ipBasedScenarios", dataProviderClass = RateLimitDataProvider.class)
-    public void testRateLimitHeadersPresent(RateLimitConfig config) throws Exception {
+    public void testRateLimitHeadersPresent(com.amazon.microservices.config.RateLimitConfig config) throws Exception {
         logStep("=== Testing Rate Limit Headers for: " + config.getTestName() + " ===");
 
         // Generate request body
@@ -100,7 +98,7 @@ public class RateLimitHeadersTest extends BaseTest {
      * Uses all scenarios from RateLimitDataProvider
      */
     @Test(dataProvider = "allRateLimitScenarios", dataProviderClass = RateLimitDataProvider.class)
-    public void testRetryAfterHeaderIn429Response(RateLimitConfig config) throws Exception {
+    public void testRetryAfterHeaderIn429Response(com.amazon.microservices.config.RateLimitConfig config) throws Exception {
         logStep("=== Testing Retry-After Header for: " + config.getTestName() + " ===");
 
         String authToken = null;
@@ -171,7 +169,7 @@ public class RateLimitHeadersTest extends BaseTest {
      * Uses only burst-specific scenarios from RateLimitDataProvider
      */
     @Test(dataProvider = "burstScenarios", dataProviderClass = RateLimitDataProvider.class)
-    public void testBurstCapacityExact(RateLimitConfig config) throws Exception {
+    public void testBurstCapacityExact(com.amazon.microservices.config.RateLimitConfig config) throws Exception {
         logStep("=== Testing Exact Burst Capacity for: " + config.getTestName() + " ===");
         logStep("Burst Capacity: " + config.getBurstCapacity());
 
