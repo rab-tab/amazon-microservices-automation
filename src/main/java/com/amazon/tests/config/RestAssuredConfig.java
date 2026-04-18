@@ -1,7 +1,6 @@
 package com.amazon.tests.config;
 
 import io.qameta.allure.restassured.AllureRestAssured;
-import io.restassured.RestAssured;
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.builder.ResponseSpecBuilder;
 import io.restassured.filter.log.LogDetail;
@@ -40,7 +39,7 @@ public class RestAssuredConfig {
 
     public static RequestSpecification getUserServiceSpec() {
         return new RequestSpecBuilder()
-                .setBaseUri(config.userServiceUrl())
+                .setBaseUri(config.baseUrl())
                 .setContentType(ContentType.JSON)
                 .addFilter(new AllureRestAssured())
                 .log(LogDetail.ALL)

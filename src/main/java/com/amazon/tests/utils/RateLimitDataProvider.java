@@ -1,6 +1,7 @@
 package com.amazon.tests.utils;
 
 
+import com.amazon.tests.config.RateLimitConfig;
 import org.testng.annotations.DataProvider;
 
 /**
@@ -24,9 +25,9 @@ public class RateLimitDataProvider {
     @DataProvider(name = "ipBasedScenarios")
     public static Object[][] ipBasedScenarios() {
         return new Object[][] {
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.REGISTRATION },
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.LOGIN },
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.PRODUCTS_LIST }
+                { RateLimitConfig.IPBased.REGISTRATION },
+                { RateLimitConfig.IPBased.LOGIN },
+                { RateLimitConfig.IPBased.PRODUCTS_LIST }
         };
     }
 
@@ -40,9 +41,9 @@ public class RateLimitDataProvider {
     @DataProvider(name = "userBasedScenarios")
     public static Object[][] userBasedScenarios() {
         return new Object[][] {
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_LIST },
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_CREATION },
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.PROFILE_UPDATE }
+                { RateLimitConfig.UserBased.ORDER_LIST },
+                { RateLimitConfig.UserBased.ORDER_CREATION },
+                { RateLimitConfig.UserBased.PROFILE_UPDATE }
         };
     }
 
@@ -57,14 +58,14 @@ public class RateLimitDataProvider {
     public static Object[][] allRateLimitScenarios() {
         return new Object[][] {
                 // IP-based scenarios
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.REGISTRATION },
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.LOGIN },
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.PRODUCTS_LIST },
+                {RateLimitConfig.IPBased.REGISTRATION },
+                {RateLimitConfig.IPBased.LOGIN },
+                {RateLimitConfig.IPBased.PRODUCTS_LIST },
 
                 // User-based scenarios
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_LIST },
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_CREATION },
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.PROFILE_UPDATE }
+                {RateLimitConfig.UserBased.ORDER_LIST },
+                {RateLimitConfig.UserBased.ORDER_CREATION },
+                {RateLimitConfig.UserBased.PROFILE_UPDATE }
         };
     }
 
@@ -79,9 +80,9 @@ public class RateLimitDataProvider {
     @DataProvider(name = "burstScenarios")
     public static Object[][] burstScenarios() {
         return new Object[][] {
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.REGISTRATION },      // Small burst: 10
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.PRODUCTS_LIST },     // Large burst: 100
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_LIST }       // Medium burst: 10
+                {RateLimitConfig.IPBased.REGISTRATION },      // Small burst: 10
+                {RateLimitConfig.IPBased.PRODUCTS_LIST },     // Large burst: 100
+                {RateLimitConfig.UserBased.ORDER_LIST }       // Medium burst: 10
         };
     }
 
@@ -95,8 +96,8 @@ public class RateLimitDataProvider {
     @DataProvider(name = "highVolumeScenarios")
     public static Object[][] highVolumeScenarios() {
         return new Object[][] {
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.PRODUCTS_LIST },     // 50 req/sec, burst: 100
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.LOGIN }              // 10 req/sec, burst: 20
+                {RateLimitConfig.IPBased.PRODUCTS_LIST },     // 50 req/sec, burst: 100
+                {RateLimitConfig.IPBased.LOGIN }              // 10 req/sec, burst: 20
         };
     }
 
@@ -110,9 +111,9 @@ public class RateLimitDataProvider {
     @DataProvider(name = "lowVolumeScenarios")
     public static Object[][] lowVolumeScenarios() {
         return new Object[][] {
-                { com.amazon.microservices.config.RateLimitConfig.IPBased.REGISTRATION },          // 5 req/sec
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.ORDER_CREATION },      // 0.166 req/sec
-                { com.amazon.microservices.config.RateLimitConfig.UserBased.PROFILE_UPDATE }       // 0.083 req/sec
+                {RateLimitConfig.IPBased.REGISTRATION },          // 5 req/sec
+                {RateLimitConfig.UserBased.ORDER_CREATION },      // 0.166 req/sec
+                {RateLimitConfig.UserBased.PROFILE_UPDATE }       // 0.083 req/sec
         };
     }
 }

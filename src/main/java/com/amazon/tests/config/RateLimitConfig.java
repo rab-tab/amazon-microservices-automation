@@ -1,4 +1,4 @@
-package com.amazon.microservices.config;
+package com.amazon.tests.config;
 
 import lombok.Builder;
 import lombok.Data;
@@ -103,7 +103,7 @@ public class RateLimitConfig {
         public static final RateLimitConfig ORDER_CREATION = RateLimitConfig.builder()
                 .testName("Order Creation Rate Limit")
                 .endpoint("/api/orders")
-                .requestBodyTemplate("{\"productId\":\"P123\",\"quantity\":1}")
+                .requestBodyTemplate(null)
                 .httpMethod("POST")
                 .totalRequests(10)
                 .threadPoolSize(10)
