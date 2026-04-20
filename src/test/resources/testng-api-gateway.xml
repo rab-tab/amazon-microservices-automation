@@ -1,15 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
 <suite name="Auth and User Tests" verbose="1">
-    <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
-   <!-- <test name="Authentication Tests"><classes><class name="com.amazon.tests.tests.apiGateway.authentication.AuthenticationTest"/></classes></test>
-    <test name="JWT Security Tests"><classes><class name="com.amazon.tests.tests.apiGateway.authentication.JwtSecurityTest"/></classes></test>
-    <test name="Timeout Tests"><classes><class name="com.amazon.tests.tests.apiGateway.errorHandling.TimeoutTests"/></classes></test>
-    <test name="Authentication Tests"><classes><class name="com.amazon.tests.tests.apiGateway.authentication.AuthenticationTest"/></classes></test>-
-    <test name="Routing Tests"><classes><class name="com.amazon.tests.tests.apiGateway.routing.RoutingTest"/></classes></test>
-    <test name="Rate Limiting Tests"><classes><class name="com.amazon.tests.tests.apiGateway.resiliency.rateLimiting.IPBasedRateLimiting"/></classes></test>
-    <test name="Rate Limiting Tests"><classes><class name="com.amazon.tests.tests.apiGateway.observability.Observability"/></classes></test>-->
 
-     <test name="Security Tests"><classes><class name="com.amazon.tests.tests.apiGateway.authentication.CORSTest"/></classes></test>
+    <!-- Listeners must come before test elements -->
+    <listeners>
+        <listener class-name="com.amazon.tests.listeners.AllureTestListener"/>
+    </listeners>
+
+    <!-- All test elements come after listeners -->
+    <test name="JWT Security Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.apiGateway.authentication.JwtSecurityTest"/>
+        </classes>
+    </test>
+
+    <test name="Authentication Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.apiGateway.authentication.CORSTest"/>
+        </classes>
+    </test>
+
+    <test name="Timeout Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.apiGateway.errorHandling.TimeoutTests"/>
+        </classes>
+    </test>
+
+    <test name="Observability">
+        <classes>
+            <class name="com.amazon.tests.tests.apiGateway.observability.Observability"/>
+        </classes>
+    </test>
+
+    <test name="Routing">
+        <classes>
+            <class name="com.amazon.tests.tests.apiGateway.routing.RoutingTest"/>
+        </classes>
+    </test>
+
+    <test name="Circuit Breaker">
+        <classes>
+            <class name="com.amazon.tests.tests.apiGateway.resiliency.circuitBreaker.GatewayCircuitBreakerTest"/>
+        </classes>
+    </test>
+
+    <test name="Rate Limiting Tests">
+        <classes>
+            <class name="com.amazon.tests.tests.apiGateway.resiliency.rateLimiting.RateLimitingTest"/>
+            <class name="com.amazon.tests.tests.apiGateway.resiliency.rateLimiting.RateLimitHeadersTest"/>
+        </classes>
+    </test>
 
 </suite>
