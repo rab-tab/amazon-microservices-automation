@@ -5,5 +5,5 @@
   <test name="Resilience Tests">
     <classes><class name="com.amazon.tests.tests.apiGateway.resiliency.Resilience4jTest"/></classes></test>
   <!--<test name="Gateway REsiliency Tests">
-    <classes><class name="com.amazon.tests.tests.apiGateway.resiliency.circuitBreaker.GatewayCircuitBreakerTest"/></classes></test>-->
+    <classes><class name="com.amazon.tests.tests.apiGateway.resiliency.circuitBreaker.CircuitBreakerTest"/></classes></test>-->
 </suite>

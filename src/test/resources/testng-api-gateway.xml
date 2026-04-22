@@ -40,7 +40,7 @@
 
     <test name="Circuit Breaker">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.resiliency.circuitBreaker.GatewayCircuitBreakerTest"/>
+            <class name="com.amazon.tests.tests.apiGateway.resiliency.circuitBreaker.CircuitBreakerTest"/>
         </classes>
     </test>
 

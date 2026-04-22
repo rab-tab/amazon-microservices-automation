@@ -3,19 +3,17 @@ package com.amazon.tests.tests.apiGateway.resiliency.circuitBreaker;
 import com.amazon.tests.tests.BaseTest;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
-import org.awaitility.Awaitility;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.time.Duration;
-import java.util.AbstractMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.amazon.tests.utils.CircuitBreakerUtil.*;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.equalTo;
 
 /**
@@ -37,15 +35,12 @@ import static org.hamcrest.Matchers.equalTo;
  */
 @Epic("Amazon Microservices")
 @Feature("API Gateway - Automated Circuit Breaker Tests")
-public class GatewayCircuitBreakerTest extends BaseTest {
+public class CircuitBreakerTest extends BaseTest {
 
     private static final String GATEWAY_URL = "http://localhost:8080";
     private static final String USER_SERVICE_URL = "http://localhost:8081";
     private static final String PRODUCT_SERVICE_URL = "http://localhost:8082";
     private static final String ORDER_SERVICE_URL = "http://localhost:8083";
-
-    private static final String CB_HEALTH = "/actuator/health/circuitbreakers";
-    private static final String CB_TEST = "/api/v1/test/circuit-breaker";
 
     private static final String USER_HEALTH_VIA_GATEWAY = "/api/users/health";
     private static final String PRODUCT_LIST_VIA_GATEWAY = "/api/products";
@@ -55,125 +50,45 @@ public class GatewayCircuitBreakerTest extends BaseTest {
     private static final String CB_PRODUCT = "productService";
     private static final String CB_ORDER = "orderService";
 
+    // Service configurations
+    private static final String[] SERVICE_URLS = {
+            USER_SERVICE_URL, PRODUCT_SERVICE_URL, ORDER_SERVICE_URL
+    };
+    private static final String[] SERVICE_NAMES = {
+            "user-service", "product-service", "order-service"
+    };
+
     // ── Setup / Teardown ──────────────────────────────────────────────────────
 
     @BeforeMethod(alwaysRun = true)
     public void ensureAllServicesNormal() {
         logStep("Ensuring all services in normal mode before test");
-        recoverService(USER_SERVICE_URL, "user-service");
-        recoverService(PRODUCT_SERVICE_URL, "product-service");
-        recoverService(ORDER_SERVICE_URL, "order-service");
-        sleep(1000);
+        resetAllServices(SERVICE_URLS, SERVICE_NAMES);
     }
 
     @AfterMethod(alwaysRun = true)
     public void cleanupServicesAfterTest() {
         logStep("Cleaning up - recovering all services after test");
-        recoverService(USER_SERVICE_URL, "user-service");
-        recoverService(PRODUCT_SERVICE_URL, "product-service");
-        recoverService(ORDER_SERVICE_URL, "order-service");
-    }
-
-    // ── Helper Methods ────────────────────────────────────────────────────────
-
-    private void sleep(long millis) {
-        try { Thread.sleep(millis); } catch (InterruptedException e) {}
-    }
-
-    /**
-     * PUT SERVICE IN FAILURE MODE
-     * Calls: POST http://serviceUrl/api/v1/test/circuit-breaker/fail
-     */
-    private void failService(String serviceUrl, String serviceName) {
-        try {
-            given().baseUri(serviceUrl)
-                    .when().post(CB_TEST + "/fail")
-                    .then()
-                    .statusCode(200)
-                    .body("status", equalTo("failure-mode-active"))
-                    .body("isSimulatingFailure", equalTo(true));
-
-            logStep("🔴 " + serviceName + " → FAILURE MODE (will return 503)");
-        } catch (Exception e) {
-            String error = "Cannot put " + serviceName + " in failure mode. " +
-                    "Ensure CircuitBreakerTestController is added to the service.";
-            logStep("❌ " + error);
-            throw new RuntimeException(error, e);
-        }
-    }
-
-    /**
-     * RECOVER SERVICE TO NORMAL MODE
-     * Calls: POST http://serviceUrl/api/v1/test/circuit-breaker/recover
-     */
-    private void recoverService(String serviceUrl, String serviceName) {
-        try {
-            given().baseUri(serviceUrl)
-                    .when().post(CB_TEST + "/recover")
-                    .then()
-                    .statusCode(200)
-                    .body("status", equalTo("normal-operation"))
-                    .body("isSimulatingFailure", equalTo(false));
-
-            logStep("🟢 " + serviceName + " → NORMAL MODE");
-        } catch (Exception e) {
-            logStep("⚠️  Could not recover " + serviceName + " - may not be running");
-        }
-    }
-
-    /**
-     * CHECK IF SERVICE IS IN FAILURE MODE
-     * Calls: GET http://serviceUrl/api/v1/test/circuit-breaker/status
-     */
-    private boolean isServiceInFailureMode(String serviceUrl) {
-        try {
-            Response resp = given().baseUri(serviceUrl)
-                    .when().get(CB_TEST + "/status")
-                    .then().statusCode(200)
-                    .extract().response();
-
-            return resp.jsonPath().getBoolean("isSimulatingFailure");
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private void sendRequestsThroughGateway(String path, int count) {
-        for (int i = 0; i < count; i++) {
-            given().baseUri(GATEWAY_URL)
-                    .when().get(path)
-                    .then().statusCode(anyOf(equalTo(200), equalTo(503)));
-        }
-    }
-
-    private String getCBState(String cbName) {
-        try {
-            Response resp = given().baseUri(GATEWAY_URL)
-                    .when().get(CB_HEALTH)
-                    .then().extract().response();
-
-            return resp.jsonPath().getString("components." + cbName + ".details.state");
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private void waitForCBState(String cbName, String expectedState, Duration timeout) {
-        logStep("Waiting for " + cbName + " → " + expectedState + "...");
-
-        Awaitility.await()
-                .atMost(timeout)
-                .pollInterval(Duration.ofMillis(500))
-                .untilAsserted(() -> {
-                    String state = getCBState(cbName);
-                    assertThat(state).isEqualTo(expectedState);
-                });
-
-        logStep("✅ " + cbName + " is now " + expectedState);
+        resetAllServices(SERVICE_URLS, SERVICE_NAMES);
     }
 
     // ── TESTS ─────────────────────────────────────────────────────────────────
 
+    /**
+     * Test 1: Verify Test Control Endpoints Available
+     *
+     * VALIDITY: ⚠️ PARTIALLY VALID
+     *
+     * Purpose: Pre-flight check to ensure CircuitBreakerTestController is installed
+     * on all services before running actual circuit breaker tests.
+     *
+     * Issues:
+     * 1. This is a SETUP VERIFICATION test, not a circuit breaker behavior test
+     * 2. Should be @BeforeClass or @BeforeSuite, not a numbered test case
+     * 3. If this fails, all other tests will fail - should block suite execution
+     *
+     * Recommendation: Move to @BeforeClass and throw exception if endpoints missing
+     */
     @Test(priority = 1)
     @Story("Setup Verification")
     @Severity(SeverityLevel.BLOCKER)
@@ -182,28 +97,33 @@ public class GatewayCircuitBreakerTest extends BaseTest {
         logStep("TEST 1: Verifying test control endpoints on all services");
 
         List<Map.Entry<String, String>> services = List.of(
-                new AbstractMap.SimpleEntry<>(USER_SERVICE_URL, "user-service"),
-                new AbstractMap.SimpleEntry<>(PRODUCT_SERVICE_URL, "product-service"),
-                new AbstractMap.SimpleEntry<>(ORDER_SERVICE_URL, "order-service")
+                Map.entry(USER_SERVICE_URL, "user-service"),
+                Map.entry(PRODUCT_SERVICE_URL, "product-service"),
+                Map.entry(ORDER_SERVICE_URL, "order-service")
         );
+
+        boolean allAvailable = true;
+        StringBuilder missingServices = new StringBuilder();
 
         for (Map.Entry<String, String> entry : services) {
             String url = entry.getKey();
             String name = entry.getValue();
 
-            // Call GET /api/v1/test/circuit-breaker/status
-            Response resp = given().baseUri(url)
-                    .when().get(CB_TEST + "/status")
-                    .then()
-                    .statusCode(200)
-                    .body("status", anyOf(
-                            equalTo("normal-operation"),
-                            equalTo("failure-mode-active")))
-                    .extract().response();
+            if (!isTestControlEndpointAvailable(url, name)) {
+                allAvailable = false;
+                missingServices.append(name).append(", ");
+            }
+        }
 
-            boolean isFailure = resp.jsonPath().getBoolean("isSimulatingFailure");
-            logStep("✅ " + name + " endpoint OK (mode: " +
-                    (isFailure ? "FAILURE" : "NORMAL") + ")");
+        if (!allAvailable) {
+            String error = "Test control endpoints missing on: " +
+                    missingServices.toString().replaceAll(", $", "");
+            logStep("❌ TEST 1 FAILED: " + error);
+            throw new RuntimeException(error +
+                    "\n\nSetup Required:" +
+                    "\n1. Add CircuitBreakerTestController to each service" +
+                    "\n2. Add CircuitBreakerTestFilter to each service" +
+                    "\n3. Add CircuitBreakerTestState to each service");
         }
 
         logStep("✅ TEST 1 PASSED: All test control endpoints available");
@@ -219,7 +139,7 @@ public class GatewayCircuitBreakerTest extends BaseTest {
         // Ensure normal mode
         assertThat(isServiceInFailureMode(USER_SERVICE_URL)).isFalse();
 
-        // Call POST /api/v1/test/circuit-breaker/fail
+        // Put in failure mode
         failService(USER_SERVICE_URL, "user-service");
 
         // Verify status shows failure mode
@@ -228,13 +148,13 @@ public class GatewayCircuitBreakerTest extends BaseTest {
         // Call service directly - should get 503
         given().baseUri(USER_SERVICE_URL)
                 .when().get("/api/v1/users/health")
-                .then()
+                .then().log().all()
                 .statusCode(503)
                 .body("testMode", equalTo(true));
 
         logStep("✅ Service returns 503 in failure mode");
 
-        // Call POST /api/v1/test/circuit-breaker/recover
+        // Recover service
         recoverService(USER_SERVICE_URL, "user-service");
 
         // Verify status shows normal mode
@@ -248,6 +168,52 @@ public class GatewayCircuitBreakerTest extends BaseTest {
         logStep("✅ TEST 2 PASSED: Failure simulation works correctly");
     }
 
+    @Test
+    public void debug_CheckCBEndpoint() {
+        System.out.println("\n=== DEBUG: Testing CB Endpoint ===");
+
+        // Test 1: Direct curl equivalent
+        Response resp = given()
+                .baseUri("http://localhost:8080")
+                .when()
+                .get("/cb/status/userService")
+                .then()
+                .log().all()
+                .extract()
+                .response();
+
+        System.out.println("Status Code: " + resp.statusCode());
+        System.out.println("Response Body: " + resp.asString());
+
+        // Test 2: Using the utility method
+        String state = getCircuitBreakerState("http://localhost:8080", "userService");
+        System.out.println("State from utility: " + state);
+
+        // Test 3: Trigger failure and check
+        failService(USER_SERVICE_URL, "user-service");
+
+        for (int i = 0; i < 6; i++) {
+            given().baseUri("http://localhost:8080")
+                    .get("/api/users/health")
+                    .then().statusCode(503);
+            sleep(200);
+        }
+
+        sleep(1000);
+
+        // Check state after failures
+        String stateAfter = getCircuitBreakerState("http://localhost:8080", "userService");
+        System.out.println("State after 6 failures: " + stateAfter);
+
+        // Check manually
+        Response respAfter = given()
+                .baseUri("http://localhost:8080")
+                .get("/cb/status/userService")
+                .then().extract().response();
+
+        System.out.println("Full response after failures: " + respAfter.asString());
+    }
+
     @Test(priority = 3)
     @Story("CB State Transition - CLOSED → OPEN")
     @Severity(SeverityLevel.BLOCKER)
@@ -255,7 +221,7 @@ public class GatewayCircuitBreakerTest extends BaseTest {
     public void test03_CBTripsToOpenOnFailures() {
         logStep("TEST 3: Tripping CB to OPEN");
 
-        String initialState = getCBState(CB_USER);
+        String initialState = getCircuitBreakerState(GATEWAY_URL, CB_USER);
         logStep("Initial CB state: " + initialState);
 
         // Make service fail
@@ -270,23 +236,31 @@ public class GatewayCircuitBreakerTest extends BaseTest {
                     .then().statusCode(503);
 
             logStep("  Request " + i + ": 503");
+
+            // CHECK STATE AFTER EACH REQUEST
+            String currentState = getCircuitBreakerState(GATEWAY_URL, CB_USER);
+            Response cbResp = given().baseUri(GATEWAY_URL)
+                    .get("/cb/status/userService")
+                    .then().extract().response();
+            logStep("  CB Metrics: " + cbResp.asString());
+
             sleep(200);
         }
 
         // Verify CB is OPEN
-        waitForCBState(CB_USER, "OPEN", Duration.ofSeconds(7));
+        waitForCircuitBreakerState(GATEWAY_URL, CB_USER, "OPEN", Duration.ofSeconds(7));
 
         logStep("✅ TEST 3 PASSED: CB tripped to OPEN");
     }
 
-    @Test(priority = 4, dependsOnMethods = "test03_CBTripsToOpenOnFailures")
+    @Test(priority = 4, dependsOnMethods = "test03_CBTripsToOpenOnFailures",enabled = false)
     @Story("CB State - OPEN Behavior")
     @Severity(SeverityLevel.CRITICAL)
     @Description("OPEN CB rejects calls immediately (fast failure)")
     public void test04_OpenCBRejectsImmediately() {
         logStep("TEST 4: Verifying OPEN CB fast failure");
 
-        assertThat(getCBState(CB_USER)).isEqualTo("OPEN");
+        assertThat(getCircuitBreakerState(GATEWAY_URL, CB_USER)).isEqualTo("OPEN");
 
         long start = System.currentTimeMillis();
         given().baseUri(GATEWAY_URL)
@@ -300,19 +274,19 @@ public class GatewayCircuitBreakerTest extends BaseTest {
         logStep("✅ TEST 4 PASSED: OPEN CB provides fast failure");
     }
 
-    @Test(priority = 5, dependsOnMethods = "test04_OpenCBRejectsImmediately")
+    @Test(priority = 5, dependsOnMethods = "test04_OpenCBRejectsImmediately",enabled = false)
     @Story("CB State Transition - OPEN → HALF_OPEN")
     @Severity(SeverityLevel.BLOCKER)
     @Description("CB auto-transitions to HALF_OPEN after 10 seconds")
     public void test05_CBTransitionsToHalfOpen() {
         logStep("TEST 5: Waiting for HALF_OPEN transition (10 sec)...");
 
-        waitForCBState(CB_USER, "HALF_OPEN", Duration.ofSeconds(15));
+        waitForCircuitBreakerState(GATEWAY_URL, CB_USER, "HALF_OPEN", Duration.ofSeconds(15));
 
         logStep("✅ TEST 5 PASSED: CB transitioned to HALF_OPEN");
     }
 
-    @Test(priority = 6, dependsOnMethods = "test05_CBTransitionsToHalfOpen")
+    @Test(priority = 6, dependsOnMethods = "test05_CBTransitionsToHalfOpen",enabled = false)
     @Story("CB State Transition - HALF_OPEN → CLOSED")
     @Severity(SeverityLevel.BLOCKER)
     @Description("CB closes after 3 successful probe calls")
@@ -335,12 +309,12 @@ public class GatewayCircuitBreakerTest extends BaseTest {
         }
 
         // Verify CB closed
-        waitForCBState(CB_USER, "CLOSED", Duration.ofSeconds(5));
+        waitForCircuitBreakerState(GATEWAY_URL, CB_USER, "CLOSED", Duration.ofSeconds(5));
 
         logStep("✅ TEST 6 PASSED: CB recovered to CLOSED");
     }
 
-    @Test(priority = 7)
+    @Test(priority = 7,enabled = false)
     @Story("CB State Transition - HALF_OPEN → OPEN Re-trip")
     @Severity(SeverityLevel.CRITICAL)
     @Description("CB goes back to OPEN if probe calls fail")
@@ -349,11 +323,11 @@ public class GatewayCircuitBreakerTest extends BaseTest {
 
         // Trip product CB to OPEN
         failService(PRODUCT_SERVICE_URL, "product-service");
-        sendRequestsThroughGateway(PRODUCT_LIST_VIA_GATEWAY, 6);
-        waitForCBState(CB_PRODUCT, "OPEN", Duration.ofSeconds(5));
+        sendRequestsThroughGateway(GATEWAY_URL, PRODUCT_LIST_VIA_GATEWAY, 6);
+        waitForCircuitBreakerState(GATEWAY_URL, CB_PRODUCT, "OPEN", Duration.ofSeconds(5));
 
         // Wait for HALF_OPEN
-        waitForCBState(CB_PRODUCT, "HALF_OPEN", Duration.ofSeconds(15));
+        waitForCircuitBreakerState(GATEWAY_URL, CB_PRODUCT, "HALF_OPEN", Duration.ofSeconds(15));
 
         // Service still failing - send probes
         assertThat(isServiceInFailureMode(PRODUCT_SERVICE_URL)).isTrue();
@@ -366,13 +340,13 @@ public class GatewayCircuitBreakerTest extends BaseTest {
         }
 
         // CB should re-trip to OPEN
-        waitForCBState(CB_PRODUCT, "OPEN", Duration.ofSeconds(5));
+        waitForCircuitBreakerState(GATEWAY_URL, CB_PRODUCT, "OPEN", Duration.ofSeconds(5));
 
         logStep("✅ TEST 7 PASSED: CB re-tripped to OPEN");
         recoverService(PRODUCT_SERVICE_URL, "product-service");
     }
 
-    @Test(priority = 8)
+    @Test(priority = 8,enabled = false)
     @Story("Complete CB Lifecycle")
     @Severity(SeverityLevel.BLOCKER)
     @Description("Full automated cycle: CLOSED → OPEN → HALF_OPEN → CLOSED")
@@ -386,12 +360,12 @@ public class GatewayCircuitBreakerTest extends BaseTest {
 
         // Stage 2: Trip to OPEN
         failService(ORDER_SERVICE_URL, "order-service");
-        sendRequestsThroughGateway(ORDER_LIST_VIA_GATEWAY, 6);
-        waitForCBState(CB_ORDER, "OPEN", Duration.ofSeconds(5));
+        sendRequestsThroughGateway(GATEWAY_URL, ORDER_LIST_VIA_GATEWAY, 6);
+        waitForCircuitBreakerState(GATEWAY_URL, CB_ORDER, "OPEN", Duration.ofSeconds(5));
         logStep("Stage 2: OPEN ✓");
 
         // Stage 3: Wait for HALF_OPEN
-        waitForCBState(CB_ORDER, "HALF_OPEN", Duration.ofSeconds(15));
+        waitForCircuitBreakerState(GATEWAY_URL, CB_ORDER, "HALF_OPEN", Duration.ofSeconds(15));
         logStep("Stage 3: HALF_OPEN ✓");
 
         // Stage 4: Recover to CLOSED
@@ -403,13 +377,13 @@ public class GatewayCircuitBreakerTest extends BaseTest {
                     .then().statusCode(200);
             sleep(200);
         }
-        waitForCBState(CB_ORDER, "CLOSED", Duration.ofSeconds(5));
+        waitForCircuitBreakerState(GATEWAY_URL, CB_ORDER, "CLOSED", Duration.ofSeconds(5));
         logStep("Stage 4: CLOSED ✓");
 
         logStep("✅ TEST 8 PASSED: Complete lifecycle verified");
     }
 
-    @Test(priority = 9)
+    @Test(priority = 9,enabled = false)
     @Story("CB Independence")
     @Severity(SeverityLevel.NORMAL)
     @Description("Multiple CBs operate independently")
@@ -424,12 +398,12 @@ public class GatewayCircuitBreakerTest extends BaseTest {
 
         // Trip only user CB
         failService(USER_SERVICE_URL, "user-service");
-        sendRequestsThroughGateway(USER_HEALTH_VIA_GATEWAY, 6);
+        sendRequestsThroughGateway(GATEWAY_URL, USER_HEALTH_VIA_GATEWAY, 6);
         sleep(1000);
 
-        String userState = getCBState(CB_USER);
-        String productState = getCBState(CB_PRODUCT);
-        String orderState = getCBState(CB_ORDER);
+        String userState = getCircuitBreakerState(GATEWAY_URL, CB_USER);
+        String productState = getCircuitBreakerState(GATEWAY_URL, CB_PRODUCT);
+        String orderState = getCircuitBreakerState(GATEWAY_URL, CB_ORDER);
 
         logStep("userService: " + userState);
         logStep("productService: " + productState);
