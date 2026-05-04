@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+
+<suite name="Order API Multithreading Tests" parallel="methods" thread-count="100">
+<test name="Problem 1 - WRONG">
+    <classes>
+        <class name="com.amazon.tests.tests.multithreadingFailureScenarios.Problem1_RealScenario_MultipleTests$WrongImplementation_SharedSpec">
+            <methods>
+                <include name="testCreateOrder"/>
+                <include name="testGetOrder"/>
+                <!--<include name="testUpdateOrder"/>-->
+            </methods>
+        </class>
+    </classes>
+</test>
+</suite>

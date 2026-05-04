@@ -1,5 +1,6 @@
 package com.amazon.tests.tests;
 
+import com.amazon.tests.config.ConfigManager;
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.AuthUtils;
@@ -7,8 +8,6 @@ import com.amazon.tests.utils.TestDataFactory;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
 import org.testng.annotations.Test;
-
-import java.util.List;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -133,7 +132,7 @@ public class E2EPurchaseFlowTest extends BaseTest {
 
         Response paymentResp = given()
                 .spec(new io.restassured.builder.RequestSpecBuilder()
-                        .setBaseUri(RestAssuredConfig.getConfig().paymentServiceUrl())
+                        .setBaseUri(ConfigManager.getInstance().getPaymentServiceUrl())
                         .setContentType(io.restassured.http.ContentType.JSON)
                         .build())
                 .pathParam("orderId", order.getId())

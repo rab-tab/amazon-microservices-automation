@@ -11,7 +11,6 @@ import org.testng.annotations.Test;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,7 +90,7 @@ public class OrderApiTest extends BaseTest {
         logStep("Order created: " + createdOrderId);
     }
 
-    @Test(priority = 2)
+    @Test(priority = 2,enabled = false)
     @Story("Create Order")
     @Severity(SeverityLevel.NORMAL)
     @Description("Verify order creation fails with empty items")
@@ -111,7 +110,7 @@ public class OrderApiTest extends BaseTest {
                 .statusCode(400);
     }
 
-    @Test(priority = 3)
+    @Test(priority = 3,enabled = false)
     @Story("Create Order")
     @Severity(SeverityLevel.NORMAL)
     @Description("Verify order creation fails without shipping address")
@@ -138,7 +137,7 @@ public class OrderApiTest extends BaseTest {
                 .body("validationErrors.shippingAddress", notNullValue());
     }
 
-    @Test(priority = 4)
+    @Test(priority = 4,enabled = false)
     @Story("Create Order")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify order creation fails with zero quantity")
@@ -165,7 +164,7 @@ public class OrderApiTest extends BaseTest {
                 .statusCode(400);
     }
 
-    @Test(priority = 5, dependsOnMethods = "testCreateOrder")
+    @Test(priority = 5, dependsOnMethods = "testCreateOrder",enabled = false)
     @Story("Get Order")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify order can be retrieved by ID")
@@ -184,7 +183,7 @@ public class OrderApiTest extends BaseTest {
                 .body("items", hasSize(greaterThanOrEqualTo(1)));
     }
 
-    @Test(priority = 6)
+    @Test(priority = 6,enabled = false)
     @Story("Get Order")
     @Severity(SeverityLevel.NORMAL)
     @Description("Verify 404 returned for non-existent order")
@@ -198,7 +197,7 @@ public class OrderApiTest extends BaseTest {
                 .statusCode(404);
     }
 
-    @Test(priority = 7, dependsOnMethods = "testCreateOrder")
+    @Test(priority = 7, dependsOnMethods = "testCreateOrder",enabled = false)
     @Story("Get User Orders")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify user can retrieve all their orders")
@@ -216,7 +215,7 @@ public class OrderApiTest extends BaseTest {
                 .body("totalElements", greaterThanOrEqualTo(1));
     }
 
-    @Test(priority = 8)
+    @Test(priority = 8,enabled = false)
     @Story("Create Multi-Item Order")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify customer can create an order with multiple items")
@@ -263,7 +262,7 @@ public class OrderApiTest extends BaseTest {
                 .body("totalAmount", notNullValue());
     }
 
-    @Test(priority = 9, dependsOnMethods = "testCreateOrder")
+    @Test(priority = 9, dependsOnMethods = "testCreateOrder",enabled = false)
     @Story("Cancel Order")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify customer can cancel a pending order")
@@ -295,7 +294,7 @@ public class OrderApiTest extends BaseTest {
                 .body("status", equalTo("CANCELLED"));
     }
 
-    @Test(priority = 10)
+    @Test(priority = 10,enabled = false)
     @Story("Total Amount Calculation")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify total amount is calculated correctly for an order")

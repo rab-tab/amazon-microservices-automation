@@ -32,9 +32,9 @@ public class CircuitBreakerUtil {
      */
     public static void failService(String serviceUrl, String serviceName) {
         try {
-            given().baseUri(serviceUrl)
+            given().log().all().baseUri(serviceUrl)
                     .when().post(CB_TEST_ENDPOINT + "/fail")
-                    .then()
+                    .then().log().all()
                     .statusCode(200)
                     .body("status", equalTo("failure-mode-active"))
                     .body("isSimulatingFailure", equalTo(true));

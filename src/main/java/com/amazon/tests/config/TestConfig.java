@@ -40,4 +40,21 @@ public interface TestConfig extends Config {
     @Key("test.admin.password")
     @DefaultValue("Admin@12345")
     String adminPassword();
+
+    // Database configuration
+    @Key("db.host")
+    @DefaultValue("localhost")
+    String databaseHost();
+
+    @Key("db.port")
+    @DefaultValue("5432")
+    String databasePort();
+
+    @Key("db.username")
+    @DefaultValue("amazon")
+    String databaseUsername();
+
+    @Key("db.password")
+    @DefaultValue("amazon123")
+    String databasePassword();
 }
