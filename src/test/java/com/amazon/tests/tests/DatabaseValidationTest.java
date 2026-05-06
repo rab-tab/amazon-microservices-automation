@@ -32,6 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Epic("Amazon Microservices")
 @Feature("Database Validation")
 public class DatabaseValidationTest extends BaseTest {
+    DatabaseValidator dbValidator = DatabaseValidator.getInstance();
+
 
     // ─── User DB Tests ─────────────────────────────────────────────────
 
@@ -54,12 +56,13 @@ public class DatabaseValidationTest extends BaseTest {
 
         String userId = response.jsonPath().getString("user.id");
 
+
         // ── DB Assertion ──────────────────────────────────────────
-        assertThat(DatabaseValidator.userExistsById(userId))
+        assertThat(dbValidator.userExistsById(userId))
                 .as("User should exist in DB after registration")
                 .isTrue();
 
-        Map<String, Object> dbUser = DatabaseValidator.getUserByEmail(user.getEmail());
+        Map<String, Object> dbUser = dbValidator.getUserByEmail(user.getEmail());
         assertThat(dbUser).isNotEmpty();
         assertThat(dbUser.get("email").toString()).isEqualTo(user.getEmail());
         assertThat(dbUser.get("first_name").toString()).isEqualTo(user.getFirstName());
@@ -81,7 +84,7 @@ public class DatabaseValidationTest extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify user count increases by 1 after registration")
     public void testUserCountIncreasesAfterRegistration() {
-        long countBefore = DatabaseValidator.countUsers();
+        long countBefore = dbValidator.countUsers();
 
         given()
                 .spec(RestAssuredConfig.getUserServiceSpec())
@@ -91,7 +94,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .then()
                 .statusCode(201);
 
-        long countAfter = DatabaseValidator.countUsers();
+        long countAfter = dbValidator.countUsers();
         assertThat(countAfter).isEqualTo(countBefore + 1);
 
         logStep("✅ User count: before=" + countBefore + " after=" + countAfter);
@@ -107,7 +110,7 @@ public class DatabaseValidationTest extends BaseTest {
         String token = auth.getAccessToken();
 
         logStep("Verifying user is ACTIVE before delete");
-        assertThat(DatabaseValidator.getUserStatusById(userId)).isEqualTo("ACTIVE");
+        assertThat(dbValidator.getUserStatusById(userId)).isEqualTo("ACTIVE");
 
         given()
                 .spec(RestAssuredConfig.getUserServiceSpec())
@@ -121,7 +124,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .statusCode(204);
 
         // DB should now show INACTIVE (soft delete)
-        assertThat(DatabaseValidator.getUserStatusById(userId)).isEqualTo("INACTIVE");
+        assertThat(dbValidator.getUserStatusById(userId)).isEqualTo("INACTIVE");
         logStep("✅ User soft-delete reflected correctly in DB");
     }
 
@@ -148,11 +151,11 @@ public class DatabaseValidationTest extends BaseTest {
         String productId = response.jsonPath().getString("id");
 
         // ── DB Assertion ──────────────────────────────────────────
-        assertThat(DatabaseValidator.productExistsById(productId))
+        assertThat(dbValidator.productExistsById(productId))
                 .as("Product should exist in DB")
                 .isTrue();
 
-        Map<String, Object> dbProduct = DatabaseValidator.getProductById(productId);
+        Map<String, Object> dbProduct = dbValidator.getProductById(productId);
         assertThat(dbProduct).isNotEmpty();
         assertThat(dbProduct.get("name").toString()).isEqualTo(productReq.getName());
         assertThat(((Number) dbProduct.get("stock_quantity")).intValue())
@@ -184,7 +187,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .extract().response();
         String productId = productResp.jsonPath().getString("id");
 
-        int initialStock = DatabaseValidator.getProductStockById(productId);
+        int initialStock = dbValidator.getProductStockById(productId);
         assertThat(initialStock).isEqualTo(100);
 
         // Update stock by -20
@@ -197,7 +200,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .then()
                 .statusCode(204);
 
-        int updatedStock = DatabaseValidator.getProductStockById(productId);
+        int updatedStock = dbValidator.getProductStockById(productId);
         assertThat(updatedStock).isEqualTo(80);
 
         logStep("✅ Stock updated: 100 → 80 in DB for productId: " + productId);
@@ -222,7 +225,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .extract().response();
         String productId = productResp.jsonPath().getString("id");
 
-        assertThat(DatabaseValidator.getProductStatusById(productId)).isEqualTo("ACTIVE");
+        assertThat(dbValidator.getProductStatusById(productId)).isEqualTo("ACTIVE");
 
         given()
                 .spec(RestAssuredConfig.getProductServiceSpec())
@@ -233,7 +236,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .then()
                 .statusCode(204);
 
-        assertThat(DatabaseValidator.getProductStatusById(productId)).isEqualTo("DISCONTINUED");
+        assertThat(dbValidator.getProductStatusById(productId)).isEqualTo("DISCONTINUED");
         logStep("✅ Product soft-delete: status DISCONTINUED in DB for productId: " + productId);
     }
 
@@ -272,15 +275,15 @@ public class DatabaseValidationTest extends BaseTest {
         String orderId = orderResp.jsonPath().getString("id");
 
         // ── Order Table Assertion ─────────────────────────────────
-        assertThat(DatabaseValidator.orderExistsById(orderId)).isTrue();
+        assertThat(dbValidator.orderExistsById(orderId)).isTrue();
 
-        Map<String, Object> dbOrder = DatabaseValidator.getOrderById(orderId);
+        Map<String, Object> dbOrder = dbValidator.getOrderById(orderId);
         assertThat(dbOrder).isNotEmpty();
         assertThat(dbOrder.get("user_id").toString()).isEqualTo(customerId);
         assertThat(dbOrder.get("status").toString()).isEqualTo("PENDING");
 
         // ── Order Items Table Assertion ───────────────────────────
-        List<Map<String, Object>> items = DatabaseValidator.getOrderItemsByOrderId(orderId);
+        List<Map<String, Object>> items = dbValidator.getOrderItemsByOrderId(orderId);
         assertThat(items).isNotEmpty();
         assertThat(items.get(0).get("product_id").toString()).isEqualTo(product.getId());
 
@@ -319,7 +322,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .extract().response();
         String orderId = orderResp.jsonPath().getString("id");
 
-        assertThat(DatabaseValidator.getOrderStatus(orderId)).isEqualTo("PENDING");
+        assertThat(dbValidator.getOrderStatus(orderId)).isEqualTo("PENDING");
 
         given()
                 .spec(RestAssuredConfig.getOrderServiceSpec(customerAuth.getAccessToken()))
@@ -330,7 +333,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .then()
                 .statusCode(200);
 
-        assertThat(DatabaseValidator.getOrderStatus(orderId)).isEqualTo("CANCELLED");
+        assertThat(dbValidator.getOrderStatus(orderId)).isEqualTo("CANCELLED");
         logStep("✅ Order cancellation CANCELLED status persisted to DB for orderId: " + orderId);
     }
 
@@ -354,7 +357,7 @@ public class DatabaseValidationTest extends BaseTest {
                 .extract().response();
         TestModels.ProductResponse product = productResp.as(TestModels.ProductResponse.class);
 
-        long countBefore = DatabaseValidator.countOrdersByUserId(customerId);
+        long countBefore = dbValidator.countOrdersByUserId(customerId);
 
         // Create 2 orders
         for (int i = 0; i < 2; i++) {
@@ -369,7 +372,7 @@ public class DatabaseValidationTest extends BaseTest {
                     .statusCode(201);
         }
 
-        long countAfter = DatabaseValidator.countOrdersByUserId(customerId);
+        long countAfter = dbValidator.countOrdersByUserId(customerId);
         assertThat(countAfter).isEqualTo(countBefore + 2);
         logStep("✅ Order count for user: before=" + countBefore + " after=" + countAfter);
     }
@@ -413,10 +416,10 @@ public class DatabaseValidationTest extends BaseTest {
                 .atMost(Duration.ofSeconds(20))
                 .pollInterval(Duration.ofSeconds(1))
                 .untilAsserted(() -> {
-                    assertThat(DatabaseValidator.paymentExistsForOrder(orderId)).isTrue();
+                    assertThat(dbValidator.paymentExistsForOrder(orderId)).isTrue();
                 });
 
-        Map<String, Object> payment = DatabaseValidator.getPaymentByOrderId(orderId);
+        Map<String, Object> payment = dbValidator.getPaymentByOrderId(orderId);
         assertThat(payment).isNotEmpty();
         assertThat(payment.get("order_id").toString()).isEqualTo(orderId);
         assertThat(payment.get("user_id").toString()).isEqualTo(customerId);
@@ -460,14 +463,14 @@ public class DatabaseValidationTest extends BaseTest {
         String orderId = orderResp.jsonPath().getString("id");
 
         // Initial status should be PENDING
-        assertThat(DatabaseValidator.getOrderStatus(orderId)).isEqualTo("PENDING");
+        assertThat(dbValidator.getOrderStatus(orderId)).isEqualTo("PENDING");
 
         // After saga completes, status should update
         Awaitility.await("Order status should change after payment saga")
                 .atMost(Duration.ofSeconds(5))
                 .pollInterval(Duration.ofSeconds(2))
                 .untilAsserted(() -> {
-                    String status = DatabaseValidator.getOrderStatus(orderId);
+                    String status = dbValidator.getOrderStatus(orderId);
                     assertThat(status).isIn("CONFIRMED", "PAYMENT_FAILED");
                 });
 

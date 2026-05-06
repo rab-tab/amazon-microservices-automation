@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class UserEventConsistencyTest extends BaseTest {
 
     private static final int KAFKA_WAIT_SECONDS = 10;
+    DatabaseValidator validator = DatabaseValidator.getInstance();
 
     @Test // PASSED
     @Story("user.registered topic — DB failure consistency")
@@ -70,7 +71,7 @@ public class UserEventConsistencyTest extends BaseTest {
                     .statusCode(404);*/ // via api call
 
             // 4️⃣ Direct DB validation using DatabaseValidator
-            boolean dbExists = DatabaseValidator.userExistsById(userId);
+            boolean dbExists = validator.userExistsById(userId);
             assertThat(dbExists)
                     .as("DB should NOT contain user due to rollback")
                     .isFalse();
@@ -138,6 +139,7 @@ public class UserEventConsistencyTest extends BaseTest {
             logStep("🚨 DB present but Kafka missing → inconsistency exposed");
         }
     }
+
     // ─────────────────────────────────────────────────────────────
     // 2. Redis Failure Scenario
     // ─────────────────────────────────────────────────────────────
