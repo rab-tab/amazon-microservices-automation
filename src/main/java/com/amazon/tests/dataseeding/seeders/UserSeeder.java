@@ -121,33 +121,77 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
         }
     }
 
+    // UserSeeder.java
     private TestModels.UserResponse createUser(TestModels.RegisterRequest request) {
         log.debug("Creating user: {}", request.getEmail());
 
-        // ✅ CORRECT: Get spec first
-        RequestSpecification spec = context.getRestAssuredConfig().getUserServiceSpec();
+        try {
+            // Get spec for user service
+            RequestSpecification spec = context.getRestAssuredConfig().getUserServiceSpec();
 
-        // Register via API
-        TestModels.AuthResponse authResponse = context.getRestClient().post(
-                context.getConfig().userServiceUrl() + "/api/auth/register",
-                spec,
-                request,
-                TestModels.AuthResponse.class
-        );
+            // Make API call
+            log.debug("Calling POST /api/users/register");
 
-        TestModels.UserResponse user = authResponse.getUser();
+            TestModels.AuthResponse authResponse = context.getRestClient().post(
+                    "/api/users/register",
+                    spec,
+                    request,
+                    TestModels.AuthResponse.class
+            );
 
-        // Register cleanup
-        context.registerCleanup(
-                "User: " + user.getEmail(),
-                () -> deleteUser(user.getId())
-        );
+            // ✅ Verify we got the response
+            log.debug("Received AuthResponse: {}", authResponse);
 
-        // Cache credentials for later use
-        context.cache("user_password_" + user.getId(), request.getPassword());
+            TestModels.UserResponse user = authResponse.getUser();
+            String accessToken = authResponse.getAccessToken();
 
-        log.info("Created user: {} ({})", user.getEmail(), user.getId());
-        return user;
+            // ✅ Verify user and token
+            if (user == null) {
+                throw new IllegalStateException("AuthResponse.user is null");
+            }
+
+            if (user.getId() == null) {
+                throw new IllegalStateException("User ID is null");
+            }
+
+            if (accessToken == null || accessToken.isEmpty()) {
+                log.warn("⚠️ AccessToken is null or empty in AuthResponse!");
+                log.warn("AuthResponse content: {}", authResponse);
+            }
+
+            // ✅ Cache password and token with detailed logging
+            String passwordCacheKey = "user_password_" + user.getId();
+            String tokenCacheKey = "user_token_" + user.getId();
+
+            context.cache(passwordCacheKey, request.getPassword());
+            context.cache(tokenCacheKey, accessToken);
+
+            log.info("✅ Cached credentials for user: {}", user.getId());
+            log.debug("   Password cache key: {}", passwordCacheKey);
+            log.debug("   Token cache key: {}", tokenCacheKey);
+            log.debug("   Token value (first 20 chars): {}",
+                    accessToken != null && accessToken.length() > 20
+                            ? accessToken.substring(0, 20) + "..."
+                            : accessToken);
+
+            // ✅ Verify cache immediately
+            String cachedToken = context.getCached(tokenCacheKey, String.class);
+            if (cachedToken == null) {
+                throw new IllegalStateException("Failed to cache token! Cache returned null.");
+            }
+
+            log.debug("✅ Verified token in cache: {}", cachedToken.substring(0, 20) + "...");
+
+            // Register cleanup
+            context.registerCleanup("User: " + user.getEmail(), () -> deleteUser(user.getId()));
+
+            log.info("Created user: {} ({})", user.getEmail(), user.getId());
+            return user;
+
+        } catch (Exception e) {
+            log.error("Failed to create user: {}", request.getEmail(), e);
+            throw new RuntimeException("User creation failed", e);
+        }
     }
 
     @Override
@@ -159,7 +203,7 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
     private void deleteUser(String userId) {
         try {
             context.getRestClient().delete(
-                    context.getConfig().userServiceUrl() + "/api/users/" + userId
+                    context.getConfig().baseUrl() + "/api/users/" + userId
             );
             log.debug("Deleted user: {}", userId);
         } catch (Exception e) {

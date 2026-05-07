@@ -395,13 +395,14 @@ public class ProductBuilder {
         log.debug("Building product: name={}, price={}, stock={}",
                 finalName, finalPrice, finalStock);
 
+        categoryId=TestDataGenerator.generateUUID();
         return TestModels.ProductRequest.builder()
                 .name(finalName)
                 .description(finalDescription)
                 .price(finalPrice)
                 .stockQuantity(finalStock)
                 .categoryId(categoryId)  // Can be null
-                .imageUrl(finalImageUrl)
+               // .imageUrl(finalImageUrl)
                 .build();
     }
 

@@ -336,7 +336,7 @@ public class OrderBuilder {
         return TestModels.CreateOrderRequest.builder()
                 .items(items)
                 .shippingAddress(finalShippingAddress)
-                .notes(finalNotes)
+               // .notes(finalNotes)
                 .build();
     }
 

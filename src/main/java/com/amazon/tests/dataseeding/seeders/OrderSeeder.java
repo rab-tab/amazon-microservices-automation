@@ -1,9 +1,11 @@
 // OrderSeeder.java
 package com.amazon.tests.dataseeding.seeders;
 
-import com.amazon.tests.dataseeding.core.*;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
+import com.amazon.tests.dataseeding.core.BaseSeedingManager;
+import com.amazon.tests.dataseeding.core.SeedingContext;
 import com.amazon.tests.models.TestModels;
+import io.restassured.specification.RequestSpecification;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
@@ -57,7 +59,7 @@ public class OrderSeeder extends BaseSeedingManager<OrderSeeder.OrderSeedResult>
                 .build();
     }
 
-    private TestModels.OrderResponse createOrder() {
+    private TestModels.OrderResponse    createOrder() {
         log.debug("Creating order for user: {}", user.getEmail());
 
         // Select random products
@@ -72,17 +74,27 @@ public class OrderSeeder extends BaseSeedingManager<OrderSeeder.OrderSeedResult>
 
         TestModels.CreateOrderRequest request = builder.build();
 
-        // Create via API
-        Map<String, String> headers = new HashMap<>();
-        if (userToken != null) {
-            headers.put("Authorization", "Bearer " + userToken);
+        // ✅ Get user token from cache (cached by UserSeeder)
+        String userToken = context.getCached("user_token_" + user.getId(), String.class);
+
+        if (userToken == null) {
+            throw new IllegalStateException(
+                    "User token not found in cache for user: " + user.getId() +
+                            ". Make sure the user was created via UserSeeder which caches the token."
+            );
         }
 
-        TestModels.OrderResponse order = context.getRestClient().post(
-                context.getConfig().orderServiceUrl() + "/api/orders",
+        log.debug("Retrieved token for user {} from cache", user.getId());
+
+        // ✅ Get authenticated spec (includes base URL and auth header)
+        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
+
+        // ✅ Make API call with proper spec
+        TestModels.OrderResponse order = context.getRestClient().post(context.getConfig().baseUrl()+
+                "/api/orders",  // Gateway path
+                spec,
                 request,
-                TestModels.OrderResponse.class,
-                headers
+                TestModels.OrderResponse.class
         );
 
         // Register cleanup
@@ -94,6 +106,8 @@ public class OrderSeeder extends BaseSeedingManager<OrderSeeder.OrderSeedResult>
         log.info("Created order: {} for user: {}", order.getId(), user.getEmail());
         return order;
     }
+
+
 
     private List<TestModels.ProductResponse> selectRandomProducts(int count) {
         List<TestModels.ProductResponse> shuffled = new ArrayList<>(products);
@@ -114,7 +128,7 @@ public class OrderSeeder extends BaseSeedingManager<OrderSeeder.OrderSeedResult>
             }
 
             context.getRestClient().delete(
-                    context.getConfig().orderServiceUrl() + "/api/orders/" + orderId,
+                    context.getConfig().baseUrl() + "/api/orders/" + orderId,
                     headers
             );
             log.debug("Deleted order: {}", orderId);

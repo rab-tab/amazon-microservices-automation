@@ -122,7 +122,36 @@ public class TestDataGenerator {
      * Example: "+91 9876543210"
      */
     public static String generateIndianPhoneNumber() {
-        return indianFaker.get().phoneNumber().phoneNumber();
+        // Generate raw Indian phone from Faker
+        String rawPhone = indianFaker.get().phoneNumber().phoneNumber();
+
+        // Clean: remove all non-digit characters
+        String cleaned = rawPhone.replaceAll("[^0-9]", "");
+
+        // Remove leading +91 or 91 if present
+        cleaned = cleaned.replaceFirst("^(91)?", "");
+
+        // Ensure it's 10 digits
+        if (cleaned.length() > 10) {
+            cleaned = cleaned.substring(cleaned.length() - 10);
+        } else if (cleaned.length() < 10) {
+            // Pad with random digits if too short
+            while (cleaned.length() < 10) {
+                cleaned += defaultFaker.get().number().digit();
+            }
+        }
+
+        // Ensure first digit is 6-9 (Indian mobile numbers start with 6-9)
+        char firstDigit = cleaned.charAt(0);
+        if (firstDigit < '6' || firstDigit > '9') {
+            cleaned = String.valueOf(6 + defaultFaker.get().number().numberBetween(0, 4)) + cleaned.substring(1);
+        }
+
+        String phone = "+91" + cleaned;
+
+        //log.debug("Indian phone generation: raw='{}', cleaned='{}'", rawPhone, phone);
+        return phone;
+       // return indianFaker.get().phoneNumber().phoneNumber();
     }
 
     /**

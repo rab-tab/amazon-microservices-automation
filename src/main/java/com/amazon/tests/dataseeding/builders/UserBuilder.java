@@ -213,7 +213,7 @@ public class UserBuilder {
         String finalPassword = password != null ? password : TestDataGenerator.generatePassword();
         String finalFirstName = firstName != null ? firstName : TestDataGenerator.generateFirstName();
         String finalLastName = lastName != null ? lastName : TestDataGenerator.generateLastName();
-        String finalPhone = phone != null ? phone : TestDataGenerator.generatePhoneNumber();
+        String finalPhone = phone != null ? phone : TestDataGenerator.generateIndianPhoneNumber();
 
         log.debug("Building user: email={}, username={}", finalEmail, finalUsername);
 

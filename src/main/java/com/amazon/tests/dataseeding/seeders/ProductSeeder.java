@@ -149,7 +149,7 @@ public class ProductSeeder extends BaseSeedingManager<ProductSeeder.ProductSeedR
         }
 
         TestModels.ProductResponse product = context.getRestClient().post(
-                context.getConfig().productServiceUrl() + "/api/products",
+                context.getConfig().baseUrl() + "/api/products",
                 request,
                 TestModels.ProductResponse.class,
                 headers
@@ -178,7 +178,7 @@ public class ProductSeeder extends BaseSeedingManager<ProductSeeder.ProductSeedR
             }
 
             context.getRestClient().delete(
-                    context.getConfig().productServiceUrl() + "/api/products/" + productId,
+                    context.getConfig().baseUrl() + "/api/products/" + productId,
                     headers
             );
             log.debug("Deleted product: {}", productId);
