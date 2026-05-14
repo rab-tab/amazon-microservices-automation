@@ -252,6 +252,115 @@ public class DatabaseValidator {
         return row;
     }
 
+    // ===== ORDER DB OPERATIONS (Add to existing ORDER DB section) =====
+
+    /**
+     * Delete order and all related data (order items)
+     * Uses transaction to ensure atomicity
+     *
+     * @param orderId Order UUID to delete
+     * @return true if order was deleted, false if not found
+     */
+    public boolean deleteOrderById(String orderId) {
+        Connection conn = null;
+        try {
+            conn = ordersDataSource.getConnection();
+            conn.setAutoCommit(false);  // Start transaction
+
+            // Delete order items first (foreign key constraint)
+            String deleteItemsSql = "DELETE FROM order_items WHERE order_id = ?::uuid";
+            try (PreparedStatement ps = conn.prepareStatement(deleteItemsSql)) {
+                ps.setObject(1, orderId);
+                int itemsDeleted = ps.executeUpdate();
+                log.debug("Deleted {} order items for order: {}", itemsDeleted, orderId);
+            }
+
+            // Delete order
+            String deleteOrderSql = "DELETE FROM orders WHERE id = ?::uuid";
+            try (PreparedStatement ps = conn.prepareStatement(deleteOrderSql)) {
+                ps.setObject(1, orderId);
+                int ordersDeleted = ps.executeUpdate();
+
+                if (ordersDeleted > 0) {
+                    conn.commit();
+                    log.info("✅ Deleted order: {}", orderId);
+                    return true;
+                } else {
+                    conn.rollback();
+                    log.warn("⚠️  Order not found: {}", orderId);
+                    return false;
+                }
+            }
+
+        } catch (SQLException e) {
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                    log.error("❌ Rolled back order deletion for: {}", orderId);
+                } catch (SQLException rollbackEx) {
+                    log.error("Failed to rollback transaction", rollbackEx);
+                }
+            }
+            log.error("Failed to delete order: {}", orderId, e);
+            throw new DatabaseValidationException("Order deletion failed: " + orderId, e);
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);  // Restore auto-commit
+                    conn.close();
+                } catch (SQLException e) {
+                    log.error("Failed to close connection", e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Delete order by idempotency key
+     * Useful for cleanup in idempotency tests
+     *
+     * @param userId User UUID
+     * @param idempotencyKey Idempotency key
+     * @return true if order was deleted, false if not found
+     */
+    public boolean deleteOrderByIdempotencyKey(String userId, String idempotencyKey) {
+        // First find the order ID
+        String findOrderSql = "SELECT id FROM orders WHERE user_id = ?::uuid AND idempotency_key = ?";
+        String orderId = null;
+
+        try (Connection conn = ordersDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(findOrderSql)) {
+            ps.setObject(1, userId);
+            ps.setString(2, idempotencyKey);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    orderId = rs.getString("id");
+                }
+            }
+        } catch (SQLException e) {
+            log.error("Failed to find order by idempotency key", e);
+            throw new DatabaseValidationException("Query failed", e);
+        }
+
+        if (orderId == null) {
+            log.warn("⚠️  No order found with idempotency key: {}", idempotencyKey);
+            return false;
+        }
+
+        return deleteOrderById(orderId);
+    }
+
+    /**
+     * Count orders by idempotency key (for verification)
+     */
+    public long countOrdersByIdempotencyKey(String userId, String idempotencyKey) {
+        Object result = queryScalar(ordersDataSource,
+                "SELECT COUNT(*) FROM orders WHERE user_id = ?::uuid AND idempotency_key = ?",
+                userId, idempotencyKey);
+        return result != null ? ((Number) result).longValue() : 0L;
+    }
+
     /**
      * Shutdown all connection pools (call in @AfterSuite)
      */

@@ -24,7 +24,8 @@ public class RedisValidator {
         config.setMaxTotal(8);
         config.setMaxIdle(4);
         config.setMinIdle(1);
-        pool = new JedisPool(config, REDIS_HOST, REDIS_PORT, 2000, REDIS_PASSWORD);
+        //pool = new JedisPool(config, REDIS_HOST, REDIS_PORT, 2000, REDIS_PASSWORD);
+        pool = new JedisPool(config, REDIS_HOST, REDIS_PORT, 2000);
     }
 
     public static boolean keyExists(String key) {

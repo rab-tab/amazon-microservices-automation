@@ -240,4 +240,5 @@ public class RestAssuredConfigFinal {
                 .log(LogDetail.ALL)
                 .build();
     }
+
 }

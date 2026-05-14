@@ -161,6 +161,17 @@ public class KafkaTestConsumer implements AutoCloseable {
         consumer.seekToBeginning(partitions);
     }
 
+    /**
+     * Seek to the end of all assigned partitions.
+     * Use this at the start of each test to ignore historical events.
+     */
+    public void seekToEnd() {
+        consumer.seekToEnd(consumer.assignment());
+        // Force the consumer to update its position by doing a quick poll
+        consumer.poll(Duration.ofMillis(100));
+        log.debug("✓ Kafka consumer seeked to end of topic");
+    }
+
     public void replay(Producer<String, String> producer, JsonNode event) {
         try {
             String key = event.get("userId").asText();

@@ -9,49 +9,49 @@
     <!-- Full Suite -->
     <test name="Authentication Tests">
         <classes>
-            <class name="com.amazon.tests.tests.AuthApiTest"/>
+            <class name="com.amazon.tests.AuthApiTest"/>
         </classes>
     </test>
 
     <test name="User Management Tests">
         <classes>
-            <class name="com.amazon.tests.tests.UserApiTest"/>
+            <class name="com.amazon.tests.UserApiTest"/>
         </classes>
     </test>
 
     <test name="Product Catalog Tests">
         <classes>
-            <class name="com.amazon.tests.tests.ProductApiTest"/>
+            <class name="com.amazon.tests.ProductApiTest"/>
         </classes>
     </test>
 
     <test name="Order Management Tests">
         <classes>
-            <class name="com.amazon.tests.tests.OrderApiTest"/>
+            <class name="com.amazon.tests.OrderApiTest"/>
         </classes>
     </test>
 
     <test name="Kafka Event Tests">
         <classes>
-            <class name="com.amazon.tests.tests.KafkaEventTest"/>
+            <class name="com.amazon.tests.KafkaEventTest"/>
         </classes>
     </test>
 
     <test name="Database Validation Tests">
         <classes>
-            <class name="com.amazon.tests.tests.DatabaseValidationTest"/>
+            <class name="com.amazon.tests.DatabaseValidationTest"/>
         </classes>
     </test>
 
     <test name="Resilience4j Tests">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.resiliency.Resilience4jTest"/>
+            <class name="com.amazon.tests.apiGateway.resiliency.Resilience4jTest"/>
         </classes>
     </test>
 
     <test name="End-to-End Tests">
         <classes>
-            <class name="com.amazon.tests.tests.E2EPurchaseFlowTest"/>
+            <class name="com.amazon.tests.E2EPurchaseFlowTest"/>
         </classes>
     </test>
 

@@ -10,44 +10,44 @@
     <!-- All test elements come after listeners -->
     <test name="JWT Security Tests">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.authentication.JwtSecurityTest"/>
+            <class name="com.amazon.tests.apiGateway.authentication.JwtSecurityTest"/>
         </classes>
     </test>
 
     <test name="Authentication Tests">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.authentication.CORSTest"/>
+            <class name="com.amazon.tests.apiGateway.authentication.CORSTest"/>
         </classes>
     </test>
 
     <test name="Timeout Tests">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.errorHandling.TimeoutTests"/>
+            <class name="com.amazon.tests.apiGateway.errorHandling.TimeoutTests"/>
         </classes>
     </test>
 
     <test name="Observability">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.observability.Observability"/>
+            <class name="com.amazon.tests.apiGateway.observability.Observability"/>
         </classes>
     </test>
 
     <test name="Routing">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.routing.RoutingTest"/>
+            <class name="com.amazon.tests.apiGateway.routing.RoutingTest"/>
         </classes>
     </test>
 
     <test name="Circuit Breaker">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.resiliency.circuitBreaker.CircuitBreakerTest"/>
+            <class name="com.amazon.tests.apiGateway.resiliency.circuitBreaker.CircuitBreakerTest"/>
         </classes>
     </test>
 
     <test name="Rate Limiting Tests">
         <classes>
-            <class name="com.amazon.tests.tests.apiGateway.resiliency.rateLimiting.RateLimitingTest"/>
-            <class name="com.amazon.tests.tests.apiGateway.resiliency.rateLimiting.RateLimitHeadersTest"/>
+            <class name="com.amazon.tests.apiGateway.resiliency.rateLimiting.RateLimitingTest"/>
+            <class name="com.amazon.tests.apiGateway.resiliency.rateLimiting.RateLimitHeadersTest"/>
         </classes>
     </test>
 

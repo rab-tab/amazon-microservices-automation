@@ -4,7 +4,7 @@
 <suite name="Order API Multithreading Tests" parallel="methods" thread-count="100">
 <test name="Problem 1 - WRONG">
     <classes>
-        <class name="com.amazon.tests.tests.multithreadingFailureScenarios.Problem1_RealScenario_MultipleTests$WrongImplementation_SharedSpec">
+        <class name="com.amazon.tests.multithreadingFailureScenarios.Problem1_RealScenario_MultipleTests$WrongImplementation_SharedSpec">
             <methods>
                 <include name="testCreateOrder"/>
                 <include name="testGetOrder"/>

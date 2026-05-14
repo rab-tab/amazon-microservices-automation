@@ -6,12 +6,12 @@
     <!--<packages>
       <package name="com.amazon.tests.tests.kafka"/>
     </packages>-->
-    <!--<classes><class name="com.amazon.tests.tests.kafka.failures.validation.UserRegistrationValidationTest"/></classes>-->
+    <!--<classes><class name="validation.failures.kafka.com.amazon.tests.UserRegistrationValidationTest"/></classes>-->
     <classes>
-     <!-- <class name="com.amazon.tests.tests.kafka.failures.consistency.UserEventConsistencyTest"/>
-      <class name="com.amazon.tests.tests.kafka.failures.validation.UserRegistrationValidationTest"/>
-      <class name="com.amazon.tests.tests.kafka.failures.idempotency.UserEventIdempotencyTest"/>
-      <class name="com.amazon.tests.tests.kafka.failures.resilience.UserEventResilienceTest"/>-->
+     <!-- <class name="consistency.failures.kafka.com.amazon.tests.UserEventConsistencyTest"/>
+      <class name="validation.failures.kafka.com.amazon.tests.UserRegistrationValidationTest"/>
+      <class name="idempotency.failures.kafka.com.amazon.tests.UserEventIdempotencyTest"/>
+      <class name="resilience.failures.kafka.com.amazon.tests.UserEventResilienceTest"/>-->
 
     </classes>
   </test>

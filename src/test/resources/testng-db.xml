@@ -2,5 +2,5 @@
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
 <suite name="Database Validation Tests" verbose="1">
   <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
-  <test name="DB Tests"><classes><class name="com.amazon.tests.tests.DatabaseValidationTest"/></classes></test>
+  <test name="DB Tests"><classes><class name="com.amazon.tests.DatabaseValidationTest"/></classes></test>
 </suite>

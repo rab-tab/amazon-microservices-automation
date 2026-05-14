@@ -2,6 +2,6 @@
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
 <suite name="Product and Order Tests" verbose="1">
   <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
-  <test name="Product Tests"><classes><class name="com.amazon.tests.tests.ProductApiTest"/></classes></test>
-  <test name="Order Tests"><classes><class name="com.amazon.tests.tests.OrderApiTest"/></classes></test>
+  <test name="Product Tests"><classes><class name="com.amazon.tests.ProductApiTest"/></classes></test>
+  <test name="Order Tests"><classes><class name="com.amazon.tests.OrderApiTest"/></classes></test>
 </suite>

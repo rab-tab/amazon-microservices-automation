@@ -184,4 +184,17 @@ public class TestModels {
         private String message;
         private String timestamp;
     }
+
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PagedOrderResponse {
+        private List<OrderResponse> orders;
+        private int page;
+        private int size;
+        private long totalElements;
+        private int totalPages;
+    }
 }
