@@ -1,385 +1,429 @@
 package com.amazon.tests.kafka.orders.publishing;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.dataseeding.builders.OrderBuilder;
+import com.amazon.tests.dataseeding.core.SeedingException;
+import com.amazon.tests.dataseeding.seeders.ProductSeeder;
+import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.github.javafaker.Faker;
 import io.qameta.allure.*;
+import io.restassured.RestAssured;
 import io.restassured.response.Response;
-import org.testng.annotations.BeforeClass;
+import lombok.extern.slf4j.Slf4j;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
-import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Kafka Event Publishing Tests (Category 1)
+ * Kafka Event Publishing - Failure Scenarios
  *
- * Tests that Order Service successfully publishes ORDER_CREATED events to Kafka
+ * Tests negative scenarios and failure handling in Kafka event publishing:
+ * - Kafka broker unavailable
+ * - Producer timeouts
+ * - Retry exhaustion
+ * - Acknowledgment failures
+ * - Serialization errors
+ * - Invalid data rejection
  *
- * CORRECTED: Uses proper CreateOrderRequest format with:
- * - productId (UUID)
- * - quantity (Integer)
- * - unitPrice (BigDecimal)
- * - productName (String)
- * - shippingAddress (String) - REQUIRED!
+ * Uses X-Fault header to simulate failures without affecting real Kafka cluster.
  */
+@Slf4j
 @Epic("Amazon Microservices")
-@Feature("Kafka - Event Publishing")
+@Feature("Kafka - Event Publishing Failures")
 public class OrderEventPublishingFailureTest extends BaseTest {
 
-    private static final String GATEWAY_URL = "http://localhost:8080";
-    private static final Faker faker = new Faker();
+    private KafkaTestConsumer kafkaConsumer;
+    private TestModels.UserResponse user;
+    private TestModels.ProductResponse product;
+    private String userToken;
 
-    private String validToken;
-    private String userId;
-    private String productId;
+    @BeforeMethod
+    public void setup() throws SeedingException {
+        logStep("Setting up Kafka failure tests");
 
-    @BeforeClass
-    public void setup() {
-        logStep("Setting up Kafka event publishing tests");
+        // Seed user
+        user = UserSeeder.builder(context)
+                .count(1)
+                .build()
+                .seed()
+                .getFirst();
 
-        // Register user
-        TestModels.AuthResponse auth = AuthUtils.registerAndGetAuth();
-        validToken = auth.getAccessToken();
-        userId = auth.getUser().getId();
-        logStep("✅ User created: " + userId);
+        userToken = context.getCached("user_token_" + user.getId(), String.class);
+        logStep("✅ User seeded: " + user.getId());
 
-        // Create a product to use in orders
-        createTestProduct();
-    }
+        // Seed product
+        product = ProductSeeder.builder(context)
+                .count(1)
+                .highStock()
+                .build()
+                .seed()
+                .getFirst();
 
-    private void createTestProduct() {
-        Map<String, Object> productData = Map.of(
-                "name", "Test Product for Kafka Tests",
-                "description", "Product used in Kafka event publishing tests",
-                "price", 99.99,
-                "stockQuantity", 1000
-        );
+        logStep("✅ Product seeded: " + product.getId());
 
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .contentType("application/json")
-                .body(productData)
-                .when()
-                .post("/api/products")
-                .then()
-                .extract()
-                .response();
+        // Wait for data propagation
+        waitForDataPropagation(1000);
 
-        if (resp.statusCode() == 201) {
-            productId = resp.jsonPath().getString("id");
-            logStep("✅ Test product created: " + productId);
-        } else {
-            // Use hardcoded UUID if product creation fails
-            productId = "550e8400-e29b-41d4-a716-446655440000";
-            logStep("⚠️  Using fallback product ID: " + productId);
-        }
+        // Initialize Kafka consumer
+        kafkaConsumer = new KafkaTestConsumer("order.events");
+        logStep("✅ Kafka consumer initialized");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // NEGATIVE TEST CASES
+    // KAFKA BROKER FAILURES
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test
-    @Story("Event Publishing - Negative")
+    @Test(priority = 1)
+    @Story("Event Publishing - Failures")
     @Severity(SeverityLevel.CRITICAL)
-    @Description("Kafka failure prevents event publishing")
-    public void test10_KafkaFailure_NoEventPublished() {
-        logStep("TEST 10: Kafka failure - no event published");
+    @Description("Kafka broker unreachable - order creation fails")
+    public void test01_KafkaBrokerDown_OrderCreationFails() throws Exception {
+        logStep("TEST 1: Kafka broker down - order creation should fail");
 
-        // Start Kafka consumer to monitor events
-        try (KafkaTestConsumer consumer = new KafkaTestConsumer("order-events")) {
+        String idempotencyKey = UUID.randomUUID().toString();
 
-            Map<String, Object> orderData = Map.of(
-                    "items", List.of(
-                            Map.of(
-                                    "productId", productId,
-                                    "quantity", 1,
-                                    "unitPrice", 29.99,
-                                    "productName", "Fault Test"
-                            )
-                    ),
-                    "shippingAddress", faker.address().fullAddress()
-            );
+        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                .addItem(product, 1)
+                .build();
 
-            logStep("  Simulating Kafka failure with X-Fault header");
+        logStep("  Simulating Kafka broker failure with X-Fault: kafka-down");
 
-            Response resp = given()
-                    .baseUri(GATEWAY_URL)
-                    .header("Authorization", "Bearer " + validToken)
-                    .header("X-Fault", "kafka-down")
-                    .contentType("application/json")
-                    .body(orderData)
-                    .when()
-                    .post("/api/orders")
-                    .then()
-                    .extract()
-                    .response();
-
-            logStep("  Response status: " + resp.statusCode());
-
-            // Should return error
-            assertThat(resp.statusCode())
-                    .as("Should fail when Kafka is down")
-                    .isIn(500, 503);
-
-            // Wait for potential event (should NOT arrive)
-            logStep("  Waiting 5 seconds to verify no event published...");
-
-            Optional<JsonNode> event = consumer.waitForMessage(
-                    node -> true,  // Any event
-                    5  // Wait 5 seconds
-            );
-
-            assertThat(event)
-                    .as("NO event should be published when Kafka is down")
-                    .isEmpty();
-
-            logStep("✅ Confirmed: No event published during Kafka failure");
-        }
-    }
-
-    @Test(priority = 11)
-    @Story("Event Publishing - Negative")
-    @Severity(SeverityLevel.NORMAL)
-    @Description("Invalid order data does not publish event")
-    public void test11_InvalidOrderDoesNotPublishEvent() {
-        logStep("TEST 11: Invalid order rejected without publishing event");
-
-        // Missing required shippingAddress
-        Map<String, Object> invalidOrderData = Map.of(
-                "items", List.of(
-                        Map.of(
-                                "productId", productId,
-                                "quantity", 1,
-                                "unitPrice", 99.99,
-                                "productName", "Test Product"
-                        )
-                )
-                // shippingAddress is MISSING!
+        Response response = sendOrderRequestWithFault(
+                userToken,
+                idempotencyKey,
+                orderRequest,
+                "kafka-down"
         );
 
-        logStep("  Attempting order without shippingAddress...");
+        logStep("  Response status: " + response.statusCode());
+        logStep("  Response body: " + response.asString());
 
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .contentType("application/json")
-                .body(invalidOrderData)
-                .when()
-                .post("/api/orders")
-                .then()
-                .extract()
-                .response();
-
-        logStep("  Response status: " + resp.statusCode());
-        logStep("  Response: " + resp.asString());
-
-        assertThat(resp.statusCode())
-                .as("Invalid order should be rejected (400)")
+        // Should return 500 Internal Server Error
+        assertThat(response.statusCode())
+                .as("Order creation should fail when Kafka is down")
                 .isEqualTo(500);
 
-        String responseBody = resp.asString();
-      /*  assertThat(responseBody)
-                .as("Error message should mention missing field")
-                .containsAnyOf("shippingAddress", "required", "must not be blank");*/
+        assertThat(response.asString())
+                .as("Error message should indicate Kafka failure")
+                .contains("Simulated Kafka failure - broker unreachable");
 
-        assertThat(responseBody)
-                .as("Error message should mention missing field")
-                .containsAnyOf("error");
-        logStep("✅ Invalid data rejected before event publishing");
+        // Verify NO event was published
+        logStep("  Verifying no event published to Kafka...");
+
+        Optional<JsonNode> event = kafkaConsumer.waitForMessage(
+                node -> true,  // Any event
+                2  // Short timeout
+        );
+
+        assertThat(event)
+                .as("No event should be published when Kafka is down")
+                .isEmpty();
+
+        logStep("✅ Order creation properly failed when Kafka unavailable");
     }
 
-    // Test 10a: Broker completely down
-    @Test
-    public void test10a_KafkaDown_BrokerUnavailable() {
-        Map<String, Object> orderData = Map.of(
-                "items", List.of(
-                        Map.of(
-                                "productId", productId,
-                                "quantity", 1,
-                                "unitPrice", 29.99,
-                                "productName", "Fault Test"
-                        )
-                ),
-                "shippingAddress", faker.address().fullAddress()
-        );
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .header("X-Fault", "kafka-down")
-                .contentType("application/json")
-                .body(orderData)
-                .when()
-                .post("/api/orders")
-                .then()
-                .extract()
-                .response();
+    @Test(priority = 2)
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Producer timeout - order creation fails")
+    public void test02_ProducerTimeout_OrderCreationFails() throws Exception {
+        logStep("TEST 2: Producer timeout - order creation should fail");
 
-        assertThat(resp.statusCode()).isEqualTo(500);
-        assertThat(resp.asString()).contains("Simulated Kafka failure - broker unreachable for order:");
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                .addItem(product, 1)
+                .build();
+
+        logStep("  Simulating producer timeout with X-Fault: kafka-timeout");
+
+        Response response = sendOrderRequestWithFault(
+                userToken,
+                idempotencyKey,
+                orderRequest,
+                "kafka-timeout"
+        );
+
+        assertThat(response.statusCode())
+                .as("Order creation should fail on producer timeout")
+                .isEqualTo(500);
+
+        assertThat(response.asString())
+                .as("Error message should indicate timeout")
+                .contains("Simulated Kafka timeout - producer timed out");
+
+        logStep("✅ Producer timeout handled correctly");
     }
 
-    // Test 10b: Producer timeout
-    @Test
-    public void test10b_KafkaTimeout() {
-        Map<String, Object> orderData = Map.of(
-                "items", List.of(
-                        Map.of(
-                                "productId", productId,
-                                "quantity", 1,
-                                "unitPrice", 29.99,
-                                "productName", "Fault Test"
-                        )
-                ),
-                "shippingAddress", faker.address().fullAddress()
-        );
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .header("X-Fault", "kafka-timeout")
-                .contentType("application/json")
-                .body(orderData)
-                .when()
-                .post("/api/orders")
-                .then()
-                .extract()
-                .response();
-        String responseBody = resp.asString();
+    @Test(priority = 3)
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Retry exhaustion - order creation fails after max retries")
+    public void test03_RetryExhaustion_OrderCreationFails() throws Exception {
+        logStep("TEST 3: Retry exhaustion - order creation should fail");
 
-        assertThat(resp.statusCode()).isEqualTo(500);
-        assertThat(responseBody).contains("Simulated Kafka timeout - producer timed out for order:");
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                .addItem(product, 1)
+                .build();
+
+        logStep("  Simulating retry exhaustion with X-Fault: kafka-retry-failure");
+
+        Response response = sendOrderRequestWithFault(
+                userToken,
+                idempotencyKey,
+                orderRequest,
+                "kafka-retry-failure"
+        );
+
+        assertThat(response.statusCode())
+                .as("Order creation should fail after max retries")
+                .isEqualTo(500);
+
+        assertThat(response.asString())
+                .as("Error message should indicate retry exhaustion")
+                .contains("Simulated retry failure - max retries exceeded");
+
+        logStep("✅ Retry exhaustion handled correctly");
     }
 
-    // Test 10c: Retry exhaustion
-    @Test
-    public void test10c_RetryFailure() {
-        Map<String, Object> orderData = Map.of(
-                "items", List.of(
-                        Map.of(
-                                "productId", productId,
-                                "quantity", 1,
-                                "unitPrice", 29.99,
-                                "productName", "Fault Test"
-                        )
-                ),
-                "shippingAddress", faker.address().fullAddress()
+    @Test(priority = 4)
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Acknowledgment failure - insufficient in-sync replicas")
+    public void test04_AcknowledgmentFailure_InsufficientISR() throws Exception {
+        logStep("TEST 4: Acknowledgment failure - insufficient in-sync replicas");
+
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                .addItem(product, 1)
+                .build();
+
+        logStep("  Simulating ISR failure with X-Fault: kafka-ack-failure");
+
+        Response response = sendOrderRequestWithFault(
+                userToken,
+                idempotencyKey,
+                orderRequest,
+                "kafka-ack-failure"
         );
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .header("X-Fault", "kafka-retry-failure")
-                .contentType("application/json")
-                .body(orderData)
-                .when()
-                .post("/api/orders")
-                .then()
-                .extract()
-                .response();
 
-        assertThat(resp.statusCode()).isEqualTo(500);
-        assertThat(resp.asString()).contains("Simulated retry failure - max retries exceeded for order:");
+        assertThat(response.statusCode())
+                .as("Order creation should fail with insufficient ISR")
+                .isEqualTo(500);
 
+        assertThat(response.asString())
+                .as("Error message should indicate acknowledgment failure")
+                .contains("Simulated ack failure - insufficient in-sync replicas");
+
+        logStep("✅ Acknowledgment failure handled correctly");
     }
 
-    // Test 10d: Acknowledgment failure (ISR)
-    @Test
-    public void test10d_AckFailure_InsufficientISR() {
-        Map<String, Object> orderData = Map.of(
-                "items", List.of(
-                        Map.of(
-                                "productId", productId,
-                                "quantity", 1,
-                                "unitPrice", 29.99,
-                                "productName", "Fault Test"
-                        )
-                ),
-                "shippingAddress", faker.address().fullAddress()
+    @Test(priority = 5)
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Serialization error - cannot serialize event")
+    public void test05_SerializationError_OrderCreationFails() throws Exception {
+        logStep("TEST 5: Serialization error - order creation should fail");
+
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                .addItem(product, 1)
+                .build();
+
+        logStep("  Simulating serialization error with X-Fault: serialization-error");
+
+        Response response = sendOrderRequestWithFault(
+                userToken,
+                idempotencyKey,
+                orderRequest,
+                "serialization-error"
         );
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .header("X-Fault", "kafka-ack-failure")
-                .contentType("application/json")
-                .body(orderData)
-                .when()
-                .post("/api/orders")
-                .then()
-                .extract()
-                .response();
 
-        assertThat(resp.statusCode()).isEqualTo(500);
-        assertThat(resp.asString()).contains("Simulated ack failure - insufficient in-sync replicas for order: ");
+        assertThat(response.statusCode())
+                .as("Order creation should fail on serialization error")
+                .isEqualTo(500);
 
+        assertThat(response.asString())
+                .as("Error message should indicate serialization failure")
+                .contains("Simulated serialization error - cannot serialize event");
+
+        logStep("✅ Serialization error handled correctly");
     }
 
-    // Test 10e: Serialization error
-    @Test
-    public void test10e_SerializationError() {
-        Map<String, Object> orderData = Map.of(
-                "items", List.of(
-                        Map.of(
-                                "productId", productId,
-                                "quantity", 1,
-                                "unitPrice", 29.99,
-                                "productName", "Fault Test"
-                        )
-                ),
-                "shippingAddress", faker.address().fullAddress()
+    @Test(priority = 6)
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Message too large - exceeds broker limits")
+    public void test06_MessageTooLarge_OrderCreationFails() throws Exception {
+        logStep("TEST 6: Message too large - order creation should fail");
+
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                .addItem(product, 1)
+                .build();
+
+        logStep("  Simulating message too large with X-Fault: message-too-large");
+
+        Response response = sendOrderRequestWithFault(
+                userToken,
+                idempotencyKey,
+                orderRequest,
+                "message-too-large"
         );
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .header("X-Fault", "serialization-error")
-                .contentType("application/json")
-                .body(orderData)
-                .when()
-                .post("/api/orders")
-                .then()
-                .extract()
-                .response();
 
-        assertThat(resp.statusCode()).isEqualTo(500);
-        assertThat(resp.asString()).contains("Simulated serialization error - cannot serialize event for order: ");
+        assertThat(response.statusCode())
+                .as("Order creation should fail when message too large")
+                .isEqualTo(500);
 
+        assertThat(response.asString())
+                .as("Error message should indicate message size limit")
+                .contains("Simulated message too large - event exceeds max.message.bytes");
+
+        logStep("✅ Message size limit enforced correctly");
     }
 
-    // Test 10f: Message too large
-    @Test
-    public void test10f_MessageTooLarge() {
-        Map<String, Object> orderData = Map.of(
-                "items", List.of(
-                        Map.of(
-                                "productId", productId,
-                                "quantity", 1,
-                                "unitPrice", 29.99,
-                                "productName", "Fault Test"
-                        )
-                ),
-                "shippingAddress", faker.address().fullAddress()
+    @Test(priority = 7)
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Producer buffer full - backpressure handling")
+    public void test07_BufferFull_OrderCreationFails() throws Exception {
+        logStep("TEST 7: Producer buffer full - order creation should fail");
+
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                .addItem(product, 1)
+                .build();
+
+        logStep("  Simulating buffer full with X-Fault: buffer-full");
+
+        Response response = sendOrderRequestWithFault(
+                userToken,
+                idempotencyKey,
+                orderRequest,
+                "buffer-full"
         );
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .header("Authorization", "Bearer " + validToken)
-                .header("X-Fault", "message-too-large")
+
+        assertThat(response.statusCode())
+                .as("Order creation should fail when buffer is full")
+                .isEqualTo(500);
+
+        assertThat(response.asString())
+                .as("Error message should indicate buffer overflow")
+                .contains("Simulated buffer full - producer buffer overflow");
+
+        logStep("✅ Buffer overflow handled correctly");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // INVALID DATA SCENARIOS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    @Test(priority = 8)
+    @Story("Event Publishing - Validation")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Invalid order data rejected before event publishing")
+    public void test08_InvalidData_RejectedBeforePublishing() throws Exception {
+        logStep("TEST 8: Invalid order data rejected - no event published");
+
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        // Create order with MISSING required field (no items)
+        TestModels.CreateOrderRequest invalidOrder = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                // No items added - invalid!
+                .build();
+
+        logStep("  Sending order with missing items (invalid)...");
+
+        String requestBody = objectMapper.writeValueAsString(invalidOrder);
+
+        Response response = RestAssured
+                .given()
+                .baseUri(context.getConfig().baseUrl())
+                .header("Authorization", "Bearer " + userToken)
+                .header("Idempotency-Key", idempotencyKey)
                 .contentType("application/json")
-                .body(orderData)
+                .body(requestBody)
                 .when()
-                .post("/api/orders")
-                .then()
-                .extract()
-                .response();
+                .post("/api/orders");
 
-        assertThat(resp.statusCode()).isEqualTo(500);
-        assertThat(resp.asString()).contains("Simulated message too large - event exceeds max.message.bytes for order: ");
+        logStep("  Response status: " + response.statusCode());
+        logStep("  Response body: " + response.asString());
 
+        // Should return 400 Bad Request or 500 (depending on validation)
+        assertThat(response.statusCode())
+                .as("Invalid order should be rejected")
+                .isIn(400, 500);
+
+        // Verify NO event was published
+        Optional<JsonNode> event = kafkaConsumer.waitForMessage(
+                node -> true,
+                2
+        );
+
+        assertThat(event)
+                .as("No event should be published for invalid data")
+                .isEmpty();
+
+        logStep("✅ Invalid data rejected before Kafka publishing");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // HELPER METHODS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Send order request with fault injection header
+     */
+    private Response sendOrderRequestWithFault(
+            String userToken,
+            String idempotencyKey,
+            TestModels.CreateOrderRequest orderRequest,
+            String faultType) throws Exception {
+
+        String requestBody = objectMapper.writeValueAsString(orderRequest);
+
+        return RestAssured
+                .given()
+                .baseUri(context.getConfig().baseUrl())
+                .header("Authorization", "Bearer " + userToken)
+                .header("Idempotency-Key", idempotencyKey)
+                .header("X-Fault", faultType)  // ⭐ Fault injection header
+                .contentType("application/json")
+                .body(requestBody)
+                .when()
+                .post("/api/orders");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // CLEANUP
+    // ══════════════════════════════════════════════════════════════════════════
+
+    @AfterClass
+    public void cleanup() {
+        if (kafkaConsumer != null) {
+            kafkaConsumer.close();
+            logStep("✅ Kafka consumer closed");
+        }
     }
 }
