@@ -12,6 +12,7 @@ import com.amazon.tests.utils.DatabaseValidator;
 import com.amazon.tests.utils.RetryHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.qameta.allure.Allure;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
@@ -203,6 +204,40 @@ public abstract class BaseTest {
      */
     protected void logStep(String step) {
         log.info("→ STEP: {}", step);
+    }
+
+    /**
+     * Log a test step with formatted message (supports {} placeholders)
+     *
+     * Examples:
+     *   logStep("Order created: {}", orderId);
+     *   logStep("User {} has {} orders", username, orderCount);
+     *   logStep("Found {} events in {}ms", count, duration);
+     */
+    protected void logStep(String message, Object... args) {
+        String formattedMessage = formatMessage(message, args);
+        log.info("→ STEP: " + formattedMessage);
+
+        try {
+            Allure.step(formattedMessage);
+        } catch (Exception e) {
+            // Allure not available - ignore
+        }
+    }
+
+    /**
+     * Format message with {} placeholders (SLF4J style)
+     */
+    private String formatMessage(String message, Object... args) {
+        if (args == null || args.length == 0) {
+            return message;
+        }
+
+        String result = message;
+        for (Object arg : args) {
+            result = result.replaceFirst("\\{\\}", String.valueOf(arg));
+        }
+        return result;
     }
 
     /**

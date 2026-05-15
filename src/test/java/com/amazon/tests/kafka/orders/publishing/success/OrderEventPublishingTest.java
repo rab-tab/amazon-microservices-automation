@@ -1,4 +1,4 @@
-package com.amazon.tests.kafka.orders.publishing;
+package com.amazon.tests.kafka.orders.publishing.success;
 
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
@@ -525,7 +525,7 @@ public class OrderEventPublishingTest extends BaseTest {
             log.error("   Redis cached: {}", redisCheck.jsonPath().getBoolean("cached"));
         }
     }
-    //FAIL
+    //PASS
     @Story("Event Publishing - Positive")
     @Severity(SeverityLevel.NORMAL)
     @Description("Idempotent requests publish event only once")

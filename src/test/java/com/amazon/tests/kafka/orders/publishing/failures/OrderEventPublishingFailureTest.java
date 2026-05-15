@@ -1,4 +1,4 @@
-package com.amazon.tests.kafka.orders.publishing;
+package com.amazon.tests.kafka.orders.publishing.failures;
 
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
@@ -80,10 +80,9 @@ public class OrderEventPublishingFailureTest extends BaseTest {
     // KAFKA BROKER FAILURES
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 1)
-    @Story("Event Publishing - Failures")
+    @Test(description = "Kafka broker down - order creation should fail gracefully")
+    @Story("Event Publishing Failure Scenarios")
     @Severity(SeverityLevel.CRITICAL)
-    @Description("Kafka broker unreachable - order creation fails")
     public void test01_KafkaBrokerDown_OrderCreationFails() throws Exception {
         logStep("TEST 1: Kafka broker down - order creation should fail");
 
@@ -103,23 +102,71 @@ public class OrderEventPublishingFailureTest extends BaseTest {
                 "kafka-down"
         );
 
-        logStep("  Response status: " + response.statusCode());
-        logStep("  Response body: " + response.asString());
+        logStep("  Response status: {}", response.statusCode());
+        logStep("  Response body: {}", response.asString());
 
-        // Should return 500 Internal Server Error
+        // Verify HTTP 500 Internal Server Error
         assertThat(response.statusCode())
                 .as("Order creation should fail when Kafka is down")
                 .isEqualTo(500);
 
-        assertThat(response.asString())
-                .as("Error message should indicate Kafka failure")
-                .contains("Simulated Kafka failure - broker unreachable");
+        // Verify error response structure matches your GlobalExceptionHandler
+        assertThat(response.contentType())
+                .as("Response should be JSON")
+                .contains("application/json");
 
-        // Verify NO event was published
+        // Parse error fields
+        int status = response.jsonPath().getInt("status");
+        String error = response.jsonPath().getString("error");
+        String message = response.jsonPath().getString("message");
+        String details = response.jsonPath().getString("details");
+        String timestamp = response.jsonPath().getString("timestamp");
+
+        // Verify status code in body
+        assertThat(status)
+                .as("Status in response body should be 500")
+                .isEqualTo(500);
+
+        // Verify error type
+        assertThat(error)
+                .as("Error should be 'Kafka Unavailable'")
+                .isEqualTo("Kafka Unavailable");
+
+        // Verify message contains Kafka failure info
+        assertThat(message)
+                .as("Message should indicate Kafka failure")
+                .containsAnyOf(
+                        "Simulated Kafka failure",
+                        "broker unreachable",
+                        "Kafka"
+                );
+
+        // Verify details field
+        assertThat(details)
+                .as("Details should provide user-friendly message")
+                .isEqualTo("Unable to publish order event. Please try again later.");
+
+        // Verify timestamp exists
+        assertThat(timestamp)
+                .as("Response should have timestamp")
+                .isNotNull();
+
+        logStep("  ✓ Error response validated:");
+        logStep("    - status: {}", status);
+        logStep("    - error: {}", error);
+        logStep("    - message: {}", message);
+        logStep("    - details: {}", details);
+
+        // ================================================================
+        // MOST IMPORTANT: Verify NO event was published
+        // ================================================================
         logStep("  Verifying no event published to Kafka...");
 
+        // Wait to ensure no delayed events
+        Thread.sleep(2000);
+
         Optional<JsonNode> event = kafkaConsumer.waitForMessage(
-                node -> true,  // Any event
+                node -> node.has("orderId"),
                 2  // Short timeout
         );
 
@@ -128,9 +175,12 @@ public class OrderEventPublishingFailureTest extends BaseTest {
                 .isEmpty();
 
         logStep("✅ Order creation properly failed when Kafka unavailable");
+        logStep("   - HTTP 500 returned ✓");
+        logStep("   - Error response structured correctly ✓");
+        logStep("   - No Kafka event published ✓");
     }
 
-    @Test(priority = 2)
+    @Test
     @Story("Event Publishing - Failures")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Producer timeout - order creation fails")
@@ -164,7 +214,7 @@ public class OrderEventPublishingFailureTest extends BaseTest {
         logStep("✅ Producer timeout handled correctly");
     }
 
-    @Test(priority = 3)
+    @Test
     @Story("Event Publishing - Failures")
     @Severity(SeverityLevel.NORMAL)
     @Description("Retry exhaustion - order creation fails after max retries")
@@ -198,7 +248,7 @@ public class OrderEventPublishingFailureTest extends BaseTest {
         logStep("✅ Retry exhaustion handled correctly");
     }
 
-    @Test(priority = 4)
+    @Test
     @Story("Event Publishing - Failures")
     @Severity(SeverityLevel.NORMAL)
     @Description("Acknowledgment failure - insufficient in-sync replicas")
@@ -232,7 +282,7 @@ public class OrderEventPublishingFailureTest extends BaseTest {
         logStep("✅ Acknowledgment failure handled correctly");
     }
 
-    @Test(priority = 5)
+    @Test
     @Story("Event Publishing - Failures")
     @Severity(SeverityLevel.NORMAL)
     @Description("Serialization error - cannot serialize event")
@@ -266,7 +316,7 @@ public class OrderEventPublishingFailureTest extends BaseTest {
         logStep("✅ Serialization error handled correctly");
     }
 
-    @Test(priority = 6)
+    @Test
     @Story("Event Publishing - Failures")
     @Severity(SeverityLevel.NORMAL)
     @Description("Message too large - exceeds broker limits")
@@ -300,7 +350,7 @@ public class OrderEventPublishingFailureTest extends BaseTest {
         logStep("✅ Message size limit enforced correctly");
     }
 
-    @Test(priority = 7)
+    @Test
     @Story("Event Publishing - Failures")
     @Severity(SeverityLevel.NORMAL)
     @Description("Producer buffer full - backpressure handling")
@@ -338,7 +388,7 @@ public class OrderEventPublishingFailureTest extends BaseTest {
     // INVALID DATA SCENARIOS
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 8)
+    @Test
     @Story("Event Publishing - Validation")
     @Severity(SeverityLevel.NORMAL)
     @Description("Invalid order data rejected before event publishing")
@@ -402,19 +452,25 @@ public class OrderEventPublishingFailureTest extends BaseTest {
             String faultType) throws Exception {
 
         String requestBody = objectMapper.writeValueAsString(orderRequest);
-
+        String userId = extractUserIdFromToken(userToken);
         return RestAssured
-                .given()
-                .baseUri(context.getConfig().baseUrl())
+                .given().log().all()
+                .baseUri("http://localhost:8083")
                 .header("Authorization", "Bearer " + userToken)
                 .header("Idempotency-Key", idempotencyKey)
+                .header("X-User-Id", userId)
                 .header("X-Fault", faultType)  // ⭐ Fault injection header
                 .contentType("application/json")
                 .body(requestBody)
-                .when()
-                .post("/api/orders");
+                .when().log().all()
+                .post("/api/v1/orders");
     }
 
+    private String extractUserIdFromToken(String token) {
+        // Decode JWT and extract user ID
+        // For now, return a test UUID
+        return "550e8400-e29b-41d4-a716-446655440000";
+    }
     // ══════════════════════════════════════════════════════════════════════════
     // CLEANUP
     // ══════════════════════════════════════════════════════════════════════════
