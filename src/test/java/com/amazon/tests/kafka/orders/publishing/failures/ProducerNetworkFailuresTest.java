@@ -310,7 +310,7 @@ public class ProducerNetworkFailuresTest extends BaseTest {
 
         return RestAssured
                 .given()
-                .baseUri(context.getConfig().baseUrl())
+                .baseUri("http://localhost:8083")
                 .header("Authorization", "Bearer " + userToken)
                 .header("Idempotency-Key", idempotencyKey)
                 .header("X-User-Id", user.getId().toString())
