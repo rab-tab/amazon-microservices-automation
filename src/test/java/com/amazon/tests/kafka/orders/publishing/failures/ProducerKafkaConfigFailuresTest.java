@@ -1,6 +1,5 @@
 package com.amazon.tests.kafka.orders.publishing.failures;
 
-
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
 import com.amazon.tests.dataseeding.core.SeedingException;
@@ -20,6 +19,7 @@ import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testng.annotations.*;
 
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,18 +27,13 @@ import java.util.concurrent.ExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+    //
+
 /**
  * Producer Kafka Configuration Failures - Realistic Tests
  *
- * Strategy: Testcontainers (actual Kafka config changes)
- *
- * Tests:
- * - Insufficient in-sync replicas (real Kafka config)
- * - Topic does not exist (auto-create disabled)
- * - Producer quotas (real Kafka quotas)
- *
- * Run frequency: Weekly, before releases
- * Execution time: ~2-3 minutes
+ * RANCHER DESKTOP CONFIGURATION
+ * Socket: /Users/rabia/.rd/docker.sock
  */
 @Slf4j
 @Epic("Kafka Producer")
@@ -50,9 +45,31 @@ public class ProducerKafkaConfigFailuresTest extends BaseTest {
     private TestModels.ProductResponse product;
     private String userToken;
 
+    static {
+        // ⭐ RANCHER DESKTOP FIX - Hardcoded for user 'rabia'
+        String rancherSocket = "/Users/rabia/.rd/docker.sock";
+
+        File socketFile = new File(rancherSocket);
+        if (!socketFile.exists()) {
+            log.error("❌ Rancher Desktop socket not found at: {}", rancherSocket);
+            log.error("   Is Rancher Desktop running?");
+            throw new RuntimeException("Rancher Desktop socket not found: " + rancherSocket);
+        }
+
+        log.info("✅ Found Rancher Desktop socket: {}", rancherSocket);
+
+        // Configure Testcontainers to use Rancher socket
+        System.setProperty("DOCKER_HOST", "unix://" + rancherSocket);
+        System.setProperty("testcontainers.docker.socket.override", rancherSocket);
+        System.setProperty("testcontainers.docker.client.strategy",
+                "org.testcontainers.dockerclient.UnixSocketClientProviderStrategy");
+
+        log.info("✅ Testcontainers configured for Rancher Desktop");
+    }
+
     @BeforeSuite
-    public void setupKafka() {
-        logStep("🐳 Starting Kafka container...");
+    public static void setupKafka() {
+        log.info("🐳 Starting Kafka container (Rancher Desktop)...");
 
         kafka = new KafkaContainer(
                 DockerImageName.parse("confluentinc/cp-kafka:7.5.0")
@@ -60,59 +77,86 @@ public class ProducerKafkaConfigFailuresTest extends BaseTest {
 
         kafka.start();
 
-        logStep("✅ Kafka started: {}", kafka.getBootstrapServers());
-        logStep("⚠️  Configure order-service to use: {}", kafka.getBootstrapServers());
+        log.info("✅ Kafka started: {}", kafka.getBootstrapServers());
+        log.info("   Running on Rancher Desktop");
     }
 
     @DynamicPropertySource
     static void kafkaProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        log.info("⚙️  Dynamic property: spring.kafka.bootstrap-servers={}",
+                kafka.getBootstrapServers());
     }
 
     @AfterSuite
     public static void teardownKafka() {
-        if (kafka != null) kafka.stop();
+        log.info("🧹 Stopping Kafka container...");
+        if (kafka != null) {
+            kafka.stop();
+            log.info("✅ Kafka stopped");
+        }
     }
 
     @BeforeMethod
     public void setup() throws SeedingException {
-        user = UserSeeder.builder(context).count(1).build().seed().getFirst();
+        logStep("Setting up test data");
+
+        user = UserSeeder.builder(context)
+                .count(1)
+                .build()
+                .seed()
+                .getFirst();
+
         userToken = context.getCached("user_token_" + user.getId(), String.class);
-        product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
+
+        product = ProductSeeder.builder(context)
+                .count(1)
+                .highStock()
+                .build()
+                .seed()
+                .getFirst();
+
         waitForDataPropagation(1000);
+
+        logStep("✅ Test data ready");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // KAFKA CONFIGURATION TESTS
+    // TESTS
     // ══════════════════════════════════════════════════════════════════════════
-
+    //FAIL
     @Test(description = "REALISTIC: Insufficient ISR (min.insync.replicas > replicas)")
     @Story("Acknowledgment Failures")
     @Severity(SeverityLevel.CRITICAL)
-    public void test04_REALISTIC_InsufficientISR_AckFailure() throws ExecutionException, InterruptedException, Exception {
+    public void test04_REALISTIC_InsufficientISR_AckFailure()
+            throws ExecutionException, InterruptedException, Exception {
+
         logStep("REALISTIC TEST: Insufficient in-sync replicas");
 
-        // ⭐ Create topic with impossible ISR requirement
         AdminClient admin = AdminClient.create(
                 Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
                         kafka.getBootstrapServers())
         );
 
         NewTopic topic = new NewTopic("order.events.isr-test", 1, (short) 1)
-                .configs(Map.of("min.insync.replicas", "2"));  // Impossible!
+                .configs(Map.of("min.insync.replicas", "2"));
 
         admin.createTopics(List.of(topic)).all().get();
 
-        logStep("  ⚙️  Topic created: min.insync.replicas=2, replicas=1");
+        logStep("  ⚙️  Topic created: min.insync.replicas=2, replicas=1 (impossible!)");
 
-        // Create order - should fail
         Response response = createOrder();
 
-        assertThat(response.statusCode()).isEqualTo(500);
+        logStep("  Response status: {}", response.statusCode());
+
+        assertThat(response.statusCode())
+                .as("Order should fail due to insufficient ISR")
+                .isEqualTo(500);
+
         assertThat(response.jsonPath().getString("message"))
                 .containsAnyOf("insufficient", "in-sync", "replicas");
 
-        logStep("✅ Real Kafka ISR failure");
+        logStep("✅ ISR failure verified");
 
         admin.close();
     }
@@ -121,21 +165,20 @@ public class ProducerKafkaConfigFailuresTest extends BaseTest {
     @Story("Topic Existence")
     @Severity(SeverityLevel.CRITICAL)
     public void test09_REALISTIC_TopicDoesNotExist() throws Exception {
-        logStep("REALISTIC TEST: Topic does not exist");
 
+        logStep("REALISTIC TEST: Topic does not exist");
         logStep("  ⚙️  Kafka config: auto.create.topics.enable=false");
 
-        // Attempt to create order on non-existent topic
         Response response = createOrder();
 
-        // May succeed if topic was created by previous test
-        // Or fail if truly doesn't exist
+        logStep("  Response status: {}", response.statusCode());
+
         if (response.statusCode() == 500) {
             assertThat(response.jsonPath().getString("message"))
                     .containsAnyOf("topic", "does not exist");
-            logStep("✅ Topic not found (as expected)");
-        } else {
-            logStep("⚠️  Topic may have been created already");
+            logStep("✅ Topic not found error (expected)");
+        } else if (response.statusCode() == 201) {
+            logStep("⚠️  Order created - topic exists from previous test");
         }
     }
 
@@ -143,16 +186,15 @@ public class ProducerKafkaConfigFailuresTest extends BaseTest {
     @Story("Quota Limits")
     @Severity(SeverityLevel.NORMAL)
     public void test08_REALISTIC_ProducerQuotaExceeded() throws Exception {
-        logStep("REALISTIC TEST: Producer quota exceeded");
 
-        // Note: Requires Kafka quota configuration
-        // For now, simulating with header
+        logStep("REALISTIC TEST: Producer quota exceeded");
+        logStep("  ⚠️  Using fault injection (real quotas require Kafka config)");
 
         Response response = sendOrderRequestWithFault("quota-exceeded");
 
         assertThat(response.statusCode()).isEqualTo(500);
 
-        logStep("✅ Quota enforcement (simulated)");
+        logStep("✅ Quota failure validated");
     }
 
     // ══════════════════════════════════════════════════════════════════════════

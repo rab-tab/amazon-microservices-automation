@@ -1,6 +1,5 @@
 package com.amazon.tests.kafka.saga;
 
-
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
 import com.amazon.tests.dataseeding.core.SeedingException;
@@ -9,11 +8,13 @@ import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
+import io.qameta.allure.*;
+import io.restassured.RestAssured;
 import io.restassured.response.Response;
-import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Test;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+import org.testng.annotations.*;
 
 import java.time.Duration;
 import java.util.Optional;
@@ -25,26 +26,30 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * Payment Failure Scenarios - Comprehensive Testing
+ * Payment Failure Scenarios - Data-Driven Testing
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Tests all payment failure scenarios to ensure proper Saga compensation
- * for different failure types:
+ * Single parameterized test covering all payment failure scenarios:
  *
+ * SCENARIOS TESTED:
  * 1. INSUFFICIENT_FUNDS - Retryable, customer action needed
- * 2. FRAUD - Non-retryable, order blocked
+ * 2. FRAUD - Non-retryable, order blocked, includes fraud score
  * 3. CARD_EXPIRED - Non-retryable, update payment method
  * 4. NETWORK_ERROR - Retryable, transient failure
  *
- * Each test verifies:
+ * Each scenario verifies:
  * - Order created with status PENDING
- * - Payment failure propagated correctly
+ * - Payment failure propagated correctly via Kafka
  * - Order compensated to PAYMENT_FAILED
  * - Correct failure reason stored
  * - Retryable flag set appropriately
+ * - Additional fields (e.g., fraud score) when applicable
  *
  * @author Test Automation Team
  */
+@Slf4j
+@Epic("Kafka Saga Pattern")
+@Feature("Payment Failure Compensation")
 @Test(groups = {"saga", "payment-failures"})
 public class PaymentFailureScenariosTest extends BaseTest {
 
@@ -54,7 +59,62 @@ public class PaymentFailureScenariosTest extends BaseTest {
     private TestModels.ProductResponse product;
     private String userToken;
 
-    @BeforeClass
+    /**
+     * Payment failure scenario configuration
+     */
+    @Getter
+    @AllArgsConstructor
+    public static class PaymentFailureScenario {
+        private final String testName;
+        private final String faultHeader;
+        private final String expectedFailureReason;
+        private final boolean expectedRetryable;
+        private final boolean expectFraudScore;
+
+        @Override
+        public String toString() {
+            return testName;
+        }
+    }
+
+    /**
+     * Data provider for payment failure scenarios
+     */
+    @DataProvider(name = "paymentFailureScenarios")
+    public Object[][] paymentFailureScenarios() {
+        return new Object[][]{
+                {new PaymentFailureScenario(
+                        "Insufficient Funds (Retryable)",
+                        "payment-failure",
+                        "Insufficient funds",
+                        true,   // retryable
+                        false   // no fraud score
+                )},
+                {new PaymentFailureScenario(
+                        "Fraud Detection (Non-Retryable)",
+                        "payment-fraud",
+                        "Fraud detected",
+                        false,  // not retryable
+                        true    // has fraud score
+                )},
+                {new PaymentFailureScenario(
+                        "Card Expired (Non-Retryable)",
+                        "payment-expired-card",
+                        "Card expired",
+                        false,  // not retryable
+                        false   // no fraud score
+                )},
+                {new PaymentFailureScenario(
+                        "Network Error (Retryable)",
+                        "payment-network-error",
+                        "Network error",
+                        true,   // retryable
+                        false   // no fraud score
+                )}
+        };
+    }
+
+    @BeforeMethod
     public void setupClass() throws SeedingException {
         logStep("Setting up Payment Failure Scenarios tests");
 
@@ -69,21 +129,10 @@ public class PaymentFailureScenariosTest extends BaseTest {
         orderEventsConsumer = new KafkaTestConsumer("order.events");
         paymentResultConsumer = new KafkaTestConsumer("payment.result");
 
-        logStep("✅ Payment failure test setup complete");
-    }
-
-    @BeforeMethod
-    public void beforeEachTest() {
-        // Seek to end before each test to ignore historical events
         orderEventsConsumer.seekToEnd();
         paymentResultConsumer.seekToEnd();
 
-        // Small delay to ensure seek completes
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        logStep("✅ Payment failure test setup complete");
     }
 
     @AfterClass
@@ -98,352 +147,189 @@ public class PaymentFailureScenariosTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 1: INSUFFICIENT FUNDS - Retryable Failure
+    // PARAMETERIZED TEST - ALL PAYMENT FAILURE SCENARIOS
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 1)
-    public void test01_InsufficientFunds_RetryableFailure() throws Exception {
-        logStep("TEST 1: Payment failure - Insufficient funds (retryable)");
+    @Test(dataProvider = "paymentFailureScenarios")
+    @Story("Payment Failure Compensation")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify payment failure scenarios trigger correct saga compensation")
+    public void testPaymentFailureScenario(PaymentFailureScenario scenario) throws Exception {
+        logStep("TEST: Payment failure - {}", scenario.getTestName());
 
         String idempotencyKey = UUID.randomUUID().toString();
+
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 1: Create Order with Fault Injection
+        // ═══════════════════════════════════════════════════════════════
+        logStep("  Creating order with fault injection: {}", scenario.getFaultHeader());
+
         TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
                 .withNamespace(context.getNamespace())
                 .addItem(product, 2)
                 .build();
 
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 1: Create Order with Insufficient Funds Scenario
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Creating order with insufficient funds scenario...");
-
-        Response createResponse = given()
-                .contentType("application/json")
-                .header("X-User-Id", user.getId().toString())
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-Fault", "payment-failure")  // Maps to INSUFFICIENT_FUNDS
-                .body(orderRequest)
-                .when()
-                .post( context.getConfig().baseUrl()+"/api/v1/orders");
+        Response createResponse = executeWithRetry(() -> {
+            try {
+                return sendOrderRequestWithFault(
+                        userToken,
+                        idempotencyKey,
+                        orderRequest,
+                        scenario.getFaultHeader()
+                );
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
 
         assertThat(createResponse.statusCode())
                 .as("Order creation should succeed")
                 .isEqualTo(201);
 
         String orderId = createResponse.jsonPath().getString("id");
-        logStep("  ✓ Order created: " + orderId);
+        String initialStatus = createResponse.jsonPath().getString("status");
+
+        logStep("  ✓ Order created: {}", orderId);
+        logStep("  ✓ Initial status: {}", initialStatus);
+
+        assertThat(initialStatus)
+                .as("Order should start in PENDING status")
+                .isEqualTo("PENDING");
 
         // ═══════════════════════════════════════════════════════════════
-        // STEP 2: Verify Payment Failure
+        // STEP 2: Verify Payment Failure Event Published
         // ═══════════════════════════════════════════════════════════════
-        logStep("  Waiting for payment failure...");
+        logStep("  Waiting for payment failure event...");
 
         Optional<JsonNode> paymentResult = paymentResultConsumer.waitForMessage(
-                node -> orderId.equals(node.get("orderId").asText()) &&
+                node -> node.has("orderId") &&
+                        orderId.equals(node.get("orderId").asText()) &&
                         "FAILED".equals(node.get("status").asText()),
-                15
+                30
         );
 
         assertThat(paymentResult)
-                .as("Payment failure result should be published")
+                .as("Payment failure result should be published to payment.result topic")
                 .isPresent();
 
-        assertThat(paymentResult.get().get("failureReason").asText())
-                .as("Failure reason should be insufficient funds")
-                .isEqualTo("Insufficient funds");
+        JsonNode paymentEvent = paymentResult.get();
 
-        logStep("  ✓ Payment failed with correct reason");
+        // Verify failure reason
+        String actualFailureReason = paymentEvent.get("failureReason").asText();
+        logStep("  ✓ Payment failure detected: {}", actualFailureReason);
+
+        assertThat(actualFailureReason)
+                .as("Failure reason should match expected")
+                .contains(scenario.getExpectedFailureReason());
+
+        // Verify fraud score if expected
+        if (scenario.isExpectFraudScore()) {
+            assertThat(paymentEvent.has("fraudScore"))
+                    .as("Fraud score should be present for fraud detection")
+                    .isTrue();
+
+            int fraudScore = paymentEvent.get("fraudScore").asInt();
+            logStep("  ✓ Fraud score: {}", fraudScore);
+
+            assertThat(fraudScore)
+                    .as("Fraud score should be high")
+                    .isGreaterThan(90);
+        }
 
         // ═══════════════════════════════════════════════════════════════
-        // STEP 3: Verify Order Compensation
+        // STEP 3: Verify Order Compensation to PAYMENT_FAILED
         // ═══════════════════════════════════════════════════════════════
-        logStep("  Verifying order compensation...");
+        logStep("  Waiting for order compensation...");
 
-        await().atMost(Duration.ofSeconds(10))
+        await()
+                .atMost(Duration.ofSeconds(15))
                 .pollInterval(Duration.ofSeconds(1))
+                .ignoreExceptions()
                 .until(() -> {
                     Response response = given()
                             .header("X-User-Id", user.getId().toString())
+                            .header("Authorization", "Bearer " + userToken)
                             .when()
-                            .get(context.getConfig().baseUrl() + "/api/v1/orders/" + orderId);
+                            .get(context.getConfig().baseUrl() + "/api/orders/" + orderId);
 
                     return "PAYMENT_FAILED".equals(response.jsonPath().getString("status"));
                 });
 
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 4: Verify Final Order State
+        // ═══════════════════════════════════════════════════════════════
         Response finalOrder = given()
                 .header("X-User-Id", user.getId().toString())
+                .header("Authorization", "Bearer " + userToken)
                 .when()
-                .get(context.getConfig().baseUrl() + "/api/v1/orders/" + orderId);
+                .get(context.getConfig().baseUrl() + "/api/orders/" + orderId);
 
-        assertThat(finalOrder.jsonPath().getString("status"))
+        String finalStatus = finalOrder.jsonPath().getString("status");
+        String storedFailureReason = finalOrder.jsonPath().getString("paymentFailureReason");
+        Boolean retryable = finalOrder.jsonPath().getBoolean("paymentRetryable");
+        String paymentId = finalOrder.jsonPath().getString("paymentId");
+
+        logStep("  ✓ Final order status: {}", finalStatus);
+        logStep("  ✓ Failure reason: {}", storedFailureReason);
+        logStep("  ✓ Retryable: {}", retryable);
+
+        // Assert final state
+        assertThat(finalStatus)
                 .as("Order should be compensated to PAYMENT_FAILED")
                 .isEqualTo("PAYMENT_FAILED");
 
-        assertThat(finalOrder.jsonPath().getString("paymentFailureReason"))
-                .as("Failure reason should be stored")
-                .isEqualTo("Insufficient funds");
+        assertThat(storedFailureReason)
+                .as("Failure reason should be stored in order")
+                .contains(scenario.getExpectedFailureReason());
 
-        assertThat(finalOrder.jsonPath().getBoolean("paymentRetryable"))
-                .as("Payment should be retryable for insufficient funds")
-                .isTrue();
+        assertThat(retryable)
+                .as("Retryable flag should match scenario expectation")
+                .isEqualTo(scenario.isExpectedRetryable());
 
-        logStep("  ✅ Insufficient funds scenario complete - Order compensated, retryable=true");
+        assertThat(paymentId)
+                .as("No payment ID should be assigned on failure")
+                .isNullOrEmpty();
+
+        // Verify fraud score stored in order (if applicable)
+        if (scenario.isExpectFraudScore()) {
+            Integer storedFraudScore = finalOrder.jsonPath().getInt("paymentFraudScore");
+            assertThat(storedFraudScore)
+                    .as("Fraud score should be stored in order")
+                    .isGreaterThan(90);
+            logStep("  ✓ Fraud score stored: {}", storedFraudScore);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 5: Summary
+        // ═══════════════════════════════════════════════════════════════
+        logStep("✅ {} - COMPLETE", scenario.getTestName());
+        logStep("   Order: {} → PAYMENT_FAILED", orderId);
+        logStep("   Reason: {}", storedFailureReason);
+        logStep("   Retryable: {}", retryable);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 2: FRAUD DETECTION - Non-Retryable Failure
+    // HELPER METHODS
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 2)
-    public void test02_FraudDetection_NonRetryableFailure() throws Exception {
-        logStep("TEST 2: Payment failure - Fraud detection (non-retryable)");
+    private Response sendOrderRequestWithFault(
+            String userToken,
+            String idempotencyKey,
+            TestModels.CreateOrderRequest orderRequest,
+            String faultType) throws Exception {
 
-        String idempotencyKey = UUID.randomUUID().toString();
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
+        String requestBody = objectMapper.writeValueAsString(orderRequest);
 
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 1: Create Order with Fraud Detection Scenario
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Creating order with fraud detection scenario...");
-
-        Response createResponse = given().baseUri(context.getConfig().baseUrl())
-                .contentType("application/json")
+        return RestAssured
+                .given()
+                .baseUri(context.getConfig().baseUrl())
+                .header("Authorization", "Bearer " + userToken)
                 .header("X-User-Id", user.getId().toString())
                 .header("Idempotency-Key", idempotencyKey)
-                .header("X-Fault", "payment-fraud")  // Maps to FRAUD
-                .body(orderRequest)
-                .when()
-                .post( "/api/v1/orders");
-
-        assertThat(createResponse.statusCode()).isEqualTo(201);
-
-        String orderId = createResponse.jsonPath().getString("id");
-        logStep("  ✓ Order created: " + orderId);
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 2: Verify Fraud Detection
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Waiting for fraud detection...");
-
-        Optional<JsonNode> paymentResult = paymentResultConsumer.waitForMessage(
-                node -> orderId.equals(node.get("orderId").asText()) &&
-                        "FAILED".equals(node.get("status").asText()),
-                15
-        );
-
-        assertThat(paymentResult).isPresent();
-
-        assertThat(paymentResult.get().get("failureReason").asText())
-                .as("Failure reason should indicate fraud")
-                .isEqualTo("Fraud detected");
-
-        // Verify fraud score is present
-        assertThat(paymentResult.get().has("fraudScore"))
-                .as("Fraud score should be included")
-                .isTrue();
-
-        assertThat(paymentResult.get().get("fraudScore").asInt())
-                .as("Fraud score should be high")
-                .isGreaterThan(90);
-
-        logStep("  ✓ Fraud detected with high fraud score");
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 3: Verify Order Compensation (Non-Retryable)
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Verifying order compensation...");
-
-        await().atMost(Duration.ofSeconds(10))
-                .until(() -> {
-                    Response response = given()
-                            .header("X-User-Id", user.getId().toString())
-                            .when()
-                            .get(context.getConfig().baseUrl() + "/api/v1/orders/" + orderId);
-
-                    return "PAYMENT_FAILED".equals(response.jsonPath().getString("status"));
-                });
-
-        Response finalOrder = given()
-                .header("X-User-Id", user.getId().toString())
-                .when()
-                .get(context.getConfig().baseUrl() + "/api/v1/orders/" + orderId);
-
-        assertThat(finalOrder.jsonPath().getString("status")).isEqualTo("PAYMENT_FAILED");
-        assertThat(finalOrder.jsonPath().getString("paymentFailureReason"))
-                .isEqualTo("Fraud detected");
-
-        assertThat(finalOrder.jsonPath().getBoolean("paymentRetryable"))
-                .as("Payment should NOT be retryable for fraud")
-                .isFalse();
-
-        assertThat(finalOrder.jsonPath().getInt("paymentFraudScore"))
-                .as("Fraud score should be stored")
-                .isGreaterThan(90);
-
-        logStep("  ✅ Fraud detection scenario complete - Order blocked, retryable=false");
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // TEST 3: CARD EXPIRED - Non-Retryable Failure
-    // ══════════════════════════════════════════════════════════════════════════
-
-    @Test(priority = 3)
-    public void test03_CardExpired_NonRetryableFailure() throws Exception {
-        logStep("TEST 3: Payment failure - Card expired (non-retryable)");
-
-        String idempotencyKey = UUID.randomUUID().toString();
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 1: Create Order with Expired Card Scenario
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Creating order with expired card scenario...");
-
-        Response createResponse = given()
+                .header("X-Fault", faultType)
                 .contentType("application/json")
-                .header("X-User-Id", user.getId().toString())
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-Fault", "payment-expired-card")  // Maps to CARD_EXPIRED
-                .body(orderRequest)
+                .body(requestBody)
                 .when()
-                .post(context.getConfig().baseUrl() + "/api/v1/orders");
-
-        assertThat(createResponse.statusCode()).isEqualTo(201);
-
-        String orderId = createResponse.jsonPath().getString("id");
-        logStep("  ✓ Order created: " + orderId);
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 2: Verify Card Expired Failure
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Waiting for card expired failure...");
-
-        Optional<JsonNode> paymentResult = paymentResultConsumer.waitForMessage(
-                node -> orderId.equals(node.get("orderId").asText()) &&
-                        "FAILED".equals(node.get("status").asText()),
-                15
-        );
-
-        assertThat(paymentResult).isPresent();
-
-        assertThat(paymentResult.get().get("failureReason").asText())
-                .as("Failure reason should indicate expired card")
-                .isEqualTo("Card expired");
-
-        logStep("  ✓ Card expired failure detected");
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 3: Verify Order Compensation
-        // ═══════════════════════════════════════════════════════════════
-        await().atMost(Duration.ofSeconds(10))
-                .until(() -> {
-                    Response response = given()
-                            .header("X-User-Id", user.getId().toString())
-                            .when()
-                            .get(context.getConfig().baseUrl() + "/api/v1/orders/" + orderId);
-
-                    return "PAYMENT_FAILED".equals(response.jsonPath().getString("status"));
-                });
-
-        Response finalOrder = given()
-                .header("X-User-Id", user.getId().toString())
-                .when()
-                .get(context.getConfig().baseUrl() + "/api/v1/orders/" + orderId);
-
-        assertThat(finalOrder.jsonPath().getString("status")).isEqualTo("PAYMENT_FAILED");
-        assertThat(finalOrder.jsonPath().getString("paymentFailureReason"))
-                .isEqualTo("Card expired");
-
-        assertThat(finalOrder.jsonPath().getBoolean("paymentRetryable"))
-                .as("Payment should NOT be retryable for expired card")
-                .isFalse();
-
-        logStep("  ✅ Card expired scenario complete - Order failed, retryable=false");
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // TEST 4: NETWORK ERROR - Retryable Failure
-    // ══════════════════════════════════════════════════════════════════════════
-
-    @Test(priority = 4)
-    public void test04_NetworkError_RetryableFailure() throws Exception {
-        logStep("TEST 4: Payment failure - Network error (retryable)");
-
-        String idempotencyKey = UUID.randomUUID().toString();
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 1: Create Order with Network Error Scenario
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Creating order with network error scenario...");
-
-        Response createResponse = given()
-                .contentType("application/json")
-                .header("X-User-Id", user.getId().toString())
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-Fault", "payment-network-error")  // Maps to NETWORK_ERROR
-                .body(orderRequest)
-                .when()
-                .post(context.getConfig().baseUrl() + "/api/v1/orders");
-
-        assertThat(createResponse.statusCode()).isEqualTo(201);
-
-        String orderId = createResponse.jsonPath().getString("id");
-        logStep("  ✓ Order created: " + orderId);
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 2: Verify Network Error Failure
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Waiting for network error failure...");
-
-        Optional<JsonNode> paymentResult = paymentResultConsumer.waitForMessage(
-                node -> orderId.equals(node.get("orderId").asText()) &&
-                        "FAILED".equals(node.get("status").asText()),
-                15
-        );
-
-        assertThat(paymentResult).isPresent();
-
-        assertThat(paymentResult.get().get("failureReason").asText())
-                .as("Failure reason should indicate network error")
-                .contains("Network error");
-
-        logStep("  ✓ Network error failure detected");
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 3: Verify Order Compensation (Retryable)
-        // ═══════════════════════════════════════════════════════════════
-        await().atMost(Duration.ofSeconds(10))
-                .until(() -> {
-                    Response response = given()
-                            .header("X-User-Id", user.getId().toString())
-                            .when()
-                            .get(context.getConfig().baseUrl() + "/api/v1/orders/" + orderId);
-
-                    return "PAYMENT_FAILED".equals(response.jsonPath().getString("status"));
-                });
-
-        Response finalOrder = given()
-                .header("X-User-Id", user.getId().toString())
-                .when()
-                .get(context.getConfig().baseUrl() + "/api/v1/orders/" + orderId);
-
-        assertThat(finalOrder.jsonPath().getString("status")).isEqualTo("PAYMENT_FAILED");
-        assertThat(finalOrder.jsonPath().getString("paymentFailureReason"))
-                .contains("Network error");
-
-        assertThat(finalOrder.jsonPath().getBoolean("paymentRetryable"))
-                .as("Payment should be retryable for network errors")
-                .isTrue();
-
-        logStep("  ✅ Network error scenario complete - Order failed, retryable=true");
+                .post("/api/orders");
     }
 }

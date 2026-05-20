@@ -253,7 +253,7 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
     // FAILURE PATH - PAYMENT COMPENSATION
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 2)
+    @Test
     @Story("Saga Compensation")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Saga compensation: Payment fails → Order status updated to PAYMENT_FAILED")
@@ -616,14 +616,15 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         String requestBody = objectMapper.writeValueAsString(orderRequest);
 
         return RestAssured
-                .given()
+                .given().log().all()
                 .baseUri(context.getConfig().baseUrl())
                 .header("Authorization", "Bearer " + userToken)
                 .header("Idempotency-Key", idempotencyKey)
+                .header("X-User-Id", user.getId().toString())
                 .header("X-Fault", faultType)  // ⭐ Fault injection
                 .contentType("application/json")
                 .body(requestBody)
-                .when()
+                .when().log().all()
                 .post("/api/orders");
     }
 

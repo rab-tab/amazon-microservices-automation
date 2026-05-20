@@ -1,6 +1,5 @@
 package com.amazon.tests.kafka.saga;
 
-
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
 import com.amazon.tests.dataseeding.core.SeedingException;
@@ -9,9 +8,10 @@ import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
+import io.qameta.allure.*;
 import io.restassured.response.Response;
+import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -26,27 +26,27 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Saga Timeout Scenarios - Async Timeout Handling
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Tests timeout scenarios in Saga pattern:
+ * Tests timeout scenario in Saga pattern when Payment Service doesn't respond.
  *
- * 1. Payment Service Timeout - No response from Payment Service
- * 2. Order remains in PENDING state
- * 3. No compensation occurs (waiting for manual intervention or retry)
- *
- * Real-world scenarios:
+ * REAL-WORLD SCENARIOS:
  * - Payment gateway down
  * - Payment Service crashed
  * - Network partition between services
  * - Kafka consumer lag/down
  *
- * Expected behavior:
+ * EXPECTED BEHAVIOR:
  * - Order created successfully (status: PENDING)
- * - Payment request published to Kafka
- * - No payment result received (timeout simulation)
- * - Order remains PENDING (no automatic compensation)
- * - Manual intervention or retry mechanism needed
+ * - ORDER_CREATED event published to Kafka
+ * - NO payment result received (timeout simulation)
+ * - Order REMAINS in PENDING state (no automatic compensation)
+ * - Order stays queryable throughout
+ * - Manual intervention or retry mechanism needed in production
  *
  * @author Test Automation Team
  */
+@Slf4j
+@Epic("Kafka Saga Pattern")
+@Feature("Saga Timeout Handling")
 @Test(groups = {"saga", "timeout"})
 public class SagaTimeoutTest extends BaseTest {
 
@@ -55,12 +55,11 @@ public class SagaTimeoutTest extends BaseTest {
     private TestModels.UserResponse user;
     private TestModels.ProductResponse product;
     private String userToken;
-    private String BASE_URL;
 
-    @BeforeClass
+    @BeforeMethod
     public void setupClass() throws SeedingException {
-        logStep("Setting up Saga Timeout tests");
-        BASE_URL=context.getConfig().baseUrl();
+        logStep("Setting up Saga Timeout test");
+
         user = UserSeeder.builder(context).count(1).build().seed().getFirst();
         userToken = context.getCached("user_token_" + user.getId(), String.class);
         product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
@@ -73,18 +72,6 @@ public class SagaTimeoutTest extends BaseTest {
         logStep("✅ Saga timeout test setup complete");
     }
 
-    @BeforeMethod
-    public void beforeEachTest() {
-        orderEventsConsumer.seekToEnd();
-        paymentResultConsumer.seekToEnd();
-
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
     @AfterClass
     public void cleanup() {
         if (orderEventsConsumer != null) {
@@ -93,22 +80,23 @@ public class SagaTimeoutTest extends BaseTest {
         if (paymentResultConsumer != null) {
             paymentResultConsumer.close();
         }
-        logStep("✅ Saga timeout test consumers closed");
+        logStep("✅ Saga timeout test cleanup complete");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 1: PAYMENT TIMEOUT - No Response from Payment Service
+    // COMPREHENSIVE TIMEOUT TEST
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 1)
-    public void test01_PaymentTimeout_NoResponseFromPaymentService() throws Exception {
-        logStep("TEST 1: Payment timeout - No response from Payment Service");
+    @Test
+    @Story("Payment Timeout")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Order remains PENDING when Payment Service doesn't respond, stays queryable, no auto-compensation")
+    public void testPaymentTimeout_NoResponseFromPaymentService() throws Exception {
+        logStep("TEST: Payment timeout - No response from Payment Service");
 
+        orderEventsConsumer.seekToEnd();
+        paymentResultConsumer.seekToEnd();
         String idempotencyKey = UUID.randomUUID().toString();
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 2)
-                .build();
 
         // ═══════════════════════════════════════════════════════════════
         // STEP 1: Create Order with Timeout Scenario
@@ -116,14 +104,20 @@ public class SagaTimeoutTest extends BaseTest {
         // ═══════════════════════════════════════════════════════════════
         logStep("  Creating order with payment timeout scenario...");
 
+        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
+                .withNamespace(context.getNamespace())
+                .addItem(product, 2)
+                .build();
+
         Response createResponse = given()
                 .contentType("application/json")
                 .header("X-User-Id", user.getId().toString())
+                .header("Authorization", "Bearer " + userToken)
                 .header("Idempotency-Key", idempotencyKey)
-                .header("X-Fault", "payment-timeout")  // Maps to TIMEOUT
+                .header("X-Fault", "payment-timeout")  // Simulates timeout
                 .body(orderRequest)
                 .when()
-                .post(BASE_URL + "/api/v1/orders");
+                .post(context.getConfig().baseUrl() + "/api/orders");
 
         assertThat(createResponse.statusCode())
                 .as("Order creation should succeed")
@@ -132,8 +126,8 @@ public class SagaTimeoutTest extends BaseTest {
         String orderId = createResponse.jsonPath().getString("id");
         String initialStatus = createResponse.jsonPath().getString("status");
 
-        logStep("  ✓ Order created: " + orderId);
-        logStep("  ✓ Initial status: " + initialStatus);
+        logStep("  ✓ Order created: {}", orderId);
+        logStep("  ✓ Initial status: {}", initialStatus);
 
         assertThat(initialStatus)
                 .as("Order should start in PENDING status")
@@ -142,7 +136,7 @@ public class SagaTimeoutTest extends BaseTest {
         // ═══════════════════════════════════════════════════════════════
         // STEP 2: Verify ORDER_CREATED Event Published
         // ═══════════════════════════════════════════════════════════════
-        logStep("  Verifying ORDER_CREATED event...");
+        logStep("  Verifying ORDER_CREATED event published to Kafka...");
 
         Optional<JsonNode> orderCreatedEvent = orderEventsConsumer.waitForMessage(
                 node -> node.has("eventType") &&
@@ -152,10 +146,10 @@ public class SagaTimeoutTest extends BaseTest {
         );
 
         assertThat(orderCreatedEvent)
-                .as("ORDER_CREATED event should be published")
+                .as("ORDER_CREATED event should be published to order.events")
                 .isPresent();
 
-        logStep("  ✓ ORDER_CREATED event published to order.events");
+        logStep("  ✓ ORDER_CREATED event published successfully");
 
         // ═══════════════════════════════════════════════════════════════
         // STEP 3: Verify NO Payment Result (Timeout)
@@ -164,145 +158,71 @@ public class SagaTimeoutTest extends BaseTest {
         logStep("  Waiting for payment result (expecting timeout)...");
 
         Optional<JsonNode> paymentResult = paymentResultConsumer.waitForMessage(
-                node -> orderId.equals(node.get("orderId").asText()),
-                15  // Wait 15 seconds - should timeout
+                node -> node.has("orderId") &&
+                        orderId.equals(node.get("orderId").asText()),
+                15  // Wait 15 seconds - should timeout with no result
         );
 
         assertThat(paymentResult)
                 .as("Payment result should NOT be published (timeout scenario)")
                 .isEmpty();
 
-        logStep("  ✓ No payment result received (timeout simulated)");
+        logStep("  ✓ No payment result received (timeout confirmed)");
 
         // ═══════════════════════════════════════════════════════════════
-        // STEP 4: Verify Order Remains in PENDING State
-        // No automatic compensation - manual intervention needed
+        // STEP 4: Poll Order Status Over Time - Verify Remains PENDING
+        // Simulates monitoring an order that's "stuck" waiting for payment
         // ═══════════════════════════════════════════════════════════════
-        logStep("  Verifying order remains in PENDING state...");
+        logStep("  Polling order status over 10 seconds to verify it remains PENDING...");
 
-        // Wait a bit to ensure no delayed response
-        Thread.sleep(5000);
+        int pollCount = 10;
+        int pollIntervalMs = 1000;
 
-        Response currentOrder = given()
-                .header("X-User-Id", user.getId().toString())
-                .when()
-                .get(BASE_URL + "/api/v1/orders/" + orderId);
-
-        String currentStatus = currentOrder.jsonPath().getString("status");
-
-        assertThat(currentStatus)
-                .as("Order should remain in PENDING state (no compensation without response)")
-                .isEqualTo("PENDING");
-
-        assertThat(currentOrder.jsonPath().getString("paymentId"))
-                .as("No payment ID should be assigned")
-                .isNull();
-
-        assertThat(currentOrder.jsonPath().getString("paymentFailureReason"))
-                .as("No failure reason should be present")
-                .isNull();
-
-        logStep("  ✓ Order remains in PENDING state (awaiting payment response)");
-        logStep("  ⚠️  Manual intervention or retry mechanism would be needed in production");
-
-        logStep("  ✅ Timeout scenario complete - Order stuck in PENDING, no auto-compensation");
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // TEST 2: DELAYED RESPONSE - Late Payment Response After Timeout
-    // ══════════════════════════════════════════════════════════════════════════
-
-    @Test(priority = 2)
-    public void test02_DelayedResponse_OrderStillInPending() throws Exception {
-        logStep("TEST 2: Delayed response - Order remains PENDING during wait");
-
-        String idempotencyKey = UUID.randomUUID().toString();
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        // ═══════════════════════════════════════════════════════════════
-        // Create order with timeout scenario
-        // ═══════════════════════════════════════════════════════════════
-        Response createResponse = given()
-                .contentType("application/json")
-                .header("X-User-Id", user.getId().toString())
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-Fault", "payment-timeout")
-                .body(orderRequest)
-                .when()
-                .post(BASE_URL + "/api/v1/orders");
-
-        String orderId = createResponse.jsonPath().getString("id");
-        logStep("  ✓ Order created: " + orderId);
-
-        // ═══════════════════════════════════════════════════════════════
-        // Poll order status multiple times - should remain PENDING
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Polling order status over 10 seconds...");
-
-        for (int i = 0; i < 10; i++) {
-            Thread.sleep(1000);
+        for (int i = 0; i < pollCount; i++) {
+            Thread.sleep(pollIntervalMs);
 
             Response currentOrder = given()
                     .header("X-User-Id", user.getId().toString())
+                    .header("Authorization", "Bearer " + userToken)
                     .when()
-                    .get(BASE_URL + "/api/v1/orders/" + orderId);
+                    .get(context.getConfig().baseUrl() + "/api/orders/" + orderId);
 
-            String status = currentOrder.jsonPath().getString("status");
+            String currentStatus = currentOrder.jsonPath().getString("status");
 
-            logStep("    Poll " + (i + 1) + "/10: Status = " + status);
+            logStep("    Poll {}/{}: Status = {}", i + 1, pollCount, currentStatus);
 
-            assertThat(status)
-                    .as("Order should remain PENDING throughout polling")
+            // Verify order remains PENDING (no auto-compensation)
+            assertThat(currentStatus)
+                    .as("Order should remain PENDING throughout polling period")
                     .isEqualTo("PENDING");
+
+            // Verify no payment-related fields are set
+            assertThat(currentOrder.jsonPath().getString("paymentId"))
+                    .as("No payment ID should be assigned")
+                    .isNull();
+
+            assertThat(currentOrder.jsonPath().getString("paymentFailureReason"))
+                    .as("No failure reason should be present")
+                    .isNull();
         }
 
-        logStep("  ✅ Order remained in PENDING state for entire wait period");
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // TEST 3: VERIFY ORDER QUERYABLE - Timeout Doesn't Break Order Retrieval
-    // ══════════════════════════════════════════════════════════════════════════
-
-    @Test(priority = 3)
-    public void test03_TimeoutOrder_StillQueryable() throws Exception {
-        logStep("TEST 3: Timeout order - Still queryable via API");
-
-        String idempotencyKey = UUID.randomUUID().toString();
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
+        logStep("  ✓ Order remained in PENDING state for entire {} second period", pollCount);
 
         // ═══════════════════════════════════════════════════════════════
-        // Create order with timeout
+        // STEP 5: Verify Order Queryability
+        // Ensure timeout doesn't break order retrieval or listing
         // ═══════════════════════════════════════════════════════════════
-        Response createResponse = given()
-                .contentType("application/json")
-                .header("X-User-Id", user.getId().toString())
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-Fault", "payment-timeout")
-                .body(orderRequest)
-                .when()
-                .post(BASE_URL + "/api/v1/orders");
+        logStep("  Verifying order queryability...");
 
-        String orderId = createResponse.jsonPath().getString("id");
-        logStep("  ✓ Order created: " + orderId);
-
-        Thread.sleep(5000);  // Wait for timeout
-
-        // ═══════════════════════════════════════════════════════════════
-        // Verify order is queryable and has correct data
-        // ═══════════════════════════════════════════════════════════════
+        // Query by ID
         Response queriedOrder = given()
                 .header("X-User-Id", user.getId().toString())
+                .header("Authorization", "Bearer " + userToken)
                 .when()
-                .get(BASE_URL + "/api/v1/orders/" + orderId);
+                .get(context.getConfig().baseUrl() + "/api/orders/" + orderId);
 
         assertThat(queriedOrder.statusCode())
-                .as("Order should be queryable")
+                .as("Order should be queryable by ID")
                 .isEqualTo(200);
 
         assertThat(queriedOrder.jsonPath().getString("id"))
@@ -310,19 +230,43 @@ public class SagaTimeoutTest extends BaseTest {
                 .isEqualTo(orderId);
 
         assertThat(queriedOrder.jsonPath().getString("status"))
-                .as("Order status should be PENDING")
+                .as("Final status check - should still be PENDING")
                 .isEqualTo("PENDING");
 
-        // Verify order appears in user's order list
+        logStep("  ✓ Order queryable by ID");
+
+        // Query in order list
         Response userOrders = given()
                 .header("X-User-Id", user.getId().toString())
+                .header("Authorization", "Bearer " + userToken)
                 .when()
-                .get(BASE_URL + "/api/v1/orders");
+                .get(context.getConfig().baseUrl() + "/api/orders");
+
+        assertThat(userOrders.statusCode())
+                .as("Order list should be queryable")
+                .isEqualTo(200);
 
         assertThat(userOrders.jsonPath().getList("orders.id"))
                 .as("Order should appear in user's order list")
                 .contains(orderId);
 
-        logStep("  ✅ Timeout order is fully queryable and appears in order list");
+        logStep("  ✓ Order appears in user's order list");
+
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 6: Summary
+        // ═══════════════════════════════════════════════════════════════
+        logStep("✅ TIMEOUT TEST COMPLETE - All validations passed:");
+        logStep("   1. ✅ Order created successfully");
+        logStep("   2. ✅ ORDER_CREATED event published to Kafka");
+        logStep("   3. ✅ NO payment result received (timeout confirmed)");
+        logStep("   4. ✅ Order remained PENDING for {} seconds (no auto-compensation)", pollCount);
+        logStep("   5. ✅ Order queryable by ID and appears in order list");
+        logStep("");
+        logStep("⚠️  PRODUCTION NOTE:");
+        logStep("   This order would require manual intervention or a retry mechanism.");
+        logStep("   Possible actions:");
+        logStep("   - Retry payment processing");
+        logStep("   - Cancel order after timeout threshold");
+        logStep("   - Alert operations team for investigation");
     }
 }
