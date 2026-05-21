@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+
+<!--
+================================================================================
+SIMPLIFIED DEMO - Only 5 Threads for Easy Debugging
+================================================================================
+
+Configuration:
+  • 5 CREATE threads
+  • 5 GET threads
+  • Total: 10 threads running in parallel
+  • thread-count="20" gives plenty of room
+
+Why this is easy to debug:
+  ✓ Can follow individual threads in logs
+  ✓ Can set breakpoints and step through
+  ✓ Can see exact sequence of events
+  ✓ Still demonstrates the race condition
+
+================================================================================
+-->
+
+<suite name="Simple Shared Spec Demo - 5 Threads Only"
+       parallel="methods"
+       thread-count="20"
+       verbose="1">
+
+    <test name="Shared RequestSpec Problem - Simplified">
+        <classes>
+            <class name="com.amazon.tests.multithreadingFailureScenarios.SimpleSharedSpecDemo">
+                <methods>
+                    <include name="testCreateOrder"/>
+                    <include name="testGetOrder"/>
+                </methods>
+            </class>
+        </classes>
+    </test>
+
+</suite>

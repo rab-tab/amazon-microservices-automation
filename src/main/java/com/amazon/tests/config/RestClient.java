@@ -370,6 +370,21 @@ public class RestClient {
                 .response();
     }
 
+    public Response delete(String endpoint, String accessToken) {
+        log.debug("DELETE {}", endpoint);
+
+        return given().log().all()
+                .header("Authorization", "Bearer " + accessToken)
+                .header("X-User-Role","ADMIN")
+                .when()
+                .delete(endpoint)
+                .then()
+                .log().ifError()
+                .extract()
+                .response();
+    }
+
+
     /**
      * DELETE request with query params
      *

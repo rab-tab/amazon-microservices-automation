@@ -17,6 +17,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -474,7 +475,7 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
     @Story("Event Ordering")
     @Severity(SeverityLevel.NORMAL)
     @Description("Order events maintain consistency even with out-of-order delivery")
-    public void test05_EventOrdering_SagaStateConsistency() {
+    public void test05_EventOrdering_SagaStateConsistency() throws InterruptedException {
         logStep("TEST 5: Event ordering - saga state consistency");
 
         String idempotencyKey = UUID.randomUUID().toString();
@@ -496,40 +497,91 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         logStep("  ✓ Order created: " + orderId);
 
         // ═══════════════════════════════════════════════════════════════
-        // Verify: Events published in correct order
+        // Collect ALL events for this order (wait for Saga to complete)
         // ═══════════════════════════════════════════════════════════════
-        // 1. ORDER_CREATED first
-        Optional<JsonNode> orderCreated = orderEventsConsumer.waitForMessage(
-                node -> "ORDER_CREATED".equals(node.path("eventType").asText()) &&
-                        orderId.equals(node.path("orderId").asText()),
-                10
+        logStep("  Waiting for Saga to complete...");
+
+        // Wait for final status update (indicates Saga completed)
+        await()
+                .atMost(Duration.ofSeconds(45))
+                .pollInterval(Duration.ofSeconds(1))
+                .ignoreExceptions()
+                .until(() -> !getOrderStatus(orderId).equals("PENDING"));
+
+        logStep("  ✓ Saga completed");
+
+        // ═══════════════════════════════════════════════════════════════
+        // NOW collect all order events (they're all in Kafka already)
+        // ═══════════════════════════════════════════════════════════════
+        Thread.sleep(2000);  // Brief wait to ensure all events are in Kafka
+
+        List<JsonNode> allOrderEvents = orderEventsConsumer.collectMessages(
+                node -> orderId.equals(node.path("orderId").asText()),
+                5  // Short timeout since events are already there
         );
 
-        assertThat(orderCreated).isPresent();
-        logStep("  ✓ ORDER_CREATED event received");
+        logStep("  ✓ Collected {} events for order {}", allOrderEvents.size(), orderId);
 
-        // 2. Then payment result
+        // ═══════════════════════════════════════════════════════════════
+        // Verify: Events exist and are in correct logical order
+        // ═══════════════════════════════════════════════════════════════
+
+        // 1. Find ORDER_CREATED
+        Optional<JsonNode> orderCreated = allOrderEvents.stream()
+                .filter(node -> "ORDER_CREATED".equals(node.path("eventType").asText()))
+                .findFirst();
+
+        assertThat(orderCreated)
+                .as("ORDER_CREATED event should be published")
+                .isPresent();
+
+        logStep("  ✓ ORDER_CREATED event found");
+
+        // 2. Verify payment result exists
         Optional<JsonNode> paymentResult = paymentResultConsumer.waitForMessage(
                 node -> orderId.equals(node.path("orderId").asText()),
-                30
+                5  // Short timeout, should already be there
         );
 
-        assertThat(paymentResult).isPresent();
-        logStep("  ✓ Payment result event received");
+        assertThat(paymentResult)
+                .as("Payment result should be published")
+                .isPresent();
 
-        // 3. Then ORDER_STATUS_UPDATED
-        Optional<JsonNode> statusUpdate = orderEventsConsumer.waitForMessage(
-                node -> "ORDER_STATUS_UPDATED".equals(node.path("eventType").asText()) &&
-                        orderId.equals(node.path("orderId").asText()),
-                15
-        );
+        logStep("  ✓ Payment result event found");
 
-        assertThat(statusUpdate).isPresent();
-        logStep("  ✓ ORDER_STATUS_UPDATED event received");
+        // 3. Find ORDER_STATUS_UPDATED
+        Optional<JsonNode> statusUpdate = allOrderEvents.stream()
+                .filter(node -> "ORDER_STATUS_UPDATED".equals(node.path("eventType").asText()))
+                .findFirst();
 
-        logStep("✅ Event ordering maintained - saga consistency validated");
+        assertThat(statusUpdate)
+                .as("ORDER_STATUS_UPDATED event should be published")
+                .isPresent();
+
+        logStep("  ✓ ORDER_STATUS_UPDATED event found");
+
+        // ═══════════════════════════════════════════════════════════════
+        // Verify: Timestamps show correct ordering
+        // ═══════════════════════════════════════════════════════════════
+        long orderCreatedTime = orderCreated.get().path("timestamp").asLong();
+        long paymentTime = paymentResult.get().path("timestamp").asLong();
+        long statusUpdateTime = statusUpdate.get().path("timestamp").asLong();
+
+        assertThat(orderCreatedTime)
+                .as("ORDER_CREATED should happen before payment")
+                .isLessThan(paymentTime);
+
+        assertThat(paymentTime)
+                .as("Payment should complete before status update")
+                .isLessThan(statusUpdateTime);
+
+        logStep("  ✓ Event timestamps in correct order:");
+        logStep("    1. ORDER_CREATED: {}", orderCreatedTime);
+        logStep("    2. PAYMENT_RESULT: {}", paymentTime);
+        logStep("    3. ORDER_STATUS_UPDATED: {}", statusUpdateTime);
+
+        logStep("✅ Event ordering validated - saga consistency maintained");
     }
-
     // ══════════════════════════════════════════════════════════════════════════
     // TIMEOUT HANDLING - PAYMENT SERVICE DOWN
     // ══════════════════════════════════════════════════════════════════════════

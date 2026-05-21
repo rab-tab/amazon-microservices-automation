@@ -183,7 +183,7 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
             log.debug("✅ Verified token in cache: {}", cachedToken.substring(0, 20) + "...");
 
             // Register cleanup
-            context.registerCleanup("User: " + user.getEmail(), () -> deleteUser(user.getId()));
+            context.registerCleanup("User: " + user.getEmail(), () -> deleteUser(user.getId(),accessToken));
 
             log.info("Created user: {} ({})", user.getEmail(), user.getId());
             return user;
@@ -200,10 +200,10 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
         createdUsers.clear();
     }
 
-    private void deleteUser(String userId) {
+    private void deleteUser(String userId,String accessToken) {
         try {
             context.getRestClient().delete(
-                    context.getConfig().baseUrl() + "/api/users/" + userId
+                    context.getConfig().baseUrl() + "/api/users/" + userId,accessToken
             );
             log.debug("Deleted user: {}", userId);
         } catch (Exception e) {
