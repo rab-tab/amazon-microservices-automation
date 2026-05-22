@@ -20,7 +20,7 @@ public class AuthUtils {
      */
     public static TestModels.AuthResponse registerUser(TestModels.RegisterRequest request) {
         Response response = given().log().all()
-                .spec(RestAssuredConfig.getUserServiceSpec())
+                .spec(RestAssuredConfig.getBaseSpec())
                 .body(request)
                 .when()
                 .post("/api/users/register")
