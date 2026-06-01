@@ -197,13 +197,13 @@ public class RestClient {
         log.debug("POST {} with body: {} -> {}",
                 endpoint, body.getClass().getSimpleName(), responseType.getSimpleName());
 
-        return given()
+        return given().log().all()
                 .spec(spec)
                 .body(body)
                 .when()
                 .post(endpoint)
                 .then()
-                .log().ifError()
+                .log().all()
                 .extract()
                 .as(responseType);
     }

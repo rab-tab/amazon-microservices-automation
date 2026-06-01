@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+
+<suite name="Interview - ThreadLocal Test Context"
+       parallel="methods"
+       thread-count="2"
+       verbose="1">
+
+    <test name="ThreadLocal Test Data Isolation Demo">
+        <classes>
+            <class name="com.amazon.tests.multithreadingFailureScenarios.Interview_ThreadLocalTestContext">
+                <methods>
+                    <include name="demo1_createOrder_withoutThreadLocal"/>
+                    <include name="demo2_getOrder_withoutThreadLocal"/>
+                </methods>
+            </class>
+        </classes>
+    </test>
+
+</suite>

@@ -44,7 +44,7 @@ public class ParallelHealthCheckDemo extends BaseTest {
 
     static {
         // Service name → Health endpoint
-        SERVICES.put("User Service", "/api/v1/users/health");
+        SERVICES.put("User Service", "/api/v1/users");
         SERVICES.put("Product Service", "/api/v1/products/health");
         SERVICES.put("Order Service", "/api/v1/orders/health");
         SERVICES.put("Payment Service", "/api/v1/payments/health");
