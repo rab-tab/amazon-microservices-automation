@@ -64,6 +64,31 @@
             <artifactId>allure-rest-assured</artifactId>
             <version>${allure.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <version>1.9.21</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- ReportPortal TestNG agent -->
+        <dependency>
+            <groupId>com.epam.reportportal</groupId>
+            <artifactId>agent-java-testng</artifactId>
+            <version>5.3.0</version>
+        </dependency>
+        <!-- Logback classic - required for RP logger to work -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.4.14</version>
+        </dependency>
+
+        <!-- RP logback appender -->
+        <dependency>
+            <groupId>com.epam.reportportal</groupId>
+            <artifactId>logger-java-logback</artifactId>
+            <version>5.4.0</version>
+        </dependency>
 
         <!-- Jackson -->
         <dependency>
@@ -263,6 +288,57 @@
                 <version>2.12.0</version>
                 <configuration>
                     <reportVersion>${allure.version}</reportVersion>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>com.amazon.tests.listeners.AllureTestListener</value>
+                        </property>
+                    </properties>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <argLine>
+                        -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/1.9.21/aspectjweaver-1.9.21.jar"
+                    </argLine>
+                    <suiteXmlFiles>
+                        <suiteXmlFile>src/test/resources/your-suite.xml</suiteXmlFile>
+                    </suiteXmlFiles>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+                <configuration>
+                    <suiteXmlFiles>
+                        <suiteXmlFile>src/test/resources/testng.xml</suiteXmlFile>
+                    </suiteXmlFiles>
+                    <argLine>-Drp.enable=true</argLine>
+                    <systemPropertyVariables>
+                        <rp.enable>true</rp.enable>
+                    </systemPropertyVariables>
+                    <!-- This is the critical part -->
+                    <properties>
+                        <property>
+                            <name>usedefaultlisteners</name>
+                            <value>false</value>
+                        </property>
+                        <property>
+                            <name>listener</name>
+                            <value>com.epam.reportportal.testng.ReportPortalTestNGListener</value>
+                        </property>
+                    </properties>
                 </configuration>
             </plugin>
         </plugins>

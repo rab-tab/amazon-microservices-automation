@@ -7,9 +7,9 @@ import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.config.TestConfig;
 import com.amazon.tests.dataseeding.cleanup.CleanupManager;
 import com.amazon.tests.dataseeding.core.SeedingContext;
-import com.amazon.tests.listeners.AllureTestListener;
 import com.amazon.tests.utils.DatabaseValidator;
 import com.amazon.tests.utils.RetryHandler;
+import com.epam.reportportal.testng.ReportPortalTestNGListener;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.qameta.allure.Allure;
@@ -31,7 +31,7 @@ import java.util.function.Supplier;
  * - Data seeding framework (SeedingContext + CleanupManager)
  */
 @Slf4j
-@Listeners(AllureTestListener.class)
+@Listeners(ReportPortalTestNGListener.class)
 public abstract class BaseTest {
 
     // ==========================================
@@ -172,7 +172,7 @@ public abstract class BaseTest {
     // ==========================================
 
     @AfterSuite(alwaysRun = true)
-    public void tearDownSuite() {
+    public void tearDownSuite() throws InterruptedException {
         log.info("════════════════════════════════════════════════════════════");
         log.info("Shutting down test suite...");
 
@@ -182,6 +182,7 @@ public abstract class BaseTest {
         // Flush Extent Reports
         ExtentReportManager.getInstance().flush();
 
+        Thread.sleep(5000);
         log.info("✓ Test suite shutdown complete");
         log.info("════════════════════════════════════════════════════════════");
     }

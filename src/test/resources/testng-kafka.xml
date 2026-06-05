@@ -8,11 +8,29 @@
     </packages>-->
     <!--<classes><class name="validation.failures.kafka.com.amazon.tests.UserRegistrationValidationTest"/></classes>-->
     <classes>
-     <!-- <class name="consistency.failures.kafka.com.amazon.tests.UserEventConsistencyTest"/>
-      <class name="validation.failures.kafka.com.amazon.tests.UserRegistrationValidationTest"/>
-      <class name="idempotency.failures.kafka.com.amazon.tests.UserEventIdempotencyTest"/>
-      <class name="resilience.failures.kafka.com.amazon.tests.UserEventResilienceTest"/>-->
-
+      <class name="com.amazon.tests.kafka.failures.resilience.UserEventResilienceTest"/>
+      <class name="com.amazon.tests.kafka.failures.consistency.UserEventConsistencyTest"/>
+      <class name="com.amazon.tests.kafka.failures.validation.UserRegistrationValidationTest"/>
+      <class name="com.amazon.tests.kafka.orders.consumption.negative.deserialization.KafkaDeserializationFailureTests"/>
+      <class name="com.amazon.tests.kafka.orders.consumption.negative.dlq.KafkaDLQTests"/>
+      <class name="com.amazon.tests.kafka.orders.consumption.negative.idempotency.KafkaConsumerIdempotencyTest"/>
+      <class name="com.amazon.tests.kafka.orders.consumption.negative.idempotency.KafkaRebalanceIdempotencyTest"/>
+      <class name="com.amazon.tests.kafka.orders.consumption.negative.offsetManagement.KafkaOffsetManagementTest"/>
+      <class name="com.amazon.tests.kafka.saga.OrderPaymentSagaFlowTest"/>
+      <class name="com.amazon.tests.kafka.saga.PaymentFailureScenariosTest"/>
+      <class name="com.amazon.tests.kafka.saga.SagaCancellationTest"/>
+      <class name="com.amazon.tests.kafka.saga.SagaPartialFailureRecoveryTest"/>
+      <class name="com.amazon.tests.kafka.saga.SagaTimeoutTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.success.OrderEventPublishingTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.success.OrderPublishingIdempotency"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.ConfigurationFailures"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.OrderEventPublishingFailureTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerConfigurationFailuresTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerDataFailuresTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerKafkaConfigFailuresTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerLifecycleFailuresTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerNetworkFailuresTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerTopicFailuresTest"/>
     </classes>
   </test>
 </suite>

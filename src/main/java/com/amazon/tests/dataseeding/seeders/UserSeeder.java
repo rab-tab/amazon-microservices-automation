@@ -190,7 +190,7 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
 
         } catch (Exception e) {
             log.error("Failed to create user: {}", request.getEmail(), e);
-            throw new RuntimeException("User creation failed", e);
+            throw new RuntimeException("User creation failed ", e);
         }
     }
 

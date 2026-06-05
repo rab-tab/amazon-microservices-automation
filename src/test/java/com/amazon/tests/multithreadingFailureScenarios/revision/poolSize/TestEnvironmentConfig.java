@@ -1,14 +1,10 @@
 package com.amazon.tests.multithreadingFailureScenarios.revision.poolSize;
 
-package com.amazon.tests.config;
 
-import org.aeonbits.owner.Config;
-import org.aeonbits.owner.ConfigFactory;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Single source of truth for all test environment configuration.

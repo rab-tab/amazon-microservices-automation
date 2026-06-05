@@ -1,9 +1,17 @@
 package com.amazon.tests.models;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import lombok.*;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class TestModels {
@@ -140,6 +148,7 @@ public class TestModels {
         private String shippingAddress;
         private String paymentId;
         private String trackingNumber;
+        @JsonDeserialize(using = LocalDateTimeToStringDeserializer.class)
         private String createdAt;
     }
 
@@ -196,5 +205,36 @@ public class TestModels {
         private int size;
         private long totalElements;
         private int totalPages;
+    }
+    // Add this class inside TestModels.java (or as a separate file)
+    public static class LocalDateTimeToStringDeserializer extends JsonDeserializer<String> {
+
+        private static final DateTimeFormatter FORMATTER =
+                DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+
+        @Override
+        public String deserialize(JsonParser p, DeserializationContext ctx) throws IOException {
+            JsonToken token = p.currentToken();
+
+            // Handle ISO string: "2024-01-15T10:30:45"
+            if (token == JsonToken.VALUE_STRING) {
+                return p.getText();
+            }
+
+            // Handle array: [2024, 1, 15, 10, 30, 45, 123456789]
+            if (token == JsonToken.START_ARRAY) {
+                int[] parts = p.readValueAs(int[].class);
+                return String.format("%04d-%02d-%02dT%02d:%02d:%02d",
+                        parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
+            }
+
+            // Handle object: {"year":2024,"monthValue":1,...}
+            if (token == JsonToken.START_OBJECT) {
+                LocalDateTime ldt = p.readValueAs(LocalDateTime.class);
+                return ldt.format(FORMATTER);
+            }
+
+            return p.getText();
+        }
     }
 }

@@ -91,12 +91,12 @@ public class KafkaConsumerIdempotencyTest extends BaseTest {
     // TEST 15: DUPLICATE EVENT PROCESSING
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 15)
+    @Test
     @Story("Duplicate Event Processing")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Same ORDER_CREATED event consumed twice - verify only ONE payment created")
-    public void test15_DuplicateEventProcessing_OnlyOnePaymentCreated() throws Exception {
-        logStep("TEST 15: Duplicate event processing");
+    public void test_DuplicateEventProcessing_OnlyOnePaymentCreated() throws Exception {
+        logStep("TEST : Duplicate event processing");
 
         String orderId = UUID.randomUUID().toString();
 
@@ -154,15 +154,15 @@ public class KafkaConsumerIdempotencyTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 16: OUT-OF-ORDER EVENTS
+    // TEST : OUT-OF-ORDER EVENTS
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 16)
+    @Test
     @Story("Out-of-Order Events")
     @Severity(SeverityLevel.CRITICAL)
     @Description("PAYMENT_COMPLETED arrives BEFORE ORDER_CREATED - verify graceful handling")
-    public void test16_OutOfOrderEvents_PaymentBeforeOrder() throws Exception {
-        logStep("TEST 16: Out-of-order events - Payment before Order");
+    public void test_OutOfOrderEvents_PaymentBeforeOrder() throws Exception {
+        logStep("TEST : Out-of-order events - Payment before Order");
 
         String orderId = UUID.randomUUID().toString();
         String paymentId = UUID.randomUUID().toString();
@@ -269,14 +269,14 @@ public class KafkaConsumerIdempotencyTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 17: CONCURRENT PROCESSING (RACE CONDITION)
+    // TEST : CONCURRENT PROCESSING (RACE CONDITION)
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 17)
+    @Test
     @Story("Concurrent Processing")
     @Severity(SeverityLevel.BLOCKER)
     @Description("Same event to multiple partitions - simulate race condition")
-    public void test17_ConcurrentProcessing_OnlyOneSucceeds() throws Exception {
+    public void test_ConcurrentProcessing_OnlyOneSucceeds() throws Exception {
         logStep("TEST 17: Concurrent processing of same event (race condition)");
 
         String orderId = UUID.randomUUID().toString();
@@ -338,14 +338,14 @@ public class KafkaConsumerIdempotencyTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 18: MISSING IDEMPOTENCY KEY
+    // TEST : MISSING IDEMPOTENCY KEY
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 18)
+    @Test
     @Story("Missing Idempotency Key")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Event without orderId - verify rejection and DLQ routing")
-    public void test18_MissingIdempotencyKey_EventRejected() throws Exception {
+    public void test_MissingIdempotencyKey_EventRejected() throws Exception {
         logStep("TEST 18: Event with missing idempotency key (orderId)");
 
         // ═══════════════════════════════════════════════════════════════

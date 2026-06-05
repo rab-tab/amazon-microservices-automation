@@ -1,6 +1,5 @@
 package com.amazon.tests.utils;
 
-package com.amazon.tests.async;
 
 import org.awaitility.Awaitility;
 import java.time.Duration;
@@ -172,7 +171,7 @@ public class AsyncValidator {
         try {
             CompletableFuture
                     .allOf(futures.toArray(new CompletableFuture[0]))
-                    .get(maxTimeout.toSeconds() + 5, TimeUnit.SECONDS);
+                    .get();
 
         } catch (ExecutionException e) {
             throw new AssertionError(

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite name="Order Tests" verbose="1">
+  <listeners>
+   <!-- <listener class-name="com.amazon.tests.listeners.AllureTestListener"/>-->
+    <listener class-name="com.epam.reportportal.testng.ReportPortalTestNGListener"/>
+
+  </listeners>
+  <test name="Order Tests">
+    <classes>
+      <class name="com.amazon.tests.orderCreationFlow.OrderCreationFlowTest"/>
+      <class name="com.amazon.tests.orderCreationFlow.OrderCreationNegativeTest"/>
+      <class name="com.amazon.tests.orderCreationFlow.DistributedIdempotencyTest"/>
+    </classes></test>
+
+</suite>

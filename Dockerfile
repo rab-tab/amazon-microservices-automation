@@ -7,7 +7,6 @@
 # ──────────────────────────────────────────────────────────────────────
 FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
 # Copy only pom.xml first (for dependency caching)
@@ -27,10 +26,14 @@ RUN mvn test-compile -DskipTests
 # ──────────────────────────────────────────────────────────────────────
 FROM maven:3.9-eclipse-temurin-21-alpine
 
-# Install curl for health checks
-RUN apk add --no-cache curl
+# ── CHANGED: added python3 + py3-pip for XML result merging ──────────
+# curl      → health checks (unchanged)
+# python3   → runs merge_results.py in Aggregate Results stage
+# py3-pip   → installs lxml for TestNG XML parsing
+RUN apk add --no-cache curl python3 py3-pip \
+    && pip3 install lxml --break-system-packages \
+    && rm -rf /root/.cache/pip
 
-# Set working directory
 WORKDIR /app
 
 # Copy Maven dependencies from builder stage
@@ -46,17 +49,31 @@ RUN mkdir -p /app/test-results/allure-results \
              /app/test-results/surefire-reports \
              /app/logs
 
-# Environment variables for test configuration
+# ── CHANGED: added parallel runner env vars ──────────────────────────
+# GATEWAY_URL, TEST_ENV, ALLURE_RESULTS_DIR → unchanged
+# CHUNK_INDEX   → which chunk this runner owns (0-based)
+# TOTAL_CHUNKS  → total parallel runners in this build
+#                 defaults to 1 so single-runner mode works without changes
 ENV GATEWAY_URL=http://api-gateway:8080
 ENV TEST_ENV=docker
 ENV ALLURE_RESULTS_DIR=/app/test-results/allure-results
+ENV CHUNK_INDEX=0
+ENV TOTAL_CHUNKS=1
 
 # Health check (optional - validates Maven is working)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD mvn --version || exit 1
 
-# Default command: Run all tests
-CMD ["mvn", "clean", "test"]
+# ── CHANGED: CMD uses CHUNK_INDEX to pick the right suite file ────────
+# When TOTAL_CHUNKS=1 (default), testng-runner-0.xml = full suite → same as before
+# When TOTAL_CHUNKS>1, Jenkins writes testng-runner-N.xml per runner
+#   and mounts it at /app/testng-runner-${CHUNK_INDEX}.xml
+# Shell form (not exec form) is required here so ${CHUNK_INDEX} is expanded
+CMD mvn test \
+    -Dsurefire.suiteXmlFiles=testng-runner-${CHUNK_INDEX}.xml \
+    -Dsurefire.reportsDirectory=target/surefire-reports \
+    --no-transfer-progress \
+    -Dmaven.test.failure.ignore=true
 
 # ──────────────────────────────────────────────────────────────────────
 # Usage Examples:
@@ -64,22 +81,34 @@ CMD ["mvn", "clean", "test"]
 # Build:
 #   docker build -t automation-tests:latest .
 #
-# Run all tests:
+# Run all tests (unchanged — TOTAL_CHUNKS=1 default, needs testng-runner-0.xml):
 #   docker run --rm \
-#     --network microservices_network \
-#     -e GATEWAY_URL=http://api-gateway:8080 \
+#     --network host \
+#     -e GATEWAY_URL=http://localhost:8090 \
+#     -v $(pwd)/testng-runner-0.xml:/app/testng-runner-0.xml:ro \
+#     -v $(pwd)/target/surefire-reports:/app/target/surefire-reports \
 #     automation-tests:latest
 #
-# Run specific test:
+# Run as parallel runner N of M (Jenkins does this automatically):
 #   docker run --rm \
-#     --network microservices_network \
-#     -e GATEWAY_URL=http://api-gateway:8080 \
+#     --network host \
+#     -e CHUNK_INDEX=1 \
+#     -e TOTAL_CHUNKS=3 \
+#     -e GATEWAY_URL=http://localhost:8090 \
+#     -v $(pwd)/testng-runner-1.xml:/app/testng-runner-1.xml:ro \
+#     -v $(pwd)/target/surefire-runner-1:/app/target/surefire-reports \
+#     automation-tests:latest
+#
+# Run specific test (override CMD — unchanged):
+#   docker run --rm \
+#     --network host \
+#     -e GATEWAY_URL=http://localhost:8090 \
 #     automation-tests:latest \
 #     mvn test -Dtest=EndToEndIdempotencyTest
 #
-# Run with volume mount for reports:
+# Run with volume mount for reports (unchanged pattern):
 #   docker run --rm \
-#     --network microservices_network \
+#     --network host \
 #     -v $(pwd)/test-results:/app/test-results \
 #     automation-tests:latest
 # ──────────────────────────────────────────────────────────────────────

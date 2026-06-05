@@ -43,7 +43,7 @@ public class SharedPoolManager {
     }
 
     // ── State ────────────────────────────────────────────────────────
-    private final ConcurrentHashMap<String, MultiSuitePoolCalculator.SuiteRegistration> suites
+    private final ConcurrentHashMap<String, SuiteRegistration> suites
             = new ConcurrentHashMap<>();
 
     private final AtomicInteger activeSuiteCount = new AtomicInteger(0);
@@ -78,7 +78,7 @@ public class SharedPoolManager {
             TestEnvironmentConfig env) {
 
         suites.put(suiteName,
-                new MultiSuitePoolCalculator.SuiteRegistration(
+                new SuiteRegistration(
                         suiteName, threadCount, profile));
 
         int totalThreads = suites.values().stream()

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- RP appender has NO encoder - it handles formatting internally -->
+    <appender name="RP" class="com.epam.reportportal.logback.appender.ReportPortalAppender"/>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="RP"/>
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+</configuration>
