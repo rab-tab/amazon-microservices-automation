@@ -12,6 +12,8 @@ import com.amazon.tests.utils.RetryHandler;
 import com.epam.reportportal.testng.ReportPortalTestNGListener;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.sun.management.OperatingSystemMXBean;
+import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
 import io.qameta.allure.Allure;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
@@ -19,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.aeonbits.owner.ConfigFactory;
 import org.testng.annotations.*;
 
+import java.lang.management.ManagementFactory;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -34,6 +37,11 @@ import java.util.function.Supplier;
 @Listeners(ReportPortalTestNGListener.class)
 public abstract class BaseTest {
 
+    protected long testStartTime;
+    protected long testCpuStart;
+    private long wallStart;
+    private long cpuStart;
+    private OperatingSystemMXBean osBean;
     // ==========================================
     // EXISTING COMPONENTS (Unchanged)
     // ==========================================
@@ -128,6 +136,13 @@ public abstract class BaseTest {
 
         // ✅ Initialize cleanup manager
         cleanupManager = new CleanupManager(context);
+        wallStart = System.currentTimeMillis();
+        osBean =
+                (OperatingSystemMXBean)
+                        ManagementFactory.getOperatingSystemMXBean();
+
+        cpuStart =
+                osBean.getProcessCpuTime();
 
         log.info("┌────────────────────────────────────────────────────────┐");
         log.info("│ Test Method Started                                    │");
@@ -148,6 +163,45 @@ public abstract class BaseTest {
      */
     @AfterMethod(alwaysRun = true)
     public void cleanupTestMethod() {
+        long wallTime =
+                System.currentTimeMillis()
+                        - wallStart;
+
+        long cpuTimeMs =
+                TimeUnit.NANOSECONDS.toMillis(
+                        osBean.getProcessCpuTime()
+                                - cpuStart);
+
+        double cpuRatio =
+                (cpuTimeMs * 100.0)
+                        / wallTime;
+
+        double ioRatio =
+                100 - cpuRatio;
+
+        String classification =
+                cpuRatio > 50
+                        ? "CPU_BOUND"
+                        : "IO_BOUND";
+        log.info("""
+                        ===== TEST PROFILE =====
+
+                        Wall Time={}ms
+
+                        CPU Time={}ms
+
+                        CPU Ratio={}%
+
+                        IO Ratio={}%
+
+                        Classification={}
+                        """,
+                wallTime,
+                cpuTimeMs,
+                String.format("%.2f", cpuRatio),
+                String.format("%.2f", ioRatio),
+                classification
+        );
         log.info("┌────────────────────────────────────────────────────────┐");
         log.info("│ Test Method Cleanup                                    │");
         log.info("└────────────────────────────────────────────────────────┘");
@@ -209,11 +263,11 @@ public abstract class BaseTest {
 
     /**
      * Log a test step with formatted message (supports {} placeholders)
-     *
+     * <p>
      * Examples:
-     *   logStep("Order created: {}", orderId);
-     *   logStep("User {} has {} orders", username, orderCount);
-     *   logStep("Found {} events in {}ms", count, duration);
+     * logStep("Order created: {}", orderId);
+     * logStep("User {} has {} orders", username, orderCount);
+     * logStep("Found {} events in {}ms", count, duration);
      */
     protected void logStep(String message, Object... args) {
         String formattedMessage = formatMessage(message, args);

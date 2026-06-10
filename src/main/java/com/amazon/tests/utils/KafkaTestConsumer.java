@@ -31,6 +31,7 @@ public class KafkaTestConsumer implements AutoCloseable {
     private final ObjectMapper objectMapper;
     private static final String BOOTSTRAP_SERVERS = System.getProperty(
             "kafka.bootstrap.servers", "localhost:9092");
+    private KafkaMetrics kafkaMetrics=new KafkaMetrics();
 
     public KafkaTestConsumer(String... topics) {
         Properties props = new Properties();
@@ -79,6 +80,9 @@ public class KafkaTestConsumer implements AutoCloseable {
                             record.topic(), record.key(), record.value());
 
                     if (predicate.test(node)) {
+                        kafkaMetrics.incrementMatched();
+
+                        kafkaMetrics.print();
                         log.info("✅ Matching message found on topic={} key={}",
                                 record.topic(), record.key());
                         return Optional.of(node);

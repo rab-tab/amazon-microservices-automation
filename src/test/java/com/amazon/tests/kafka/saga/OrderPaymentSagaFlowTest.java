@@ -6,16 +6,23 @@ import com.amazon.tests.dataseeding.core.SeedingException;
 import com.amazon.tests.dataseeding.seeders.ProductSeeder;
 import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.utils.KafkaMetrics;
 import com.amazon.tests.utils.KafkaTestConsumer;
+import com.amazon.tests.utils.SeedingMetrics;
+import com.amazon.tests.utils.TestTimeline;
 import com.fasterxml.jackson.databind.JsonNode;
+import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
 import io.qameta.allure.*;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import com.sun.management.OperatingSystemMXBean;
+import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -81,14 +88,40 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
     private TestModels.UserResponse user;
     private TestModels.ProductResponse product;
     private String userToken;
+    private OperatingSystemMXBean osBean;
+    private TestTimeline timeline;
+    private KafkaMetrics metrics =
+            new KafkaMetrics();
+    private SeedingMetrics seedingMetrics=new SeedingMetrics();
 
     @BeforeMethod
     public void setup() throws SeedingException {
         logStep("Setting up Saga flow tests");
+        testStartTime = System.currentTimeMillis();
 
+         osBean =
+                (OperatingSystemMXBean)
+                        ManagementFactory.getOperatingSystemMXBean();
+
+        testCpuStart = osBean.getProcessCpuTime();
+
+        long startMemory =
+                Runtime.getRuntime().totalMemory()
+                        - Runtime.getRuntime().freeMemory();
+
+        long userStart =
+                System.currentTimeMillis();
         // Seed test data
         user = UserSeeder.builder(context).count(1).build().seed().getFirst();
+        seedingMetrics.recordUserSeeding(
+                System.currentTimeMillis()
+                        - userStart);
         userToken = context.getCached("user_token_" + user.getId(), String.class);
+        long productStart =
+                System.currentTimeMillis();
+        seedingMetrics.recordProductSeeding(
+                System.currentTimeMillis()
+                        - productStart);
         product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
 
         waitForDataPropagation(1000);
@@ -130,6 +163,8 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                 .addItem(product, 2)
                 .build();
 
+        long start = System.nanoTime();
+
         Response createResponse = executeWithRetry(() -> {
             try {
                 return sendOrderRequest(userToken, idempotencyKey, orderRequest);
@@ -137,6 +172,15 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                 throw new RuntimeException(e);
             }
         });
+        long duration =
+                TimeUnit.NANOSECONDS.toMillis(
+                        System.nanoTime() - start);
+
+        log.info(
+                "API_METRIC endpoint=/api/orders duration={}ms status={}",
+                duration,
+                createResponse.statusCode()
+        );
 
         assertThat(createResponse.statusCode())
                 .as("Order creation should succeed")
@@ -157,6 +201,9 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         // ═══════════════════════════════════════════════════════════════
         logStep("  Verifying ORDER_CREATED event in Kafka...");
 
+
+
+        metrics.start();
         Optional<JsonNode> orderCreatedEvent = orderEventsConsumer.waitForMessage(
                 node -> node.has("eventType") &&
                         "ORDER_CREATED".equals(node.get("eventType").asText()) &&
@@ -495,7 +542,9 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
 
         String orderId = createResponse.jsonPath().getString("id");
         logStep("  ✓ Order created: " + orderId);
+        timeline.mark("Order Created");
 
+        timeline.mark("PAYMENT_COMPLETED Event");
         // ═══════════════════════════════════════════════════════════════
         // Collect ALL events for this order (wait for Saga to complete)
         // ═══════════════════════════════════════════════════════════════
@@ -508,6 +557,7 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                 .ignoreExceptions()
                 .until(() -> !getOrderStatus(orderId).equals("PENDING"));
 
+        timeline.mark("Order Confirmed");
         logStep("  ✓ Saga completed");
 
         // ═══════════════════════════════════════════════════════════════
@@ -702,6 +752,38 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
     // CLEANUP
     // ══════════════════════════════════════════════════════════════════════════
 
+    @AfterMethod
+    public void cleanupTestMethod() {
+
+        long wallTime =
+                System.currentTimeMillis() - testStartTime;
+
+        long cpuTime =
+                osBean.getProcessCpuTime() - testCpuStart;
+
+        long endMemory =
+                Runtime.getRuntime().totalMemory()
+                        - Runtime.getRuntime().freeMemory();
+
+        log.info("""
+        TEST METRICS
+
+        Wall Time: {} ms
+        CPU Time : {} ms
+        Wait Time: {} ms
+        CPU Ratio: {} %
+        """,
+                wallTime,
+                cpuTime / 1_000_000,
+                wallTime - (cpuTime / 1_000_000),
+                (cpuTime / 1_000_000.0) / wallTime * 100
+
+
+        );
+        timeline.printSummary();
+
+
+    }
     @AfterClass
     public void cleanup() {
         if (orderEventsConsumer != null) {
