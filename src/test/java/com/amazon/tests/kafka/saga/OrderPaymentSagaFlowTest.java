@@ -6,10 +6,7 @@ import com.amazon.tests.dataseeding.core.SeedingException;
 import com.amazon.tests.dataseeding.seeders.ProductSeeder;
 import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.KafkaMetrics;
-import com.amazon.tests.utils.KafkaTestConsumer;
-import com.amazon.tests.utils.SeedingMetrics;
-import com.amazon.tests.utils.TestTimeline;
+import com.amazon.tests.utils.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
 import io.qameta.allure.*;
@@ -92,7 +89,8 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
     private TestTimeline timeline;
     private KafkaMetrics metrics =
             new KafkaMetrics();
-    private SeedingMetrics seedingMetrics=new SeedingMetrics();
+    private TestMetrics seedingMetrics=new TestMetrics();
+
 
     @BeforeMethod
     public void setup() throws SeedingException {
@@ -113,13 +111,13 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                 System.currentTimeMillis();
         // Seed test data
         user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        seedingMetrics.recordUserSeeding(
+        MetricsManager.recordUserSeeding(
                 System.currentTimeMillis()
                         - userStart);
         userToken = context.getCached("user_token_" + user.getId(), String.class);
         long productStart =
                 System.currentTimeMillis();
-        seedingMetrics.recordProductSeeding(
+        MetricsManager.recordProductSeeding(
                 System.currentTimeMillis()
                         - productStart);
         product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
@@ -129,8 +127,8 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         // Initialize Kafka consumers for saga verification
         // order.events = where ORDER_CREATED is published (Payment Service consumes this)
         // payment.result = where Payment Service publishes PAYMENT_COMPLETED/FAILED
-        orderEventsConsumer = new KafkaTestConsumer("order.events");
-        paymentResultConsumer = new KafkaTestConsumer("payment.result");
+        orderEventsConsumer = new KafkaTestConsumer(seedingMetrics,"order.events");
+        paymentResultConsumer = new KafkaTestConsumer(seedingMetrics,"payment.result");
 
         // ⭐ CRITICAL: Seek to end to ignore historical events
        // orderEventsConsumer.seekToEnd();
@@ -165,7 +163,7 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
 
         long start = System.nanoTime();
 
-        Response createResponse = executeWithRetry(() -> {
+        Response createResponse = executeWithRetry("/api/orders",() -> {
             try {
                 return sendOrderRequest(userToken, idempotencyKey, orderRequest);
             } catch (Exception e) {
@@ -246,11 +244,13 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         logStep("  Waiting for order status update...");
 
         // Poll order status until it changes from PENDING
-        await()
+        measuredAwait(
+                "order-confirmation",
+                () ->await()
                 .atMost(Duration.ofSeconds(15))
                 .pollInterval(Duration.ofSeconds(1))
                 .ignoreExceptions()
-                .until(() -> !getOrderStatus(orderId).equals("PENDING"));
+                .until(() -> !getOrderStatus(orderId).equals("PENDING")));
 
         Response finalOrderResponse = RestAssured
                 .given()
@@ -321,7 +321,7 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                 .build();
 
         // Inject fault to simulate payment failure
-        Response createResponse = executeWithRetry(() -> {
+        Response createResponse = executeWithRetry("/api/orders",() -> {
             try {
                 return sendOrderRequestWithFault(
                         userToken,
@@ -367,10 +367,12 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         // ═══════════════════════════════════════════════════════════════
         // STEP 3: Verify Order Status Updated to PAYMENT_FAILED
         // ═══════════════════════════════════════════════════════════════
-        await()
+        measuredAwait(
+                "order-confirmation",
+                () ->await()
                 .atMost(Duration.ofSeconds(15))
                 .pollInterval(Duration.ofSeconds(1))
-                .until(() -> "PAYMENT_FAILED".equals(getOrderStatus(orderId)));
+                .until(() -> "PAYMENT_FAILED".equals(getOrderStatus(orderId))));
 
         Response finalOrderResponse = RestAssured
                 .given()
@@ -474,7 +476,7 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                     .addItem(product, i + 1)
                     .build();
 
-            Response response = executeWithRetry(() -> {
+            Response response = executeWithRetry("/api/orders",() -> {
                 try {
                     return sendOrderRequest(userToken, idempotencyKey, orderRequest);
                 } catch (Exception e) {
@@ -492,11 +494,13 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         logStep("  Waiting for all sagas to complete...");
 
         for (String orderId : orderIds) {
-            await()
+            measuredAwait(
+                    "order-confirmation",
+                    () ->await()
                     .atMost(Duration.ofSeconds(30))
                     .pollInterval(Duration.ofSeconds(2))
                     .ignoreExceptions()
-                    .until(() -> !getOrderStatus(orderId).equals("PENDING"));
+                    .until(() -> !getOrderStatus(orderId).equals("PENDING")));
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -532,7 +536,7 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                 .addItem(product, 1)
                 .build();
 
-        Response createResponse = executeWithRetry(() -> {
+        Response createResponse = executeWithRetry("/api/orders",() -> {
             try {
                 return sendOrderRequest(userToken, idempotencyKey, orderRequest);
             } catch (Exception e) {
@@ -551,11 +555,13 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         logStep("  Waiting for Saga to complete...");
 
         // Wait for final status update (indicates Saga completed)
-        await()
+        measuredAwait(
+                "order-confirmation",
+                () ->await()
                 .atMost(Duration.ofSeconds(45))
                 .pollInterval(Duration.ofSeconds(1))
                 .ignoreExceptions()
-                .until(() -> !getOrderStatus(orderId).equals("PENDING"));
+                .until(() -> !getOrderStatus(orderId).equals("PENDING")));
 
         timeline.mark("Order Confirmed");
         logStep("  ✓ Saga completed");
@@ -655,7 +661,7 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                 .addItem(product, 1)
                 .build();
 
-        Response createResponse = executeWithRetry(() -> {
+        Response createResponse = executeWithRetry("/api/orders",() -> {
             try {
                 return sendOrderRequest(userToken, idempotencyKey, orderRequest);
             } catch (Exception e) {

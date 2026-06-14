@@ -28,12 +28,15 @@ import java.util.function.Predicate;
 public class KafkaTestConsumer implements AutoCloseable {
 
     private KafkaConsumer<String, String> consumer;
+    private final TestMetrics metrics;
     private final ObjectMapper objectMapper;
     private static final String BOOTSTRAP_SERVERS = System.getProperty(
             "kafka.bootstrap.servers", "localhost:9092");
     private KafkaMetrics kafkaMetrics=new KafkaMetrics();
 
-    public KafkaTestConsumer(String... topics) {
+
+    public KafkaTestConsumer(TestMetrics metrics,String... topics) {
+        this.metrics = metrics;
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "test-consumer-" + UUID.randomUUID());
@@ -69,9 +72,13 @@ public class KafkaTestConsumer implements AutoCloseable {
      */
     public Optional<JsonNode> waitForMessage(Predicate<JsonNode> predicate, int timeoutSeconds) {
         long deadline = System.currentTimeMillis() + (timeoutSeconds * 1000L);
+        metrics.recordKafkaConsumed();
+        long waitStart = 0;
 
         while (System.currentTimeMillis() < deadline) {
             ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+             waitStart =
+                    System.currentTimeMillis();
 
             for (ConsumerRecord<String, String> record : records) {
                 try {
@@ -80,9 +87,10 @@ public class KafkaTestConsumer implements AutoCloseable {
                             record.topic(), record.key(), record.value());
 
                     if (predicate.test(node)) {
-                        kafkaMetrics.incrementMatched();
-
-                        kafkaMetrics.print();
+                        metrics.recordKafkaMatched();
+                        metrics.addKafkaWait(
+                                System.currentTimeMillis()
+                                        - waitStart);
                         log.info("✅ Matching message found on topic={} key={}",
                                 record.topic(), record.key());
                         return Optional.of(node);
@@ -92,7 +100,9 @@ public class KafkaTestConsumer implements AutoCloseable {
                 }
             }
         }
-
+        metrics.addKafkaWait(
+                System.currentTimeMillis()
+                        - waitStart);
         log.warn("⏰ No matching message found within {}s", timeoutSeconds);
         return Optional.empty();
     }

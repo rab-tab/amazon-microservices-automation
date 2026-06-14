@@ -7,6 +7,7 @@ import com.amazon.tests.dataseeding.seeders.ProductSeeder;
 import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.KafkaTestConsumer;
+import com.amazon.tests.utils.TestMetrics;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
 import io.restassured.RestAssured;
@@ -58,6 +59,7 @@ public class PaymentFailureScenariosTest extends BaseTest {
     private TestModels.UserResponse user;
     private TestModels.ProductResponse product;
     private String userToken;
+    private TestMetrics metrics;
 
     /**
      * Payment failure scenario configuration
@@ -118,6 +120,7 @@ public class PaymentFailureScenariosTest extends BaseTest {
     public void setupClass() throws SeedingException {
         logStep("Setting up Payment Failure Scenarios tests");
 
+        metrics=new TestMetrics();
         // Seed test data once for all tests
         user = UserSeeder.builder(context).count(1).build().seed().getFirst();
         userToken = context.getCached("user_token_" + user.getId(), String.class);
@@ -126,8 +129,8 @@ public class PaymentFailureScenariosTest extends BaseTest {
         waitForDataPropagation(1000);
 
         // Initialize Kafka consumers
-        orderEventsConsumer = new KafkaTestConsumer("order.events");
-        paymentResultConsumer = new KafkaTestConsumer("payment.result");
+        orderEventsConsumer = new KafkaTestConsumer(metrics,"order.events");
+        paymentResultConsumer = new KafkaTestConsumer(metrics,"payment.result");
 
         orderEventsConsumer.seekToEnd();
         paymentResultConsumer.seekToEnd();

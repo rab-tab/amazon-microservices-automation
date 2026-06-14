@@ -7,13 +7,11 @@ import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.config.TestConfig;
 import com.amazon.tests.dataseeding.cleanup.CleanupManager;
 import com.amazon.tests.dataseeding.core.SeedingContext;
-import com.amazon.tests.utils.DatabaseValidator;
-import com.amazon.tests.utils.RetryHandler;
+import com.amazon.tests.utils.*;
 import com.epam.reportportal.testng.ReportPortalTestNGListener;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.sun.management.OperatingSystemMXBean;
-import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
 import io.qameta.allure.Allure;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
@@ -21,7 +19,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.aeonbits.owner.ConfigFactory;
 import org.testng.annotations.*;
 
-import java.lang.management.ManagementFactory;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -70,6 +67,7 @@ public abstract class BaseTest {
      */
     protected CleanupManager cleanupManager;
 
+    protected TestMetrics metrics;
     // ==========================================
     // SUITE SETUP
     // ==========================================
@@ -136,13 +134,9 @@ public abstract class BaseTest {
 
         // ✅ Initialize cleanup manager
         cleanupManager = new CleanupManager(context);
-        wallStart = System.currentTimeMillis();
-        osBean =
-                (OperatingSystemMXBean)
-                        ManagementFactory.getOperatingSystemMXBean();
+        metrics = new TestMetrics();
+        metrics.start();
 
-        cpuStart =
-                osBean.getProcessCpuTime();
 
         log.info("┌────────────────────────────────────────────────────────┐");
         log.info("│ Test Method Started                                    │");
@@ -163,7 +157,7 @@ public abstract class BaseTest {
      */
     @AfterMethod(alwaysRun = true)
     public void cleanupTestMethod() {
-        long wallTime =
+       /* long wallTime =
                 System.currentTimeMillis()
                         - wallStart;
 
@@ -201,12 +195,13 @@ public abstract class BaseTest {
                 String.format("%.2f", cpuRatio),
                 String.format("%.2f", ioRatio),
                 classification
-        );
+        );*/
         log.info("┌────────────────────────────────────────────────────────┐");
         log.info("│ Test Method Cleanup                                    │");
         log.info("└────────────────────────────────────────────────────────┘");
 
         // ✅ Execute data cleanup (LIFO order)
+        MetricsReporter.print();
         if (cleanupManager != null) {
             try {
                 cleanupManager.executeCleanup();
@@ -318,7 +313,74 @@ public abstract class BaseTest {
      * Policy: Exponential backoff (100ms, 200ms, 400ms)
      */
     protected Response executeWithRetry(Supplier<Response> request) {
-        return RetryHandler.executeRequestWithRetry(request);
+        long start = System.currentTimeMillis();
+
+        try {
+            return RetryHandler.executeRequestWithRetry(request);
+        }
+        finally {
+
+            metrics.recordApiCall(
+                    System.currentTimeMillis() - start
+            );
+        }
+    }
+
+    protected Response executeWithRetry(
+            String endpoint,
+            Supplier<Response> request) {
+
+        long start =
+                System.currentTimeMillis();
+
+        try {
+
+            return RetryHandler.executeRequestWithRetry(request);
+
+        } finally {
+
+            MetricsManager.recordApiLatency(
+                    endpoint,
+                    System.currentTimeMillis() - start
+            );
+        }
+    }
+
+    protected void measuredAwait(
+            String operation,
+            Runnable waitLogic) {
+
+        long start =
+                System.currentTimeMillis();
+
+        try {
+
+            waitLogic.run();
+
+        } finally {
+
+            MetricsManager.recordAwaitility(
+                    operation,
+                    System.currentTimeMillis() - start
+            );
+        }
+    }
+
+    protected void measureAwaitility(
+            Runnable runnable) {
+
+        long start =
+                System.currentTimeMillis();
+
+        try {
+            runnable.run();
+        }
+        finally {
+
+            metrics.recordAwaitility(
+                    System.currentTimeMillis()
+                            - start);
+        }
     }
 
     /**
@@ -374,4 +436,6 @@ public abstract class BaseTest {
             log.info("Seeding Statistics: {}", context.getStats());
         }
     }
+
+
 }
