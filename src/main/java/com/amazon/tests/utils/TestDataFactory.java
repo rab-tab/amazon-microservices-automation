@@ -9,13 +9,16 @@ import java.util.List;
 import java.util.UUID;
 import java.math.RoundingMode;
 
+
+import static com.amazon.tests.models.TestModels.*;
+
 @UtilityClass
 public class TestDataFactory {
 
     private static final Faker faker = new Faker();
 
-    public static TestModels.RegisterRequest createRandomUser() {
-        return TestModels.RegisterRequest.builder()
+    public static RegisterRequest createRandomUser() {
+        return RegisterRequest.builder()
                 .username(faker.name().username() + faker.number().digits(4))
                 .email(faker.internet().emailAddress())
                 .password("Test@" + faker.internet().password(6, 10))
@@ -25,15 +28,15 @@ public class TestDataFactory {
                 .build();
     }
 
-    public static TestModels.LoginRequest createLoginRequest(String email, String password) {
-        return TestModels.LoginRequest.builder()
+    public static LoginRequest createLoginRequest(String email, String password) {
+        return LoginRequest.builder()
                 .email(email)
                 .password(password)
                 .build();
     }
 
-    public static TestModels.ProductRequest createRandomProduct() {
-        return TestModels.ProductRequest.builder()
+    public static ProductRequest createRandomProduct() {
+        return ProductRequest.builder()
                 .name(faker.commerce().productName())
                 .description(faker.lorem().paragraph())
                 .price(BigDecimal.valueOf(faker.number().randomDouble(2, 1, 1000))
@@ -43,8 +46,8 @@ public class TestDataFactory {
                 .build();
     }
 
-    public static TestModels.ProductRequest createProductWithPrice(double price) {
-        return TestModels.ProductRequest.builder()
+    public static ProductRequest createProductWithPrice(double price) {
+        return ProductRequest.builder()
                 .name(faker.commerce().productName())
                 .description(faker.lorem().sentence())
                 .price(BigDecimal.valueOf(price).setScale(2, RoundingMode.HALF_UP))
@@ -52,12 +55,12 @@ public class TestDataFactory {
                 .build();
     }
 
-    public static TestModels.CreateOrderRequest createOrderRequest(String productId,
+    public static CreateOrderRequest createOrderRequest(String productId,
                                                                     String productName,
                                                                     BigDecimal unitPrice) {
-        return TestModels.CreateOrderRequest.builder()
+        return CreateOrderRequest.builder()
                 .items(List.of(
-                        TestModels.OrderItemRequest.builder()
+                        OrderItemRequest.builder()
                                 .productId(productId)
                                 .productName(productName)
                                 .quantity(faker.number().numberBetween(1, 5))
@@ -69,9 +72,9 @@ public class TestDataFactory {
                 .build();
     }
 
-    public static TestModels.CreateOrderRequest createMultiItemOrderRequest(
-            List<TestModels.OrderItemRequest> items) {
-        return TestModels.CreateOrderRequest.builder()
+    public static CreateOrderRequest createMultiItemOrderRequest(
+            List<OrderItemRequest> items) {
+        return CreateOrderRequest.builder()
                 .items(items)
                 .shippingAddress(faker.address().fullAddress())
                 .notes("Multi-item test order")

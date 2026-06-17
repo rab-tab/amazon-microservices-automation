@@ -8,17 +8,18 @@ import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.*;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.sun.management.OperatingSystemMXBean;
 import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
 import io.qameta.allure.*;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
+import org.awaitility.core.ConditionTimeoutException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.sun.management.OperatingSystemMXBean;
 import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.util.List;
@@ -92,10 +93,12 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
     private TestMetrics seedingMetrics=new TestMetrics();
 
 
+
     @BeforeMethod
     public void setup() throws SeedingException {
         logStep("Setting up Saga flow tests");
         testStartTime = System.currentTimeMillis();
+        timeline=new TestTimeline();
 
          osBean =
                 (OperatingSystemMXBean)
@@ -127,8 +130,8 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         // Initialize Kafka consumers for saga verification
         // order.events = where ORDER_CREATED is published (Payment Service consumes this)
         // payment.result = where Payment Service publishes PAYMENT_COMPLETED/FAILED
-        orderEventsConsumer = new KafkaTestConsumer(seedingMetrics,"order.events");
-        paymentResultConsumer = new KafkaTestConsumer(seedingMetrics,"payment.result");
+        orderEventsConsumer = new KafkaTestConsumer("order.events");
+        paymentResultConsumer = new KafkaTestConsumer("payment.result");
 
         // ⭐ CRITICAL: Seek to end to ignore historical events
        // orderEventsConsumer.seekToEnd();
@@ -244,13 +247,19 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
         logStep("  Waiting for order status update...");
 
         // Poll order status until it changes from PENDING
-        measuredAwait(
-                "order-confirmation",
-                () ->await()
-                .atMost(Duration.ofSeconds(15))
-                .pollInterval(Duration.ofSeconds(1))
-                .ignoreExceptions()
-                .until(() -> !getOrderStatus(orderId).equals("PENDING")));
+        try {
+            measuredAwait(
+                    "order-confirmation",
+                    () -> await()
+                            .atMost(Duration.ofSeconds(15))
+                            .pollInterval(Duration.ofSeconds(1))
+                            .ignoreExceptions()
+                            .until(() -> !getOrderStatus(orderId).equals("PENDING")));
+        }
+        catch (ConditionTimeoutException ex) {
+            MetricsManager.getInstance().recordAwaitilityTimeout();
+            throw ex;
+        }
 
         Response finalOrderResponse = RestAssured
                 .given()
@@ -546,9 +555,9 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
 
         String orderId = createResponse.jsonPath().getString("id");
         logStep("  ✓ Order created: " + orderId);
-        timeline.mark("Order Created");
+        timeline.mark(TestTimeline.ORDER_CREATED);
 
-        timeline.mark("PAYMENT_COMPLETED Event");
+        timeline.mark(TestTimeline.PAYMENT_COMPLETED);
         // ═══════════════════════════════════════════════════════════════
         // Collect ALL events for this order (wait for Saga to complete)
         // ═══════════════════════════════════════════════════════════════
@@ -563,7 +572,15 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
                 .ignoreExceptions()
                 .until(() -> !getOrderStatus(orderId).equals("PENDING")));
 
-        timeline.mark("Order Confirmed");
+        timeline.mark(TestTimeline.ORDER_CONFIRMED);
+        long latency =
+                timeline.durationBetween(
+                        "ORDER_CREATED",
+                        "ORDER_CONFIRMED");
+
+
+        MetricsManager.getInstance()
+                .recordSagaLatency(latency);
         logStep("  ✓ Saga completed");
 
         // ═══════════════════════════════════════════════════════════════

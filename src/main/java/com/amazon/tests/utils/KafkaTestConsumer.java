@@ -28,15 +28,16 @@ import java.util.function.Predicate;
 public class KafkaTestConsumer implements AutoCloseable {
 
     private KafkaConsumer<String, String> consumer;
-    private final TestMetrics metrics;
+    private TestMetrics metrics;
+
     private final ObjectMapper objectMapper;
     private static final String BOOTSTRAP_SERVERS = System.getProperty(
             "kafka.bootstrap.servers", "localhost:9092");
     private KafkaMetrics kafkaMetrics=new KafkaMetrics();
 
 
-    public KafkaTestConsumer(TestMetrics metrics,String... topics) {
-        this.metrics = metrics;
+    public KafkaTestConsumer(String... topics) {
+
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "test-consumer-" + UUID.randomUUID());
@@ -70,7 +71,7 @@ public class KafkaTestConsumer implements AutoCloseable {
     /**
      * Poll until a message matching the predicate arrives, or timeout.
      */
-    public Optional<JsonNode> waitForMessage(Predicate<JsonNode> predicate, int timeoutSeconds) {
+  /*  public Optional<JsonNode> waitForMessage(Predicate<JsonNode> predicate, int timeoutSeconds) {
         long deadline = System.currentTimeMillis() + (timeoutSeconds * 1000L);
         metrics.recordKafkaConsumed();
         long waitStart = 0;
@@ -104,6 +105,76 @@ public class KafkaTestConsumer implements AutoCloseable {
                 System.currentTimeMillis()
                         - waitStart);
         log.warn("⏰ No matching message found within {}s", timeoutSeconds);
+        return Optional.empty();
+    }*/
+    public Optional<JsonNode> waitForMessage(
+            Predicate<JsonNode> predicate,
+            int timeoutSeconds) {
+
+        long searchStart = System.currentTimeMillis();
+
+        long deadline =
+                searchStart + (timeoutSeconds * 1000L);
+
+        while (System.currentTimeMillis() < deadline) {
+
+            ConsumerRecords<String, String> records =
+                    consumer.poll(Duration.ofMillis(500));
+
+            for (ConsumerRecord<String, String> record : records) {
+
+                MetricsManager.recordKafkaConsumed();
+
+                try {
+
+                    JsonNode node =
+                            objectMapper.readTree(record.value());
+
+                    log.debug(
+                            "Received message from topic={} key={}",
+                            record.topic(),
+                            record.key()
+                    );
+
+                    if (predicate.test(node)) {
+
+                        long waitTime =
+                                System.currentTimeMillis()
+                                        - searchStart;
+
+                        MetricsManager.recordKafkaMatched();
+
+                        MetricsManager.recordKafkaWait(waitTime);
+
+                        log.info(
+                                "✅ Matching message found. wait={}ms",
+                                waitTime
+                        );
+
+                        return Optional.of(node);
+                    }
+
+                } catch (Exception e) {
+
+                    log.warn(
+                            "Failed to parse message: {}",
+                            record.value()
+                    );
+                }
+            }
+        }
+
+        long waitTime =
+                System.currentTimeMillis()
+                        - searchStart;
+
+        MetricsManager.recordKafkaWait(waitTime);
+
+        log.warn(
+                "⏰ No matching message found within {}s",
+                timeoutSeconds
+        );
+
         return Optional.empty();
     }
 

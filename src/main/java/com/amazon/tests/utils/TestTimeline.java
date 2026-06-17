@@ -8,6 +8,18 @@ import java.util.Map;
 @Slf4j
 public class TestTimeline {
 
+    public static final String ORDER_CREATED =
+            "ORDER_CREATED";
+
+    public static final String ORDER_CREATED_EVENT =
+            "ORDER_CREATED_EVENT";
+
+    public static final String PAYMENT_COMPLETED =
+            "PAYMENT_COMPLETED";
+
+    public static final String ORDER_CONFIRMED =
+            "ORDER_CONFIRMED";
+
     private final Map<String, Long> events =
             new LinkedHashMap<>();
 
@@ -25,39 +37,63 @@ public class TestTimeline {
             String startEvent,
             String endEvent) {
 
-        return events.get(endEvent)
-                - events.get(startEvent);
+        Long start = events.get(startEvent);
+        Long end = events.get(endEvent);
+
+        if (start == null || end == null) {
+
+            log.warn(
+                    "Cannot calculate duration. Missing events. start={} exists={} end={} exists={}",
+                    startEvent,
+                    start != null,
+                    endEvent,
+                    end != null
+            );
+
+            return -1;
+        }
+
+        return end - start;
     }
+
+
 
     public void printSummary() {
 
-        log.info("""
-            ===== SAGA TIMELINE =====
-            {}
-            """, events);
+        log.info("===== SAGA TIMELINE =====");
+        log.info("{}", events);
 
-        log.info(
-                "Order->Kafka={} ms",
-                durationBetween(
-                        "ORDER_CREATED",
-                        "ORDER_CREATED_EVENT"));
+        printMetric(
+                "Order->Kafka",
+                "ORDER_CREATED",
+                "ORDER_CREATED_EVENT");
 
-        log.info(
-                "Kafka->Payment={} ms",
-                durationBetween(
-                        "ORDER_CREATED_EVENT",
-                        "PAYMENT_COMPLETED"));
+        printMetric(
+                "Kafka->Payment",
+                "ORDER_CREATED_EVENT",
+                "PAYMENT_COMPLETED");
 
-        log.info(
-                "Payment->Confirm={} ms",
-                durationBetween(
-                        "PAYMENT_COMPLETED",
-                        "ORDER_CONFIRMED"));
+        printMetric(
+                "Payment->Confirm",
+                "PAYMENT_COMPLETED",
+                "ORDER_CONFIRMED");
 
-        log.info(
-                "SagaLatency={} ms",
-                durationBetween(
-                        "ORDER_CREATED",
-                        "ORDER_CONFIRMED"));
+        printMetric(
+                "SagaLatency",
+                "ORDER_CREATED",
+                "ORDER_CONFIRMED");
+    }
+
+    private void printMetric(
+            String label,
+            String start,
+            String end) {
+
+        long duration =
+                durationBetween(start, end);
+
+        if (duration >= 0) {
+            log.info("{}={} ms", label, duration);
+        }
     }
 }

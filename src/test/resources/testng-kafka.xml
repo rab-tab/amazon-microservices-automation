@@ -2,6 +2,10 @@
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
 <suite name="Kafka Event Tests" verbose="1">
   <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
+  <listeners>
+    <listener class-name=
+                      "com.amazon.tests.listeners.MetricsTestListener"/>
+  </listeners>
   <test name="Kafka Tests">
     <!--<packages>
       <package name="com.amazon.tests.tests.kafka"/>

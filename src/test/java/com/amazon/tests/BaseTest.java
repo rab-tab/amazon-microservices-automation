@@ -36,9 +36,14 @@ public abstract class BaseTest {
 
     protected long testStartTime;
     protected long testCpuStart;
+    private long testStart;
     private long wallStart;
     private long cpuStart;
     private OperatingSystemMXBean osBean;
+    private static MetricsHttpServer metricsServer;
+
+    private final MetricsManager metrics =
+            MetricsManager.getInstance();
     // ==========================================
     // EXISTING COMPONENTS (Unchanged)
     // ==========================================
@@ -67,13 +72,13 @@ public abstract class BaseTest {
      */
     protected CleanupManager cleanupManager;
 
-    protected TestMetrics metrics;
+    //protected TestMetrics metrics;
     // ==========================================
     // SUITE SETUP
     // ==========================================
 
     @BeforeSuite(alwaysRun = true)
-    public void setupSuite() {
+    public void setupSuite() throws Exception {
         log.info("╔════════════════════════════════════════════════════════════╗");
         log.info("║          Initializing Test Suite                          ║");
         log.info("╚════════════════════════════════════════════════════════════╝");
@@ -91,6 +96,13 @@ public abstract class BaseTest {
         String env = System.getProperty("env", "local");
         System.setProperty("env", env);
         testConfig = ConfigFactory.create(TestConfig.class);
+        if (metricsServer == null) {
+
+            metricsServer =
+                    new MetricsHttpServer();
+
+            metricsServer.start();
+        }
 
         // ════════════════════════════════════════════════════════════
         // ⭐ STEP 2: Configure Spring Boot Services (for testing)
@@ -131,13 +143,10 @@ public abstract class BaseTest {
 
         // ✅ Initialize seeding context
         context = new SeedingContext(namespace, testConfig);
+        testStart = System.currentTimeMillis();
 
         // ✅ Initialize cleanup manager
         cleanupManager = new CleanupManager(context);
-        metrics = new TestMetrics();
-        metrics.start();
-
-
         log.info("┌────────────────────────────────────────────────────────┐");
         log.info("│ Test Method Started                                    │");
         log.info("├────────────────────────────────────────────────────────┤");
@@ -200,6 +209,12 @@ public abstract class BaseTest {
         log.info("│ Test Method Cleanup                                    │");
         log.info("└────────────────────────────────────────────────────────┘");
 
+        metrics.recordTestDuration(
+                System.currentTimeMillis()
+                        - testStart);
+
+        MetricsPushService.pushToPrometheus(
+                "automation-suite");
         // ✅ Execute data cleanup (LIFO order)
         MetricsReporter.print();
         if (cleanupManager != null) {
@@ -231,6 +246,7 @@ public abstract class BaseTest {
         // Flush Extent Reports
         ExtentReportManager.getInstance().flush();
 
+        MetricsPushService.pushToPrometheus("amazon-automation-framework");
         Thread.sleep(5000);
         log.info("✓ Test suite shutdown complete");
         log.info("════════════════════════════════════════════════════════════");
@@ -320,9 +336,9 @@ public abstract class BaseTest {
         }
         finally {
 
-            metrics.recordApiCall(
+          /*  metrics.recordApiCall(
                     System.currentTimeMillis() - start
-            );
+            );*/
         }
     }
 
@@ -377,7 +393,7 @@ public abstract class BaseTest {
         }
         finally {
 
-            metrics.recordAwaitility(
+            metrics.recordAwaitility("awaitility",
                     System.currentTimeMillis()
                             - start);
         }
@@ -436,6 +452,8 @@ public abstract class BaseTest {
             log.info("Seeding Statistics: {}", context.getStats());
         }
     }
+
+
 
 
 }

@@ -129,8 +129,8 @@ public class PaymentFailureScenariosTest extends BaseTest {
         waitForDataPropagation(1000);
 
         // Initialize Kafka consumers
-        orderEventsConsumer = new KafkaTestConsumer(metrics,"order.events");
-        paymentResultConsumer = new KafkaTestConsumer(metrics,"payment.result");
+        orderEventsConsumer = new KafkaTestConsumer("order.events");
+        paymentResultConsumer = new KafkaTestConsumer("payment.result");
 
         orderEventsConsumer.seekToEnd();
         paymentResultConsumer.seekToEnd();
