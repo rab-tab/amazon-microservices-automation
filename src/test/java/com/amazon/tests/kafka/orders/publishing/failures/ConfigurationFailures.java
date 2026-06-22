@@ -15,13 +15,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
-import org.junit.jupiter.api.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.util.List;
@@ -68,7 +68,7 @@ public class ConfigurationFailures extends BaseTest {
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
     }
 
-    @BeforeEach
+    @BeforeMethod
     public void setup() throws SeedingException {
         logStep("Setting up Kafka config tests");
 
@@ -95,7 +95,7 @@ public class ConfigurationFailures extends BaseTest {
     // ══════════════════════════════════════════════════════════════════════════
 
     @Test
-    @DisplayName("REALISTIC: Insufficient in-sync replicas (min.insync.replicas > replicas)")
+    //@DisplayName("REALISTIC: Insufficient in-sync replicas (min.insync.replicas > replicas)")
     @Story("Kafka Configuration")
     @Severity(SeverityLevel.CRITICAL)
     public void test01_REALISTIC_InsufficientISR_AckFailure() throws ExecutionException, InterruptedException {
@@ -154,7 +154,7 @@ public class ConfigurationFailures extends BaseTest {
     }
 
     @Test
-    @DisplayName("REALISTIC: Topic does not exist (auto-create disabled)")
+   // @DisplayName("REALISTIC: Topic does not exist (auto-create disabled)")
     @Story("Kafka Configuration")
     @Severity(SeverityLevel.NORMAL)
     public void test02_REALISTIC_TopicDoesNotExist() throws JsonProcessingException {
