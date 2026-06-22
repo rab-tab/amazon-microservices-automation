@@ -14,6 +14,9 @@ import java.time.Duration;
 
 public class MetricsManager {
 
+    private static final PrometheusMeterRegistry registry =
+            new PrometheusMeterRegistry(
+                    PrometheusConfig.DEFAULT);
     private static final MetricsManager INSTANCE =
             new MetricsManager();
 
@@ -34,9 +37,7 @@ public class MetricsManager {
     public static MetricsManager getInstance() {
         return INSTANCE;
     }
-    private static final PrometheusMeterRegistry registry =
-            new PrometheusMeterRegistry(
-                    PrometheusConfig.DEFAULT);
+
     private static final Counter kafkaConsumed =
             registry.counter("kafka_records_consumed_total");
 
@@ -85,7 +86,7 @@ public class MetricsManager {
         Timer.builder("kafka.wait")
                 .tag("topic", topic)
                 .register(registry)
-                .record(Duration.ofSeconds(durationMs));
+                .record(Duration.ofMillis(durationMs));
     }
 
     public static void incrementKafkaConsumed(
@@ -113,7 +114,7 @@ public class MetricsManager {
         Timer.builder("awaitility.wait")
                 .tag("operation", operation)
                 .register(registry)
-                .record(Duration.ofSeconds(durationMs));
+                .record(Duration.ofMillis(durationMs));
     }
 
     public static void recordUserSeeding(
@@ -121,7 +122,7 @@ public class MetricsManager {
 
         Timer.builder("seeding.user")
                 .register(registry)
-                .record(Duration.ofSeconds(durationMs));
+                .record(Duration.ofMillis(durationMs));
     }
 
     public static void recordProductSeeding(
@@ -129,7 +130,7 @@ public class MetricsManager {
 
         Timer.builder("seeding.product")
                 .register(registry)
-                .record(Duration.ofSeconds(durationMs));
+                .record(Duration.ofMillis(durationMs));
     }
     // Test Results
     private static final Counter testPassed =

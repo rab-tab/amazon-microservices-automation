@@ -327,38 +327,36 @@ api-gateway:          ${env.TAG_API_GATEWAY}
         // continue-on-error equivalent: -Dmaven.test.failure.ignore=true
         // This means: run ALL tests even if some fail, collect all results,
         // then Jenkins marks build UNSTABLE (yellow) not FAILED (red)
-
-        stage('Auth & User Tests') {
-            steps { runTestSuite('testng-auth-user.xml', 'Auth and User Tests') }
-            post { always { collectTestResults() } }
-        }
-
-        stage('Product & Order Tests') {
-            steps { runTestSuite('testng-product-order.xml', 'Product and Order Tests') }
-            post { always { collectTestResults() } }
-        }
-
-        stage('Kafka Event Tests') {
-            steps { runTestSuite('testng-kafka.xml', 'Kafka Event Tests') }
-            post { always { collectTestResults() } }
-        }
-
-        stage('DB Validation Tests') {
-            steps { runTestSuite('testng-db.xml', 'Database Validation Tests') }
-            post { always { collectTestResults() } }
-        }
-
-        stage('Resilience4j Tests') {
-            steps { runTestSuite('testng-resilience.xml', 'Resilience4j Tests') }
-            post { always { collectTestResults() } }
-        }
-
-        stage('E2E Tests') {
-            when {
-                not { expression { params.SKIP_E2E } }
+        stage('Run Tests') {
+        parallel {
+            stage('Auth & User Tests') {
+                steps { runTestSuite('testng-api-gateway.xml', 'Auth and User Tests') }
+                post { always { collectTestResults() } }
             }
-            steps { runTestSuite('testng-e2e.xml', 'End-to-End Tests') }
-            post { always { collectTestResults() } }
+
+            stage('Product & Order Tests') {
+                steps { runTestSuite('testng-order.xml', 'Product and Order Tests') }
+                post { always { collectTestResults() } }
+            }
+
+            stage('Kafka Event Tests') {
+                steps { runTestSuite('testng-kafka.xml', 'Kafka Event Tests') }
+                post { always { collectTestResults() } }
+            }
+
+            stage('DB Validation Tests') {
+                steps { runTestSuite('testng-db.xml', 'Database Validation Tests') }
+                post { always { collectTestResults() } }
+            }
+
+            stage('E2E Tests') {
+                when {
+                 not { expression { params.SKIP_E2E } }
+                }
+                steps { runTestSuite('testng-e2e.xml', 'End-to-End Tests') }
+                post { always { collectTestResults() } }
+            }
+            }
         }
 
         // ── Stage 11: Allure Report ───────────────────────────────

@@ -59,6 +59,7 @@ ENV TEST_ENV=docker
 ENV ALLURE_RESULTS_DIR=/app/test-results/allure-results
 ENV CHUNK_INDEX=0
 ENV TOTAL_CHUNKS=1
+ENV SUITE_FILE=testng-api-gateway.xml,testng-kafka.xml,testng-order.xml
 
 # Health check (optional - validates Maven is working)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -70,7 +71,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 #   and mounts it at /app/testng-runner-${CHUNK_INDEX}.xml
 # Shell form (not exec form) is required here so ${CHUNK_INDEX} is expanded
 CMD mvn test \
-    -Dsurefire.suiteXmlFiles=testng-runner-${CHUNK_INDEX}.xml \
+    #-Dsurefire.suiteXmlFiles=testng-runner-${CHUNK_INDEX}.xml \
+    -Dsurefire.suiteXmlFiles=${SUITE_FILE}
     -Dsurefire.reportsDirectory=target/surefire-reports \
     --no-transfer-progress \
     -Dmaven.test.failure.ignore=true
