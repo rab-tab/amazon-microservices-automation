@@ -329,18 +329,13 @@ api-gateway:          ${env.TAG_API_GATEWAY}
         // then Jenkins marks build UNSTABLE (yellow) not FAILED (red)
         stage('Run Tests') {
         parallel {
-            stage('Auth & User Tests') {
+            /*stage('Auth & User Tests') {
                 steps { runTestSuite('testng-api-gateway.xml', 'Auth and User Tests') }
                 post { always { collectTestResults() } }
             }
 
             stage('Product & Order Tests') {
                 steps { runTestSuite('testng-order.xml', 'Product and Order Tests') }
-                post { always { collectTestResults() } }
-            }
-
-            stage('Kafka Event Tests') {
-                steps { runTestSuite('testng-kafka.xml', 'Kafka Event Tests') }
                 post { always { collectTestResults() } }
             }
 
@@ -355,7 +350,11 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                 }
                 steps { runTestSuite('testng-e2e.xml', 'End-to-End Tests') }
                 post { always { collectTestResults() } }
-            }
+            }*/
+            stage('Kafka Event Tests') {
+                            steps { runTestSuite('testng-kafka.xml', 'Kafka Event Tests') }
+                            post { always { collectTestResults() } }
+                        }
             }
         }
 

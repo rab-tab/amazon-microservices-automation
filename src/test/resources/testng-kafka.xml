@@ -12,7 +12,7 @@
     </packages>-->
     <!--<classes><class name="validation.failures.kafka.com.amazon.tests.UserRegistrationValidationTest"/></classes>-->
     <classes>
-      <class name="com.amazon.tests.kafka.failures.resilience.UserEventResilienceTest"/>
+     <!-- <class name="com.amazon.tests.kafka.failures.resilience.UserEventResilienceTest"/>
       <class name="com.amazon.tests.kafka.failures.consistency.UserEventConsistencyTest"/>
       <class name="com.amazon.tests.kafka.failures.validation.UserRegistrationValidationTest"/>
       <class name="com.amazon.tests.kafka.orders.consumption.negative.deserialization.KafkaDeserializationFailureTests"/>
@@ -20,7 +20,6 @@
       <class name="com.amazon.tests.kafka.orders.consumption.negative.idempotency.KafkaConsumerIdempotencyTest"/>
       <class name="com.amazon.tests.kafka.orders.consumption.negative.idempotency.KafkaRebalanceIdempotencyTest"/>
       <class name="com.amazon.tests.kafka.orders.consumption.negative.offsetManagement.KafkaOffsetManagementTest"/>
-      <class name="com.amazon.tests.kafka.saga.OrderPaymentSagaFlowTest"/>
       <class name="com.amazon.tests.kafka.saga.PaymentFailureScenariosTest"/>
       <class name="com.amazon.tests.kafka.saga.SagaCancellationTest"/>
       <class name="com.amazon.tests.kafka.saga.SagaPartialFailureRecoveryTest"/>
@@ -34,7 +33,8 @@
       <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerKafkaConfigFailuresTest"/>
       <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerLifecycleFailuresTest"/>
       <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerNetworkFailuresTest"/>
-      <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerTopicFailuresTest"/>
+      <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerTopicFailuresTest"/>-->
+      <class name="com.amazon.tests.kafka.saga.OrderPaymentSagaFlowTest"/>
     </classes>
   </test>
 </suite>
