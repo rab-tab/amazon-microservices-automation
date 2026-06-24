@@ -194,8 +194,8 @@ public class RestClient {
      */
     public <T> T post(String endpoint, RequestSpecification spec,
                       Object body, Class<T> responseType) {
-        log.debug("POST {} with body: {} -> {}",
-                endpoint, body.getClass().getSimpleName(), responseType.getSimpleName());
+        log.info("POST {} with body: {} -> {}",
+                endpoint,spec.toString(),body.toString(), body.getClass().getSimpleName(), responseType.getSimpleName());
 
         return given().log().all()
                 .spec(spec)
