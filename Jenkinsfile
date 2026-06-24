@@ -562,6 +562,12 @@ def waitForHttp(Map args) {
 
         sh """
             docker ps -a
+            sh 'docker logs test-kafka --tail 200 || true'
+            sh 'docker logs test-user-service --tail 200 || true'
+            sh 'docker logs test-product-service --tail 200 || true'
+            sh 'docker logs test-order-service --tail 200 || true'
+            sh 'docker logs test-payment-service --tail 200 || true'
+            sh 'docker logs test-api-gateway --tail 200 || true'
 
             echo
             docker stats --no-stream || true
