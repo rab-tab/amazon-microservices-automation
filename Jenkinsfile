@@ -443,19 +443,21 @@ api-gateway:          ${env.TAG_API_GATEWAY}
 def runTestSuite(String suite, String displayName) {
     echo "\n━━━ Running: ${displayName} ━━━"
     sh """
-        echo "==== Gateway Check ===="
+         set +e
 
-        curl -v http://localhost:8080/actuator/health
+            echo "==== Gateway Check ===="
+            curl -v http://localhost:8080/actuator/health
 
-        echo
-        echo "==== Listening Port ===="
+            echo
+            echo "==== Listening Port ===="
+            netstat -an | grep 8080
 
-        netstat -an | grep 8080 || true
+            echo
+            echo "==== Docker Containers ===="
+            docker ps
 
-        echo
-        echo "==== Docker Containers ===="
-
-        docker ps
+            echo
+            echo "Exit code from curl: $?"
 
         # cd test-automation
         mvn test \
