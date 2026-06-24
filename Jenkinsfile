@@ -288,14 +288,25 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     serviceList.each { svc ->
                         def s = svc  // capture for closure
                         parallelChecks[s.name] = {
+                        sh "docker ps -a"
                             waitForHttp(
                                 url: "http://localhost:${s.port}/actuator/health",
-                                timeoutSecs: 600,
+                                timeoutSecs: 180,
                                 description: s.name
                             )
                         }
                     }
+                    try {
                     parallel parallelChecks
+                    } catch(Exception e) {
+                        sh 'docker ps -a'
+                        sh 'docker logs test-user-service --tail 200 || true'
+                        sh 'docker logs test-product-service --tail 200 || true'
+                        sh 'docker logs test-order-service --tail 200 || true'
+                        sh 'docker logs test-payment-service --tail 200 || true'
+                        sh 'docker logs test-api-gateway --tail 200 || true'
+                        throw e
+                    }
 
                     echo "✅ All microservices are healthy!"
 
