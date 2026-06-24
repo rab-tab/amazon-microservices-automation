@@ -558,5 +558,29 @@ def waitForHttp(Map args) {
         def preview = response.length() > 200 ? response.substring(0, 200) : response
         echo "  ${args.description} not ready yet (${elapsed}/${args.timeoutSecs}s) response: ${preview}"
     }
+      echo "==== ${args.description} diagnostics ===="
+
+        sh """
+            docker ps -a
+
+            echo
+            docker stats --no-stream || true
+
+            echo
+            free -h || true
+        """
+
+        if (args.url.contains("8081")) {
+            sh "docker logs test-user-service --tail 300 || true"
+        } else if (args.url.contains("8082")) {
+            sh "docker logs test-product-service --tail 300 || true"
+        } else if (args.url.contains("8083")) {
+            sh "docker logs test-order-service --tail 300 || true"
+        } else if (args.url.contains("8084")) {
+            sh "docker logs test-payment-service --tail 300 || true"
+        } else if (args.url.contains("8090")) {
+            sh "docker logs test-api-gateway --tail 300 || true"
+        }
+
     error("❌ ${args.description} did not become healthy within ${args.timeoutSecs}s")
 }
