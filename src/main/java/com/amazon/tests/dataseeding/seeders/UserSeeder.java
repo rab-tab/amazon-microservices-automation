@@ -123,14 +123,14 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
 
     // UserSeeder.java
     private TestModels.UserResponse createUser(TestModels.RegisterRequest request) {
-        log.debug("Creating user: {}", request.getEmail());
+        log.info("Creating user: {}", request.getEmail());
 
         try {
             // Get spec for user service
             RequestSpecification spec = context.getRestAssuredConfig().getUserServiceSpec();
 
             // Make API call
-            log.debug("Calling POST /api/users/register");
+            log.info("Calling POST /api/users/register");
 
             TestModels.AuthResponse authResponse = context.getRestClient().post(
                     "/api/users/register",
@@ -140,7 +140,7 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
             );
 
             // ✅ Verify we got the response
-            log.debug("Received AuthResponse: {}", authResponse);
+            log.info("Received AuthResponse: {}", authResponse);
 
             TestModels.UserResponse user = authResponse.getUser();
             String accessToken = authResponse.getAccessToken();
@@ -180,7 +180,7 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
                 throw new IllegalStateException("Failed to cache token! Cache returned null.");
             }
 
-            log.debug("✅ Verified token in cache: {}", cachedToken.substring(0, 20) + "...");
+            log.info("✅ Verified token in cache: {}", cachedToken.substring(0, 20) + "...");
 
             // Register cleanup
             context.registerCleanup("User: " + user.getEmail(), () -> deleteUser(user.getId(),accessToken));

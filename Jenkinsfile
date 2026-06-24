@@ -22,6 +22,9 @@
 
 pipeline {
     agent any
+    tools {
+        allure 'Allure-2.40.0'
+    }
 
     options {
         timeout(time: 90, unit: 'MINUTES')
