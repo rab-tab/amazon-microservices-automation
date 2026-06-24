@@ -457,7 +457,7 @@ def runTestSuite(String suite, String displayName) {
             docker ps
 
             echo
-            echo "Exit code from curl: $?"
+            echo "Exit code from curl: \$?"
 
         # cd test-automation
         mvn test \
