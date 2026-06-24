@@ -291,7 +291,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         sh "docker ps -a"
                             waitForHttp(
                                 url: "http://localhost:${s.port}/actuator/health",
-                                timeoutSecs: 180,
+                                timeoutSecs: 300,
                                 description: s.name
                             )
                         }
