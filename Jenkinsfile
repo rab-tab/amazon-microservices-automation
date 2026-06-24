@@ -535,7 +535,18 @@ def waitForKafka(Map args) {
         sleep(10)
         elapsed += 10
     }
-    sh "docker logs test-kafka --tail 30 2>/dev/null || true"
+    echo "==== Kafka health check diagnostics ===="
+    sh '''
+    docker inspect test-kafka --format "{{json .State.Health}}" || true
+
+    echo
+    echo "==== Kafka health check logs ===="
+    docker inspect test-kafka --format "{{json .State.Health.Log}}" || true
+
+    echo
+    echo "==== Kafka container logs ===="
+    docker logs test-kafka --tail 100 || true
+    '''
     error("❌ Kafka did not become healthy within ${args.timeoutSecs}s")
 }
 
