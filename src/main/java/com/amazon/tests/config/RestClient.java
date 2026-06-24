@@ -197,6 +197,9 @@ public class RestClient {
         log.info("POST {} with body: {} -> {}",
                 endpoint,spec.toString(),body.toString(), body.getClass().getSimpleName(), responseType.getSimpleName());
 
+        log.info("Base URI={}", spec.baseUri());
+        log.info("Endpoint={}", endpoint);
+
         return given().log().all()
                 .spec(spec)
                 .body(body)

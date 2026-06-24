@@ -443,6 +443,20 @@ api-gateway:          ${env.TAG_API_GATEWAY}
 def runTestSuite(String suite, String displayName) {
     echo "\n━━━ Running: ${displayName} ━━━"
     sh """
+        echo "==== Gateway Check ===="
+
+        curl -v http://localhost:8080/actuator/health
+
+        echo
+        echo "==== Listening Port ===="
+
+        netstat -an | grep 8080 || true
+
+        echo
+        echo "==== Docker Containers ===="
+
+        docker ps
+
         # cd test-automation
         mvn test \
           -Dsurefire.suiteXmlFiles=src/test/resources/${suite} \
