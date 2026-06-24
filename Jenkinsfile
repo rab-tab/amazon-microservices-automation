@@ -217,6 +217,10 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                         docker-compose -f ${COMPOSE_FILE} up -d \
                             postgres redis zookeeper kafka zipkin db-init
+                            sh '''
+                            echo "==== Kafka configured healthcheck ===="
+                            docker inspect test-kafka --format '{{json .Config.Healthcheck}}'
+                            '''
                     """
 
                     echo "Infrastructure containers started. Waiting for health checks..."
@@ -411,6 +415,8 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
                     export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                     docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
+                    docker rm -f test-kafka || true
+                    docker-compose -f docker-compose.local.yml up -d --force-recreate kafka
                     docker container prune -f --filter "label=project=amazon-local" 2>/dev/null || true
                     echo "✅ Containers stopped and cleaned up"
                 """
