@@ -601,6 +601,23 @@ def waitForHttp(Map args) {
                docker logs test-payment-service --tail 200 || true
                docker logs test-api-gateway --tail 200 || true
 
+                echo
+                   echo "===== PORT CHECK ====="
+
+                   docker exec test-user-service sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
+                   docker exec test-product-service sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
+                   docker exec test-order-service sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
+                   docker exec test-payment-service sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
+                   docker exec test-api-gateway sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
+
+                echo
+                echo "===== OOM CHECK ====="
+
+                docker inspect test-user-service --format='{{.State.OOMKilled}}' || true
+                docker inspect test-product-service --format='{{.State.OOMKilled}}' || true
+                docker inspect test-order-service --format='{{.State.OOMKilled}}' || true
+                docker inspect test-payment-service --format='{{.State.OOMKilled}}' || true
+                docker inspect test-api-gateway --format='{{.State.OOMKilled}}' || true
                echo
                docker stats --no-stream || true
 
