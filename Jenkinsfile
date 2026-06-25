@@ -543,24 +543,86 @@ def waitForKafka(Map args) {
             echo "✅ Kafka healthy after ${elapsed}s"
             return
         }
-        if (status != 'healthy') {
-
+        if (elapsed % 30 == 0) {
             sh '''
-                echo "==== Kafka configured healthcheck ===="
-                docker inspect test-kafka --format '{{json .Config.Healthcheck}}' || true
+                echo "===== Kafka Processes ====="
+                docker exec test-kafka ps -ef || true
 
                 echo
-                echo "==== Kafka runtime health ===="
-                docker inspect test-kafka --format '{{json .State.Health}}' || true
+                echo "===== Listening Ports ====="
+                docker exec test-kafka sh -c "netstat -tulpn 2>/dev/null || ss -tulpn" || true
 
                 echo
-                echo "==== Kafka health logs ===="
-                docker inspect test-kafka --format '{{json .State.Health.Log}}' || true
-
-                echo
-                echo "==== Kafka container logs ===="
-                docker logs test-kafka --tail 100 || true
+                echo "===== Last 50 Kafka Logs ====="
+                docker logs test-kafka --tail 50 || true
             '''
+        }
+        if (status != 'healthy' || status == 'starting') {
+
+           sh '''
+               echo
+               echo "=================================================="
+               echo "KAFKA DEEP DIAGNOSTICS"
+               echo "=================================================="
+
+               echo
+               echo "===== Container State ====="
+               docker inspect test-kafka --format '{{json .State}}' || true
+
+               echo
+               echo "===== Configured Healthcheck ====="
+               docker inspect test-kafka --format '{{json .Config.Healthcheck}}' || true
+
+               echo
+               echo "===== Runtime Health ====="
+               docker inspect test-kafka --format '{{json .State.Health}}' || true
+
+               echo
+               echo "===== Healthcheck Logs ====="
+               docker inspect test-kafka --format '{{json .State.Health.Log}}' || true
+
+               echo
+               echo "===== Running Processes ====="
+               docker exec test-kafka ps -ef || true
+
+               echo
+               echo "===== Java Processes ====="
+               docker exec test-kafka pgrep -af java || true
+
+               echo
+               echo "===== Listening Ports ====="
+               docker exec test-kafka sh -c "netstat -tulpn 2>/dev/null || ss -tulpn" || true
+
+               echo
+               echo "===== Kafka Port Check ====="
+               docker exec test-kafka sh -c "nc -z localhost 9092; echo KAFKA_PORT_EXIT_CODE=$?" || true
+
+               echo
+               echo "===== Zookeeper Connectivity ====="
+               docker exec test-kafka sh -c "nc -z test-zookeeper 2181; echo ZK_EXIT_CODE=$?" || true
+
+               echo
+               echo "===== Environment Variables ====="
+               docker exec test-kafka env | sort || true
+
+               echo
+               echo "===== Restart Information ====="
+               docker inspect test-kafka --format '
+               RestartCount={{.RestartCount}}
+               Status={{.State.Status}}
+               StartedAt={{.State.StartedAt}}
+               FinishedAt={{.State.FinishedAt}}
+               ' || true
+
+               echo
+               echo "===== Last 200 Kafka Logs ====="
+               docker logs test-kafka --tail 200 || true
+
+               echo
+               echo "=================================================="
+               echo "END KAFKA DIAGNOSTICS"
+               echo "=================================================="
+           '''
 
             error("❌ Kafka failed to become healthy within timeout. Final status=${status}")
         }
