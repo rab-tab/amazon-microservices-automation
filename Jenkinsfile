@@ -535,21 +535,25 @@ def waitForKafka(Map args) {
             return
         }
         if (status == 'unhealthy') {
-        sh '''
-             echo "==== Kafka configured healthcheck ===="
-                sh "docker inspect test-kafka --format '{{json .Config.Healthcheck}}' || true"
 
+            sh '''
+                echo "==== Kafka configured healthcheck ===="
+                docker inspect test-kafka --format '{{json .Config.Healthcheck}}' || true
+
+                echo
                 echo "==== Kafka runtime health ===="
-                sh "docker inspect test-kafka --format '{{json .State.Health}}' || true"
+                docker inspect test-kafka --format '{{json .State.Health}}' || true
 
+                echo
                 echo "==== Kafka health logs ===="
-                sh "docker inspect test-kafka --format '{{json .State.Health.Log}}' || true"
+                docker inspect test-kafka --format '{{json .State.Health.Log}}' || true
 
+                echo
                 echo "==== Kafka container logs ===="
-                sh "docker logs test-kafka --tail 100 || true"
+                docker logs test-kafka --tail 100 || true
+            '''
 
-                error("❌ Kafka reported unhealthy")
-         '''
+            error("❌ Kafka reported unhealthy")
         }
         sleep(10)
         elapsed += 10
