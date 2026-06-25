@@ -543,7 +543,7 @@ def waitForKafka(Map args) {
             echo "✅ Kafka healthy after ${elapsed}s"
             return
         }
-        if (status == 'unhealthy') {
+        if (status != 'healthy') {
 
             sh '''
                 echo "==== Kafka configured healthcheck ===="
@@ -562,7 +562,7 @@ def waitForKafka(Map args) {
                 docker logs test-kafka --tail 100 || true
             '''
 
-            error("❌ Kafka reported unhealthy")
+            error("❌ Kafka failed to become healthy within timeout. Final status=${status}")
         }
         sleep(10)
         elapsed += 10
