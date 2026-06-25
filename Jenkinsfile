@@ -219,7 +219,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                             postgres redis zookeeper kafka zipkin db-init
                             sh '''
                             echo "==== Kafka configured healthcheck ===="
-                            docker inspect test-kafka --format '{{json .Config.Healthcheck}}'
+                            docker inspect test-kafka --format '{{json.Config.Healthcheck}}'
                             '''
                     """
 
