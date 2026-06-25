@@ -217,11 +217,12 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                         docker-compose -f ${COMPOSE_FILE} up -d \
                             postgres redis zookeeper kafka zipkin db-init
-                            sh '''
-                            echo "==== Kafka configured healthcheck ===="
-                            docker inspect test-kafka --format '{{json.Config.Healthcheck}}'
-                            '''
+
                     """
+                      sh '''
+                          echo "==== Kafka configured healthcheck ===="
+                          docker inspect test-kafka --format '{{json.Config.Healthcheck}}'
+                         '''
 
                     echo "Infrastructure containers started. Waiting for health checks..."
                 }
@@ -584,18 +585,19 @@ def waitForHttp(Map args) {
 
         sh """
             docker ps -a
-            sh 'docker logs test-kafka --tail 200 || true'
-            sh 'docker logs test-user-service --tail 200 || true'
-            sh 'docker logs test-product-service --tail 200 || true'
-            sh 'docker logs test-order-service --tail 200 || true'
-            sh 'docker logs test-payment-service --tail 200 || true'
-            sh 'docker logs test-api-gateway --tail 200 || true'
 
-            echo
-            docker stats --no-stream || true
+               docker logs test-kafka --tail 200 || true
+               docker logs test-user-service --tail 200 || true
+               docker logs test-product-service --tail 200 || true
+               docker logs test-order-service --tail 200 || true
+               docker logs test-payment-service --tail 200 || true
+               docker logs test-api-gateway --tail 200 || true
 
-            echo
-            free -h || true
+               echo
+               docker stats --no-stream || true
+
+               echo
+               free -h || true
         """
 
         if (args.url.contains("8081")) {
