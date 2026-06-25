@@ -221,7 +221,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     """
                       sh '''
                           echo "==== Kafka configured healthcheck ===="
-                          docker inspect test-kafka --format '{{json.Config.Healthcheck}}'
+                          docker inspect test-kafka --format '{{json .Config.Healthcheck}}'
                          '''
 
                     echo "Infrastructure containers started. Waiting for health checks..."
