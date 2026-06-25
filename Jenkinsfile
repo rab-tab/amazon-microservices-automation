@@ -565,6 +565,22 @@ def waitForKafka(Map args) {
                echo "KAFKA DEEP DIAGNOSTICS"
                echo "=================================================="
 
+                echo
+                echo "===== ZOOKEEPER HEALTH ====="
+                docker logs test-zookeeper --tail 100
+
+                echo
+                echo "===== ZOOKEEPER RUOK ====="
+                docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
+
+                echo
+                echo "===== KAFKA LISTENERS ====="
+                docker exec test-kafka env | grep LISTENER
+
+                echo
+                echo "===== KAFKA PORT ====="
+                docker exec test-kafka sh -c "nc -z localhost 9092; echo \$?"
+
                echo
                echo "===== Container State ====="
                docker inspect test-kafka --format '{{json .State}}' || true
