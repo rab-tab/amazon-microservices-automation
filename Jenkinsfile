@@ -535,6 +535,7 @@ def waitForKafka(Map args) {
             return
         }
         if (status == 'unhealthy') {
+        sh '''
              echo "==== Kafka configured healthcheck ===="
                 sh "docker inspect test-kafka --format '{{json .Config.Healthcheck}}' || true"
 
@@ -548,6 +549,7 @@ def waitForKafka(Map args) {
                 sh "docker logs test-kafka --tail 100 || true"
 
                 error("❌ Kafka reported unhealthy")
+         '''
         }
         sleep(10)
         elapsed += 10
