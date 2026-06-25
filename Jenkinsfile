@@ -290,6 +290,14 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         [port: 8084, name: 'Payment Service'],
                         [port: 8090, name: 'API Gateway'],  // compose maps 8090:8080
                     ]
+                    sh '''
+                    echo "===== MEMORY ====="
+                    docker stats --no-stream
+
+                    echo
+                    echo "===== CONTAINERS ====="
+                    docker ps -a
+                    '''
                     serviceList.each { svc ->
                         def s = svc  // capture for closure
                         parallelChecks[s.name] = {
@@ -611,6 +619,28 @@ def waitForHttp(Map args) {
         } else if (args.url.contains("8090")) {
             sh "docker logs test-api-gateway --tail 300 || true"
         }
+        echo "==== Order Service Diagnostics ===="
 
+        sh '''
+        docker ps -a
+
+        echo
+        docker inspect test-order-service --format '{{json .State.Health}}' || true
+
+        echo
+        docker logs test-order-service --tail 500 || true
+
+        echo
+        curl -v http://localhost:8083/actuator/health || true
+        '''
+
+sh '''
+echo "===== OOM CHECK ====="
+docker inspect test-user-service --format '{{.State.OOMKilled}}' || true
+docker inspect test-product-service --format '{{.State.OOMKilled}}' || true
+docker inspect test-order-service --format '{{.State.OOMKilled}}' || true
+docker inspect test-payment-service --format '{{.State.OOMKilled}}' || true
+docker inspect test-api-gateway --format '{{.State.OOMKilled}}' || true
+'''
     error("❌ ${args.description} did not become healthy within ${args.timeoutSecs}s")
 }
