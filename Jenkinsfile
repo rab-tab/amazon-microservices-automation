@@ -639,6 +639,10 @@ def waitForKafka(Map args) {
                echo
                echo "===== Last 200 Kafka Logs ====="
                docker logs test-kafka --tail 200 || true
+               docker exec test-kafka env | sort
+               docker exec test-kafka cat /etc/kafka/kafka.properties
+               docker exec test-kafka bash -c "grep KAFKA_ /etc/confluent/docker/configure"
+               docker inspect test-kafka --format='{{json .Config.Env}}'
 
                echo
                echo "=================================================="
