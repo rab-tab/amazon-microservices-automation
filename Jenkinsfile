@@ -564,7 +564,13 @@ def waitForKafka(Map args) {
                echo "=================================================="
                echo "KAFKA DEEP DIAGNOSTICS"
                echo "=================================================="
+                echo
+                echo "===== Generated kafka.properties ====="
+                docker exec test-kafka cat /etc/kafka/kafka.properties || true
 
+                echo
+                echo "===== Effective Listeners ====="
+                docker exec test-kafka grep -E "^(listeners|advertised.listeners|listener.security.protocol.map|inter.broker.listener.name|zookeeper.connect)" /etc/kafka/kafka.properties || true
                 echo
                 echo "===== ZOOKEEPER HEALTH ====="
                 docker logs test-zookeeper --tail 100
