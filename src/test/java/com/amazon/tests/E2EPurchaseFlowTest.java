@@ -1,21 +1,27 @@
 package com.amazon.tests;
 
-import com.amazon.tests.config.ConfigManager;
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.AuthUtils;
-import com.amazon.tests.utils.TestDataFactory;
+import com.amazon.tests.utils.*;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
 import org.testng.annotations.Test;
 
 import static io.restassured.RestAssured.given;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.equalTo;
 
 @Epic("Amazon Microservices")
 @Feature("End-to-End Purchase Flow")
 public class E2EPurchaseFlowTest extends BaseTest {
+
+    AuthFacade authFacade=new AuthFacade();
+    ProductFacade productFacade=new ProductFacade();
+    OrderFacade orderFacade=new OrderFacade();
+    PaymentFacade paymentFacade=new PaymentFacade();
+    TestModels.RegisterRequest customerData;
+    TestModels.AuthResponse sellerData;
+    TestModels.ProductResponse productData;
+    TestModels.OrderResponse orderData;
 
     @Test
     @Story("Complete Purchase Flow")
@@ -24,145 +30,54 @@ public class E2EPurchaseFlowTest extends BaseTest {
     public void testCompletePurchaseFlow() {
         // ─── STEP 1: Register new customer ─────────────────────────────
         logStep("STEP 1: Registering new customer");
-        TestModels.RegisterRequest customerData = TestDataFactory.createRandomUser();
-        TestModels.AuthResponse customerAuth = AuthUtils.registerUser(customerData);
-
-        assertThat(customerAuth.getAccessToken()).isNotBlank();
-        assertThat(customerAuth.getUser().getRole()).isEqualTo("CUSTOMER");
-
-        String customerToken = customerAuth.getAccessToken();
-        String customerId = customerAuth.getUser().getId();
-        logStep("Customer registered: " + customerAuth.getUser().getEmail());
+        customerData=authFacade.registerCustomer();
+        logStep("STEP 2: Registerd new customer");
 
         // ─── STEP 2: Login ─────────────────────────────────────────────
-        logStep("STEP 2: Customer login");
-        TestModels.AuthResponse loginAuth = AuthUtils.login(
-                customerData.getEmail(), customerData.getPassword());
-
-        assertThat(loginAuth.getAccessToken()).isNotBlank();
-        logStep("Login successful");
+        logStep("STEP 3: Customer login");
+        authFacade.login(customerData.getEmail(),customerData.getPassword());
+        logStep("STEP 4: Login successful");
 
         // ─── STEP 3: Register a seller and create product ──────────────
-        logStep("STEP 3: Seller creates product");
-        TestModels.AuthResponse sellerAuth = AuthUtils.registerAndGetAuth();
-        String sellerId = sellerAuth.getUser().getId();
-        String sellerToken = sellerAuth.getAccessToken();
+        logStep("STEP 5: Register seller ");
+        sellerData=authFacade.registerSeller();
+        logStep("STEP 6: Create product");
 
-        TestModels.ProductRequest productReq = TestDataFactory.createProductWithPrice(49.99);
-        Response productCreateResp = given()
-                .spec(RestAssuredConfig.getProductServiceSpec())
-                .header("Authorization", "Bearer " + sellerToken)
-                .header("X-User-Id", sellerId)
-                .body(productReq)
-                .when()
-                .post("/api/v1/products")
-                .then()
-                .statusCode(201)
-                .extract().response();
+        productData=productFacade.createProduct(sellerData);
 
-        TestModels.ProductResponse product = productCreateResp.as(TestModels.ProductResponse.class);
-        assertThat(product.getId()).isNotBlank();
-        assertThat(product.getStatus()).isEqualTo("ACTIVE");
-        logStep("Product created: " + product.getId() + " - " + product.getName());
 
-        // ─── STEP 4: Customer views product ────────────────────────────
-        logStep("STEP 4: Customer views product details");
-        given()
-                .spec(RestAssuredConfig.getProductServiceSpec())
-                .pathParam("id", product.getId())
-                .when()
-                .get("/api/v1/products/{id}")
-                .then()
-                .statusCode(200)
-                .body("id", equalTo(product.getId()))
-                .body("price", equalTo(49.99f));
+        // ─── STEP 7: Customer views product ────────────────────────────
+        logStep("STEP 7: Customer views product details");
+        productFacade.getProduct(productData.getId());
 
-        // ─── STEP 5: Customer browses product catalog ──────────────────
-        logStep("STEP 5: Customer browses product listing");
-        given()
-                .spec(RestAssuredConfig.getProductServiceSpec())
-                .queryParam("page", 0)
-                .queryParam("size", 10)
-                .when()
-                .get("/api/v1/products")
-                .then()
-                .statusCode(200)
-                .body("totalElements", greaterThanOrEqualTo(1));
 
-        // ─── STEP 6: Customer creates order ────────────────────────────
-        logStep("STEP 6: Customer places order");
-        TestModels.CreateOrderRequest orderReq = TestDataFactory.createOrderRequest(
-                product.getId(), product.getName(), product.getPrice());
-        orderReq.setShippingAddress("123 Amazon Way, Seattle, WA 98101");
+        // ─── STEP 8: Customer browses product catalog ──────────────────
+        logStep("STEP 8: Customer browses product listing");
+        productFacade.browseProducts();
 
-        Response orderResp = given()
-                .spec(RestAssuredConfig.getOrderServiceSpec(customerToken))
-                .header("X-User-Id", customerId)
-                .body(orderReq)
-                .when()
-                .post("/api/v1/orders")
-                .then()
-                .statusCode(201)
-                .body("status", equalTo("PENDING"))
-                .body("userId", equalTo(customerId))
-                .extract().response();
+        // ─── STEP 9: Customer creates order ────────────────────────────
+        logStep("STEP 9: Customer places order");
+        orderData=orderFacade.createOrder(productData.getId(),productData.getName(),productData.getPrice(),
+                AuthFacade.customerId,AuthFacade.customerToken);
 
-        TestModels.OrderResponse order = orderResp.as(TestModels.OrderResponse.class);
-        assertThat(order.getId()).isNotBlank();
-        assertThat(order.getTotalAmount()).isPositive();
-        logStep("Order placed: " + order.getId() + " | Total: $" + order.getTotalAmount());
+        logStep("STEP 10: Order created");
 
-        // ─── STEP 7: Verify order is in customer's order history ───────
-        logStep("STEP 7: Verifying order in customer's order history");
-        given()
-                .spec(RestAssuredConfig.getOrderServiceSpec(customerToken))
-                .pathParam("userId", customerId)
-                .queryParam("page", 0)
-                .queryParam("size", 10)
-                .when()
-                .get("/api/v1/orders/user/{userId}")
-                .then()
-                .statusCode(200)
-                .body("orders.find { it.id == '" + order.getId() + "' }", notNullValue());
+        // ─── STEP 11: Verify order is in customer's order history ───────
+        logStep("STEP 11: Verifying order in customer's order history");
+        orderFacade.getOrder(AuthFacade.customerId,AuthFacade.customerToken,orderData.getId());
 
-        // ─── STEP 8: Verify payment was processed (Saga) ───────────────
-        logStep("STEP 8: Checking payment status (Kafka Saga)");
+
+        // ─── STEP 12: Verify payment was processed (Saga) ───────────────
+        logStep("STEP 12: Checking payment status (Kafka Saga)");
         // Allow time for Kafka saga to process
         try { Thread.sleep(3000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        paymentFacade.processPayment(orderData.getId());
 
-        Response paymentResp = given()
-                .spec(new io.restassured.builder.RequestSpecBuilder()
-                        .setBaseUri(ConfigManager.getInstance().getPaymentServiceUrl())
-                        .setContentType(io.restassured.http.ContentType.JSON)
-                        .build())
-                .pathParam("orderId", order.getId())
-                .when()
-                .get("/api/v1/payments/order/{orderId}")
-                .then()
-                .statusCode(anyOf(equalTo(200), equalTo(404))) // may be processing
-                .extract().response();
 
-        if (paymentResp.statusCode() == 200) {
-            String paymentStatus = paymentResp.jsonPath().getString("status");
-            logStep("Payment status: " + paymentStatus);
-            assertThat(paymentStatus).isIn("SUCCESS", "FAILED", "PROCESSING");
-        }
+        // ─── STEP 13: Verify order status updated after payment ─────────
+        logStep("STEP 13: Verifying order status updated by payment saga");
+        orderFacade.verofyOrderStatus(orderData.getId(),AuthFacade.customerToken);
 
-        // ─── STEP 9: Verify order status updated after payment ─────────
-        logStep("STEP 9: Verifying order status updated by payment saga");
-        given()
-                .spec(RestAssuredConfig.getOrderServiceSpec(customerToken))
-                .pathParam("id", order.getId())
-                .when()
-                .get("/api/v1/orders/{id}")
-                .then()
-                .statusCode(200)
-                .body("status", anyOf(
-                        equalTo("PENDING"),
-                        equalTo("CONFIRMED"),
-                        equalTo("PAYMENT_FAILED"),
-                        equalTo("PAYMENT_PROCESSING")
-                ));
 
         logStep("✅ E2E Purchase Flow completed successfully!");
     }
