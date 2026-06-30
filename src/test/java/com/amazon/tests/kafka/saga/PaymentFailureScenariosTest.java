@@ -1,6 +1,6 @@
 package com.amazon.tests.kafka.saga;
 
-import com.amazon.tests.BaseTest;
+import com.amazon.tests.config.AbstractSagaTest;
 import com.amazon.tests.config.TestEnvironment;
 import com.amazon.tests.config.TestEnvironmentBuilder;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
@@ -55,7 +55,7 @@ import static org.awaitility.Awaitility.await;
 @Epic("Kafka Saga Pattern")
 @Feature("Payment Failure Compensation")
 @Test(groups = {"saga", "payment-failures"})
-public class PaymentFailureScenariosTest extends BaseTest {
+public class PaymentFailureScenariosTest extends AbstractSagaTest {
 
     private KafkaTestConsumer orderEventsConsumer;
     private KafkaTestConsumer paymentResultConsumer;
