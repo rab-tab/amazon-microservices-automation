@@ -1,5 +1,8 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.kafka;
 
+import com.amazon.tests.utils.TestMetrics;
+import com.amazon.tests.utils.metrics.KafkaMetrics;
+import com.amazon.tests.utils.metrics.MetricsManager;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;

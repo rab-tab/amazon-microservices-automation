@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.metrics;
 
 //import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
 

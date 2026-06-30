@@ -1,5 +1,6 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.retry;
 
+import com.amazon.tests.utils.metrics.MetricsManager;
 import org.testng.IRetryAnalyzer;
 import org.testng.ITestResult;
 

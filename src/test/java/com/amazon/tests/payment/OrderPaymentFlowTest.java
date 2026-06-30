@@ -4,7 +4,7 @@ import com.amazon.tests.BaseTest;
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.AuthUtils;
-import com.amazon.tests.utils.TestDataFactory;
+import com.amazon.tests.utils.testData.TestDataFactory;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;

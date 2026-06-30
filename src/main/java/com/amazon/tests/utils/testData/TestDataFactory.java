@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.testData;
 
 import com.amazon.tests.models.TestModels;
 import com.github.javafaker.Faker;

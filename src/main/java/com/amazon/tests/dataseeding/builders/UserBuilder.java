@@ -2,7 +2,7 @@
 package com.amazon.tests.dataseeding.builders;
 
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.TestDataGenerator;
+import com.amazon.tests.utils.testData.TestDataGenerator;
 import lombok.extern.slf4j.Slf4j;
 
 /**

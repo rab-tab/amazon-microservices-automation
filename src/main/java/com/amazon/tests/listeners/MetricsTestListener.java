@@ -1,6 +1,6 @@
 package com.amazon.tests.listeners;
 
-import com.amazon.tests.utils.MetricsManager;
+import com.amazon.tests.utils.metrics.MetricsManager;
 import org.testng.ITestListener;
 import org.testng.ITestResult;
 

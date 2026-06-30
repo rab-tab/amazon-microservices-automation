@@ -1,8 +1,8 @@
 package com.amazon.tests.load;
 
-import com.amazon.tests.utils.OrderCreationTestData;
-import com.amazon.tests.utils.OrderDataProducer;
-import com.amazon.tests.utils.OrderTestConsumer;
+import com.amazon.tests.utils.testData.OrderCreationTestData;
+import com.amazon.tests.utils.kafka.OrderDataProducer;
+import com.amazon.tests.utils.kafka.OrderTestConsumer;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;

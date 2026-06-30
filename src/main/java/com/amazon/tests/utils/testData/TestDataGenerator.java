@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.testData;
 
 
 import net.datafaker.Faker;

@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.kafka;
 
 // src/main/java/com/amazon/tests/utils/KafkaTestUtils.java
 

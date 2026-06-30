@@ -1,12 +1,16 @@
 package com.amazon.tests.kafka.saga;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.config.TestEnvironment;
+import com.amazon.tests.config.TestEnvironmentBuilder;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
 import com.amazon.tests.dataseeding.core.SeedingException;
-import com.amazon.tests.dataseeding.seeders.ProductSeeder;
-import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.*;
+import com.amazon.tests.utils.TestMetrics;
+import com.amazon.tests.utils.TestTimeline;
+import com.amazon.tests.utils.kafka.KafkaTestConsumer;
+import com.amazon.tests.utils.metrics.KafkaMetrics;
+import com.amazon.tests.utils.metrics.MetricsManager;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.sun.management.OperatingSystemMXBean;
 import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
@@ -91,47 +95,53 @@ public class OrderPaymentSagaFlowTest extends BaseTest {
     private KafkaMetrics metrics =
             new KafkaMetrics();
     private TestMetrics seedingMetrics=new TestMetrics();
+    private TestEnvironment env=new TestEnvironment();
 
 
 
     @BeforeMethod
     public void setup() throws SeedingException {
         logStep("Setting up Saga flow tests");
-        testStartTime = System.currentTimeMillis();
+       testStartTime = System.currentTimeMillis();
         timeline=new TestTimeline();
-
-         osBean =
+        osBean =
                 (OperatingSystemMXBean)
                         ManagementFactory.getOperatingSystemMXBean();
-
         testCpuStart = osBean.getProcessCpuTime();
-
         long startMemory =
                 Runtime.getRuntime().totalMemory()
                         - Runtime.getRuntime().freeMemory();
-
         long userStart =
                 System.currentTimeMillis();
+        try {
+            env= TestEnvironmentBuilder.builder(context)
+                    .withUser().withProduct().waitForPropagation(1000).
+                    withKafkaConsumer("order.events").
+                    withKafkaConsumer("payment.result").build();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         // Seed test data
-        user = UserSeeder.builder(context).count(1).build().seed().getFirst();
+     //   user = UserSeeder.builder(context).count(1).build().seed().getFirst();
         MetricsManager.recordUserSeeding(
                 System.currentTimeMillis()
                         - userStart);
-        userToken = context.getCached("user_token_" + user.getId(), String.class);
+        userToken=env.getUserToken();
+       // userToken = context.getCached("user_token_" + user.getId(), String.class);
         long productStart =
                 System.currentTimeMillis();
         MetricsManager.recordProductSeeding(
                 System.currentTimeMillis()
                         - productStart);
-        product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
+        //product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
 
-        waitForDataPropagation(1000);
+       // waitForDataPropagation(1000);
 
         // Initialize Kafka consumers for saga verification
         // order.events = where ORDER_CREATED is published (Payment Service consumes this)
         // payment.result = where Payment Service publishes PAYMENT_COMPLETED/FAILED
-        orderEventsConsumer = new KafkaTestConsumer("order.events");
-        paymentResultConsumer = new KafkaTestConsumer("payment.result");
+      //  orderEventsConsumer = new KafkaTestConsumer("order.events");
+      //  paymentResultConsumer = new KafkaTestConsumer("payment.result");
 
         // ⭐ CRITICAL: Seek to end to ignore historical events
        // orderEventsConsumer.seekToEnd();

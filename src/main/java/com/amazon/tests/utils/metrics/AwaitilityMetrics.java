@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.metrics;
 
 import lombok.extern.slf4j.Slf4j;
 

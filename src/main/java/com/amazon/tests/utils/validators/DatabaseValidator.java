@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.validators;
 
 import com.amazon.tests.config.ConfigManager;
 import com.zaxxer.hikari.HikariConfig;

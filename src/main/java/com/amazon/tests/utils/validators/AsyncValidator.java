@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.validators;
 
 
 import org.awaitility.Awaitility;

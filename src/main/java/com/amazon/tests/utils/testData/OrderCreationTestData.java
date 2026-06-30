@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.testData;
 
 /**
  * Producer-Consumer Pattern for Testing Order Creation at Scale

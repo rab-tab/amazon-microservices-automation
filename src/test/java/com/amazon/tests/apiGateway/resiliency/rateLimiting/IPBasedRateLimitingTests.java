@@ -4,7 +4,7 @@ import com.amazon.tests.BaseTest;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.HttpUtils;
-import com.amazon.tests.utils.TestDataFactory;
+import com.amazon.tests.utils.testData.TestDataFactory;
 import com.amazon.tests.utils.TimeoutHelper;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;

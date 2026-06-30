@@ -1,5 +1,6 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.kafka;
 
+import com.amazon.tests.utils.testData.OrderCreationTestData;
 import io.restassured.response.Response;
 
 import java.util.concurrent.BlockingQueue;

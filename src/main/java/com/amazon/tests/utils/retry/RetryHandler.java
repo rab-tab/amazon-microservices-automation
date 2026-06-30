@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.retry;
 
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;

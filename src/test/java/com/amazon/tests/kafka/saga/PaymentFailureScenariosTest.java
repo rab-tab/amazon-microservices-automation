@@ -1,13 +1,13 @@
 package com.amazon.tests.kafka.saga;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.config.TestEnvironment;
+import com.amazon.tests.config.TestEnvironmentBuilder;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
 import com.amazon.tests.dataseeding.core.SeedingException;
-import com.amazon.tests.dataseeding.seeders.ProductSeeder;
-import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.KafkaTestConsumer;
 import com.amazon.tests.utils.TestMetrics;
+import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
 import io.restassured.RestAssured;
@@ -15,7 +15,10 @@ import io.restassured.response.Response;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.testng.annotations.*;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
+import org.testng.annotations.Test;
 
 import java.time.Duration;
 import java.util.Optional;
@@ -60,6 +63,7 @@ public class PaymentFailureScenariosTest extends BaseTest {
     private TestModels.ProductResponse product;
     private String userToken;
     private TestMetrics metrics;
+    private TestEnvironment env=new TestEnvironment();
 
     /**
      * Payment failure scenario configuration
@@ -121,7 +125,14 @@ public class PaymentFailureScenariosTest extends BaseTest {
         logStep("Setting up Payment Failure Scenarios tests");
 
         metrics=new TestMetrics();
-        // Seed test data once for all tests
+
+        try {
+            env= TestEnvironmentBuilder.builder(context).withUser().withProduct().waitForPropagation(1000)
+                    .withKafkaConsumer("order.events").withKafkaConsumer("payment.result").build();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+      /*  // Seed test data once for all tests
         user = UserSeeder.builder(context).count(1).build().seed().getFirst();
         userToken = context.getCached("user_token_" + user.getId(), String.class);
         product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
@@ -133,7 +144,7 @@ public class PaymentFailureScenariosTest extends BaseTest {
         paymentResultConsumer = new KafkaTestConsumer("payment.result");
 
         orderEventsConsumer.seekToEnd();
-        paymentResultConsumer.seekToEnd();
+        paymentResultConsumer.seekToEnd();*/
 
         logStep("✅ Payment failure test setup complete");
     }

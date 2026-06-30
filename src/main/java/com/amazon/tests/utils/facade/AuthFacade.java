@@ -1,6 +1,8 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.facade;
 
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.utils.AuthUtils;
+import com.amazon.tests.utils.testData.TestDataFactory;
 import lombok.extern.slf4j.Slf4j;
 
 import static org.assertj.core.api.Assertions.assertThat;

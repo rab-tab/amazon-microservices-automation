@@ -3,6 +3,8 @@ package com.amazon.tests;
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.*;
+import com.amazon.tests.utils.kafka.KafkaTestConsumer;
+import com.amazon.tests.utils.testData.TestDataFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
 import io.restassured.response.Response;

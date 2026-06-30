@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.facade;
 
 import com.amazon.tests.config.ConfigManager;
 import io.restassured.response.Response;

@@ -3,7 +3,7 @@ package com.amazon.tests;
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.AuthUtils;
-import com.amazon.tests.utils.TestDataFactory;
+import com.amazon.tests.utils.testData.TestDataFactory;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
 import org.testng.annotations.BeforeClass;
