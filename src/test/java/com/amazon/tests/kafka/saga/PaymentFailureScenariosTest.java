@@ -8,6 +8,7 @@ import com.amazon.tests.dataseeding.core.SeedingException;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.TestMetrics;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
+import com.amazon.tests.utils.apiClients.PaymentEventClient;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
@@ -65,6 +66,7 @@ public class PaymentFailureScenariosTest extends BaseTest {
     private TestMetrics metrics;
     private TestEnvironment env=new TestEnvironment();
     private OrderApiClient orderApiClient;
+    private PaymentEventClient paymentEventClient;
 
 
 
@@ -219,12 +221,8 @@ public class PaymentFailureScenariosTest extends BaseTest {
         // ═══════════════════════════════════════════════════════════════
         logStep("  Waiting for payment failure event...");
 
-        Optional<JsonNode> paymentResult = paymentResultConsumer.waitForMessage(
-                node -> node.has("orderId") &&
-                        orderId.equals(node.get("orderId").asText()) &&
-                        "FAILED".equals(node.get("status").asText()),
-                30
-        );
+        Optional<JsonNode> paymentResult =
+                paymentEventClient.waitForPaymentFailed(orderId, 30);
 
         assertThat(paymentResult)
                 .as("Payment failure result should be published to payment.result topic")
