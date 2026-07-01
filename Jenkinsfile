@@ -588,7 +588,13 @@ def dumpKafkaDiagnostics(){
 
                 echo
                 echo "===== Kafka Server Logs ====="
-                docker exec test-kafka sh -c "find /var/log -type f | xargs tail -50" || true
+                docker exec test-kafka sh -c '
+                for f in /var/log/kafka/*; do
+                  echo "===== $f ====="
+                  cat "$f"
+                done
+                '
+                //docker exec test-kafka sh -c "find /var/log -type f | xargs tail -50" || true
 
                 echo
                 echo "===== Effective Listeners ====="
