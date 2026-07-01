@@ -558,8 +558,23 @@ def waitForKafka(Map args) {
             '''
         }
         if (status == 'unhealthy') {
+                echo "Kafka marked unhealthy by Docker"
+                dumpKafkaDiagnostics()
+                error("Kafka unhealthy")
+                }
 
-           sh '''
+
+        }
+        sleep(10)
+        elapsed += 10
+    }
+   echo "Kafka never became healthy within timeout"
+   dumpKafkaDiagnostics()
+   error("Kafka failed to become healthy")
+
+
+def dumpKafkaDiagnostics(){
+ sh '''
                echo
                echo "=================================================="
                echo "KAFKA DEEP DIAGNOSTICS"
@@ -651,20 +666,8 @@ def waitForKafka(Map args) {
            '''
 
             error("❌ Kafka became unhealthy")
-        }
-        sleep(10)
-        elapsed += 10
-    }
-    sh '''
-        echo "===== FINAL KAFKA DIAGNOSTICS ====="
-        docker inspect test-kafka --format '{{json .State.Health}}' || true
-        docker logs test-kafka --tail 200 || true
-    '''
-
-    error("❌ Kafka failed to become healthy within ${args.timeoutSecs}s")
 
 }
-
 def waitForHttp(Map args) {
     def elapsed = 0
     def interval = 10
