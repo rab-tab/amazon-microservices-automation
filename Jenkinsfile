@@ -597,6 +597,23 @@ def dumpKafkaDiagnostics(){
                 //docker exec test-kafka sh -c "find /var/log -type f | xargs tail -50" || true
 
                 echo
+                echo "===== RUN SCRIPT ====="
+                docker exec test-kafka cat /etc/confluent/docker/run || true
+
+                echo
+                echo "===== CONFIGURE SCRIPT ====="
+                docker exec test-kafka cat /etc/confluent/docker/configure || true
+
+                echo
+                echo "===== ENSURE SCRIPT ====="
+                docker exec test-kafka cat /etc/confluent/docker/ensure || true
+
+                docker inspect test-kafka --format '{{.State.ExitCode}}'
+                docker inspect test-kafka --format '{{.State.Error}}'
+
+                docker inspect test-kafka --format '{{.RestartCount}}'
+
+                echo
                 echo "===== Effective Listeners ====="
                 docker exec test-kafka grep -E "^(listeners|advertised.listeners|listener.security.protocol.map|inter.broker.listener.name|zookeeper.connect)" /etc/kafka/kafka.properties || true
                 echo
