@@ -583,6 +583,13 @@ def dumpKafkaDiagnostics(){
                 echo "===== Generated kafka.properties ====="
                 docker exec test-kafka cat /etc/kafka/kafka.properties || true
 
+                echo "===== Server Log Directory ====="
+                docker exec test-kafka ls -la /var/log/kafka || true
+
+                echo
+                echo "===== Kafka Server Logs ====="
+                docker exec test-kafka sh -c "find /var/log -type f | xargs tail -50" || true
+
                 echo
                 echo "===== Effective Listeners ====="
                 docker exec test-kafka grep -E "^(listeners|advertised.listeners|listener.security.protocol.map|inter.broker.listener.name|zookeeper.connect)" /etc/kafka/kafka.properties || true
