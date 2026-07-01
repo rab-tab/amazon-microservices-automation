@@ -1,12 +1,13 @@
 package com.amazon.tests.kafka.saga;
 
-import com.amazon.tests.config.AbstractSagaTest;
+import com.amazon.tests.BaseTest;
 import com.amazon.tests.config.TestEnvironment;
 import com.amazon.tests.config.TestEnvironmentBuilder;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
 import com.amazon.tests.dataseeding.core.SeedingException;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.TestMetrics;
+import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
@@ -24,7 +25,6 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
-import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -55,7 +55,7 @@ import static org.awaitility.Awaitility.await;
 @Epic("Kafka Saga Pattern")
 @Feature("Payment Failure Compensation")
 @Test(groups = {"saga", "payment-failures"})
-public class PaymentFailureScenariosTest extends AbstractSagaTest {
+public class PaymentFailureScenariosTest extends BaseTest {
 
     private KafkaTestConsumer orderEventsConsumer;
     private KafkaTestConsumer paymentResultConsumer;
@@ -64,6 +64,9 @@ public class PaymentFailureScenariosTest extends AbstractSagaTest {
     private String userToken;
     private TestMetrics metrics;
     private TestEnvironment env=new TestEnvironment();
+    private OrderApiClient orderApiClient;
+
+
 
     /**
      * Payment failure scenario configuration
@@ -123,7 +126,7 @@ public class PaymentFailureScenariosTest extends AbstractSagaTest {
     @BeforeMethod
     public void setupClass() throws SeedingException {
         logStep("Setting up Payment Failure Scenarios tests");
-
+        orderApiClient=new OrderApiClient(context);
         metrics=new TestMetrics();
 
         try {
@@ -185,8 +188,9 @@ public class PaymentFailureScenariosTest extends AbstractSagaTest {
 
         Response createResponse = executeWithRetry(() -> {
             try {
-                return sendOrderRequestWithFault(
+                return orderApiClient.createOrderWithFault(
                         userToken,
+                        env.getUser().getId(),
                         idempotencyKey,
                         orderRequest,
                         scenario.getFaultHeader()
@@ -260,23 +264,14 @@ public class PaymentFailureScenariosTest extends AbstractSagaTest {
                 .pollInterval(Duration.ofSeconds(1))
                 .ignoreExceptions()
                 .until(() -> {
-                    Response response = given()
-                            .header("X-User-Id", user.getId().toString())
-                            .header("Authorization", "Bearer " + userToken)
-                            .when()
-                            .get(context.getConfig().baseUrl() + "/api/orders/" + orderId);
-
+                    Response response = orderApiClient.getOrder(userToken,user.getId().toString(),orderId);
                     return "PAYMENT_FAILED".equals(response.jsonPath().getString("status"));
                 });
 
         // ═══════════════════════════════════════════════════════════════
         // STEP 4: Verify Final Order State
         // ═══════════════════════════════════════════════════════════════
-        Response finalOrder = given()
-                .header("X-User-Id", user.getId().toString())
-                .header("Authorization", "Bearer " + userToken)
-                .when()
-                .get(context.getConfig().baseUrl() + "/api/orders/" + orderId);
+        Response finalOrder = orderApiClient.getOrder(userToken,user.getId().toString(),orderId);
 
         String finalStatus = finalOrder.jsonPath().getString("status");
         String storedFailureReason = finalOrder.jsonPath().getString("paymentFailureReason");

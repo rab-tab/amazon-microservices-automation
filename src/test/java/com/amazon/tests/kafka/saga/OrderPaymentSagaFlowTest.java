@@ -83,7 +83,7 @@ import static org.awaitility.Awaitility.await;
 @Slf4j
 @Epic("Kafka Saga Pattern")
 @Feature("Order-Payment Choreography")
-public class OrderPaymentSagaFlowTest extends BaseTest {
+    public class OrderPaymentSagaFlowTest extends BaseTest {
 
     private KafkaTestConsumer orderEventsConsumer;
     private KafkaTestConsumer paymentResultConsumer;
