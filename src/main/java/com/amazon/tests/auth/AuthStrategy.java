@@ -1,4 +1,4 @@
-package com.amazon.tests.config.auth;
+package com.amazon.tests.auth;
 
 import io.restassured.specification.RequestSpecification;
 

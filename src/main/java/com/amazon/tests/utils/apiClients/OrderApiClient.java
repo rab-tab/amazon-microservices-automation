@@ -1,7 +1,6 @@
 package com.amazon.tests.utils.apiClients;
 
-import com.amazon.tests.config.auth.AuthStrategy;
-import com.amazon.tests.config.auth.BearerAuthStrategy;
+import com.amazon.tests.auth.AuthStrategy;
 import com.amazon.tests.config.RequestBuilder;
 import com.amazon.tests.dataseeding.core.SeedingContext;
 import com.amazon.tests.models.TestModels;
@@ -101,7 +100,6 @@ public class OrderApiClient {
             String faultHeader) {
 
         RequestSpecification spec= RequestBuilder.defaultSpec();
-        authStrategy=new BearerAuthStrategy(userToken);
         authStrategy.authenticate(spec);
 
         spec.header("X-User-Id", userId);

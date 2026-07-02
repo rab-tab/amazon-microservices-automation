@@ -1,7 +1,7 @@
 package com.amazon.tests.kafka.saga;
 
 import com.amazon.tests.BaseTest;
-import com.amazon.tests.config.auth.BearerAuthStrategy;
+import com.amazon.tests.auth.BearerAuthStrategy;
 import com.amazon.tests.config.TestEnvironment;
 import com.amazon.tests.config.TestEnvironmentBuilder;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;

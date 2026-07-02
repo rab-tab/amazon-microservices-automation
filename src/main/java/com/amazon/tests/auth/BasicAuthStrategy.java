@@ -1,6 +1,5 @@
-package com.amazon.tests.config.auth;
+package com.amazon.tests.auth;
 
-import com.amazon.tests.config.auth.AuthStrategy;
 import io.restassured.specification.RequestSpecification;
 
 public class BasicAuthStrategy implements AuthStrategy {
