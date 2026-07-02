@@ -9,10 +9,10 @@ import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.TestMetrics;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.utils.apiClients.PaymentEventClient;
+import com.amazon.tests.utils.assertions.OrderAssertions;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
-import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -271,72 +271,20 @@ public class PaymentFailureScenariosTest extends BaseTest {
         // ═══════════════════════════════════════════════════════════════
         Response finalOrder = orderApiClient.getOrder(userToken,user.getId().toString(),orderId);
 
-        String finalStatus = finalOrder.jsonPath().getString("status");
-        String storedFailureReason = finalOrder.jsonPath().getString("paymentFailureReason");
-        Boolean retryable = finalOrder.jsonPath().getBoolean("paymentRetryable");
-        String paymentId = finalOrder.jsonPath().getString("paymentId");
+        OrderAssertions.assertPaymentFailure(
+                finalOrder,
+                scenario.getExpectedFailureReason(),
+                scenario.isExpectedRetryable(),
+                scenario.isExpectFraudScore());
 
-        logStep("  ✓ Final order status: {}", finalStatus);
-        logStep("  ✓ Failure reason: {}", storedFailureReason);
-        logStep("  ✓ Retryable: {}", retryable);
-
-        // Assert final state
-        assertThat(finalStatus)
-                .as("Order should be compensated to PAYMENT_FAILED")
-                .isEqualTo("PAYMENT_FAILED");
-
-        assertThat(storedFailureReason)
-                .as("Failure reason should be stored in order")
-                .contains(scenario.getExpectedFailureReason());
-
-        assertThat(retryable)
-                .as("Retryable flag should match scenario expectation")
-                .isEqualTo(scenario.isExpectedRetryable());
-
-        assertThat(paymentId)
-                .as("No payment ID should be assigned on failure")
-                .isNullOrEmpty();
-
-        // Verify fraud score stored in order (if applicable)
-        if (scenario.isExpectFraudScore()) {
-            Integer storedFraudScore = finalOrder.jsonPath().getInt("paymentFraudScore");
-            assertThat(storedFraudScore)
-                    .as("Fraud score should be stored in order")
-                    .isGreaterThan(90);
-            logStep("  ✓ Fraud score stored: {}", storedFraudScore);
-        }
 
         // ═══════════════════════════════════════════════════════════════
         // STEP 5: Summary
         // ═══════════════════════════════════════════════════════════════
         logStep("✅ {} - COMPLETE", scenario.getTestName());
         logStep("   Order: {} → PAYMENT_FAILED", orderId);
-        logStep("   Reason: {}", storedFailureReason);
-        logStep("   Retryable: {}", retryable);
+       // logStep("   Reason: {}", storedFailureReason);
+        //logStep("   Retryable: {}", retryable);
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // HELPER METHODS
-    // ══════════════════════════════════════════════════════════════════════════
-
-    private Response sendOrderRequestWithFault(
-            String userToken,
-            String idempotencyKey,
-            TestModels.CreateOrderRequest orderRequest,
-            String faultType) throws Exception {
-
-        String requestBody = objectMapper.writeValueAsString(orderRequest);
-
-        return RestAssured
-                .given()
-                .baseUri(context.getConfig().baseUrl())
-                .header("Authorization", "Bearer " + userToken)
-                .header("X-User-Id", user.getId().toString())
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-Fault", faultType)
-                .contentType("application/json")
-                .body(requestBody)
-                .when()
-                .post("/api/orders");
-    }
 }
