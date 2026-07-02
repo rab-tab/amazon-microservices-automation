@@ -1,10 +1,12 @@
 package com.amazon.tests.utils.apiClients;
 
-import com.amazon.tests.transport.HttpExecutor;
+import com.amazon.tests.config.auth.AuthStrategy;
+import com.amazon.tests.config.auth.BearerAuthStrategy;
 import com.amazon.tests.config.RequestBuilder;
-import com.amazon.tests.transport.RestAssuredExecutor;
 import com.amazon.tests.dataseeding.core.SeedingContext;
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.transport.HttpExecutor;
+import com.amazon.tests.transport.RestAssuredExecutor;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 
@@ -12,19 +14,25 @@ public class OrderApiClient {
 
     private final SeedingContext context;
     private final HttpExecutor executor;
+    private AuthStrategy authStrategy;
 
+    // Primary constructor
     public OrderApiClient(SeedingContext context,
+                          AuthStrategy authStrategy,
                           HttpExecutor executor) {
+
         this.context = context;
+        this.authStrategy = authStrategy;
         this.executor = executor;
     }
 
-    public OrderApiClient(SeedingContext context) {
+    // Convenience constructor
+    public OrderApiClient(SeedingContext context,
+                          AuthStrategy authStrategy) {
 
-        this(
-                context,
-                new RestAssuredExecutor()
-        );
+        this(context,
+                authStrategy,
+                new RestAssuredExecutor());
     }
     // ============================================================
     // CREATE ORDER
@@ -92,8 +100,9 @@ public class OrderApiClient {
             TestModels.CreateOrderRequest request,
             String faultHeader) {
 
-        RequestSpecification spec =
-                RequestBuilder.withBearerAuth(userToken);
+        RequestSpecification spec= RequestBuilder.defaultSpec();
+        authStrategy=new BearerAuthStrategy(userToken);
+        authStrategy.authenticate(spec);
 
         spec.header("X-User-Id", userId);
         spec.header("Idempotency-Key", idempotencyKey);

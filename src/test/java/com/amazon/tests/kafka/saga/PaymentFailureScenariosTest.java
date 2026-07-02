@@ -1,6 +1,7 @@
 package com.amazon.tests.kafka.saga;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.config.auth.BearerAuthStrategy;
 import com.amazon.tests.config.TestEnvironment;
 import com.amazon.tests.config.TestEnvironmentBuilder;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
@@ -128,7 +129,7 @@ public class PaymentFailureScenariosTest extends BaseTest {
     @BeforeMethod
     public void setupClass() throws SeedingException {
         logStep("Setting up Payment Failure Scenarios tests");
-        orderApiClient=new OrderApiClient(context);
+
         metrics=new TestMetrics();
 
         try {
@@ -137,6 +138,7 @@ public class PaymentFailureScenariosTest extends BaseTest {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+        orderApiClient=new OrderApiClient(context,new BearerAuthStrategy(env.getUserToken()));
       /*  // Seed test data once for all tests
         user = UserSeeder.builder(context).count(1).build().seed().getFirst();
         userToken = context.getCached("user_token_" + user.getId(), String.class);
