@@ -684,6 +684,17 @@ def dumpKafkaDiagnostics(){
                echo
                echo "===== Last 200 Kafka Logs ====="
                docker logs test-kafka --tail 200 || true
+               docker exec test-kafka bash -c "
+               set -x
+
+               echo '===== Kafka start script ====='
+               tail -100 /etc/confluent/docker/run
+
+               echo
+               echo '===== Configure script ====='
+               tail -200 /etc/confluent/docker/configure
+               "
+               docker exec test-kafka bash -x /etc/confluent/docker/run
                docker exec test-kafka env | sort
                docker exec test-kafka cat /etc/kafka/kafka.properties
                docker exec test-kafka bash -c "grep KAFKA_ /etc/confluent/docker/configure"
