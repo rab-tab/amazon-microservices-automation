@@ -579,6 +579,17 @@ def dumpKafkaDiagnostics(){
                echo "=================================================="
                echo "KAFKA DEEP DIAGNOSTICS"
                echo "=================================================="
+
+               echo "===== Kafka JVMs ====="
+               docker exec test-kafka jps -lv || true
+
+               echo
+               echo "===== Kafka Lock ====="
+               docker exec test-kafka ls -la /var/lib/kafka/data || true
+
+               echo
+               echo "===== Lock owner ====="
+               docker exec test-kafka sh -c "fuser /var/lib/kafka/data/.lock || true"
                 echo
                 echo "===== Generated kafka.properties ====="
                 docker exec test-kafka cat /etc/kafka/kafka.properties || true
