@@ -713,6 +713,17 @@ def dumpKafkaDiagnostics(){
                echo "===== ENTRYPOINT ====="
                docker inspect test-kafka --format '{{json .Config.Entrypoint}}'
 
+               echo "===== ENTRYPOINT 1====="
+               docker exec test-kafka cat /etc/confluent/docker/run
+
+               echo
+               echo "===== CONFIGURE SCRIPT ====="
+               docker exec test-kafka head -200 /etc/confluent/docker/configure
+
+               echo
+               echo "===== LAUNCH SCRIPT ====="
+               docker exec test-kafka head -200 /etc/confluent/docker/launch
+
                echo
                echo "===== CMD ====="
                docker inspect test-kafka --format '{{json .Config.Cmd}}'
