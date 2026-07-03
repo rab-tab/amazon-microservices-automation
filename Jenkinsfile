@@ -662,6 +662,17 @@ def dumpKafkaDiagnostics(){
                docker inspect test-kafka --format '{{json .State.Health}}' || true
 
                echo
+               echo "===== Individual Healthcheck Executions ====="
+               docker inspect test-kafka --format '
+               {{range .State.Health.Log}}
+               Time={{.Start}}
+               Exit={{.ExitCode}}
+               Output={{.Output}}
+               ----------------------------------------
+               {{end}}
+               ' || true
+
+               echo
                echo "===== Healthcheck Logs ====="
                docker inspect test-kafka --format '{{json .State.Health.Log}}' || true
 
