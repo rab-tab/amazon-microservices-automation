@@ -697,6 +697,34 @@ def dumpKafkaDiagnostics(){
                docker exec test-kafka bash -x /etc/confluent/docker/run
                docker exec test-kafka env | sort
                docker exec test-kafka cat /etc/kafka/kafka.properties
+               echo
+               echo "===== run script ====="
+               docker exec test-kafka sed -n '1,250p' /etc/confluent/docker/run || true
+
+               echo
+               echo "===== ensure script ====="
+               docker exec test-kafka sed -n '1,250p' /etc/confluent/docker/ensure || true
+
+               echo
+               echo "===== configure script ====="
+               docker exec test-kafka sed -n '1,300p' /etc/confluent/docker/configure || true
+
+               echo
+               echo "===== ENTRYPOINT ====="
+               docker inspect test-kafka --format '{{json .Config.Entrypoint}}'
+
+               echo
+               echo "===== CMD ====="
+               docker inspect test-kafka --format '{{json .Config.Cmd}}'
+               docker exec test-kafka bash -c "
+               ps -ef --forest
+               "
+               docker exec test-kafka bash -c "
+               ps -ef
+               echo
+               pstree -ap
+               "
+
                docker exec test-kafka bash -c "grep KAFKA_ /etc/confluent/docker/configure"
                docker inspect test-kafka --format='{{json .Config.Env}}'
 
