@@ -606,8 +606,12 @@ def dumpKafkaDiagnostics(){
                 done
                 '
                 docker exec test-kafka bash -c "</dev/tcp/localhost/29092"
-                docker exec test-kafka \
-                find /var/log/kafka -type f -exec tail -100 {} \;
+                docker exec test-kafka sh -c '
+                for f in $(find /var/log/kafka -type f); do
+                  echo "===== $f ====="
+                  tail -100 "$f"
+                done
+                '
 
                 echo
                 echo "===== RUN SCRIPT ====="
