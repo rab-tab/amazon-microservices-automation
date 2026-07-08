@@ -803,6 +803,16 @@ Output={{.Output}}
         docker logs test-user-service --tail 200 || true
 
         echo
+        echo "===== Actuator Health ====="
+        docker exec test-user-service \
+                    wget -qO- http://localhost:8081/actuator/health || true
+
+        echo
+        echo "===== Actuator Startup ====="
+        docker exec test-user-service \
+                    wget -qO- http://localhost:8081/actuator/startup || true
+
+        echo
         echo "===== Listening Ports ====="
         docker exec test-user-service sh -c "ss -tulpn || netstat -tulpn" || true
 
