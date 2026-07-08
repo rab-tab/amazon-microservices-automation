@@ -425,7 +425,6 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                     docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
                     docker rm -f test-kafka || true
-                    //docker-compose -f docker-compose.local.yml up -d --force-recreate kafka
                     docker container prune -f --filter "label=project=amazon-local" 2>/dev/null || true
                     echo "✅ Containers stopped and cleaned up"
                 """

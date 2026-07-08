@@ -114,7 +114,7 @@ public class OrderCreationFlowTest extends BaseTest {
                 .forUser(user)
                 .withProducts(productResult.getProducts())
                 .count(1)
-                .itemsPerOrder(3, 5)  // 3-5 items
+                .itemsPerOrder(3, 5) // 3-5 items
                 .build();
         TestModels.OrderResponse order = orderSeeder.seed().getFirst();
 
