@@ -821,6 +821,10 @@ Output={{.Output}}
         docker exec test-user-service jps -lv || true
 
         echo
+        echo "===== Last 200 User Service Logs ====="
+        docker logs test-user-service --tail 200 || true
+
+        echo
         echo "=================================================="
     '''
 }
