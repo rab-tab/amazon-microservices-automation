@@ -776,6 +776,45 @@ def dumpKafkaDiagnostics(){
             error("❌ Kafka became unhealthy")
 
 }
+def dumpUserServiceDiagnostics() {
+    sh '''
+        echo
+        echo "=================================================="
+        echo "USER SERVICE DIAGNOSTICS"
+        echo "=================================================="
+
+        echo
+        echo "===== Container State ====="
+        docker inspect test-user-service --format '{{json .State}}' || true
+
+        echo
+        echo "===== Runtime Health ====="
+        docker inspect test-user-service --format '{{json .State.Health}}' || true
+
+        echo
+        echo "===== Healthcheck Logs ====="
+        docker inspect test-user-service \
+          --format '{{range .State.Health.Log}}
+Exit={{.ExitCode}}
+Output={{.Output}}
+{{end}}' || true
+
+        echo
+        echo "===== Last 200 Logs ====="
+        docker logs test-user-service --tail 200 || true
+
+        echo
+        echo "===== Listening Ports ====="
+        docker exec test-user-service sh -c "ss -tulpn || netstat -tulpn" || true
+
+        echo
+        echo "===== Java Processes ====="
+        docker exec test-user-service jps -lv || true
+
+        echo
+        echo "=================================================="
+    '''
+}
 def waitForHttp(Map args) {
     def elapsed = 0
     def interval = 10
@@ -833,14 +872,19 @@ def waitForHttp(Map args) {
 
         if (args.url.contains("8081")) {
             sh "docker logs test-user-service --tail 300 || true"
+             dumpSpringServiceDiagnostics("test-user-service", 8081)
         } else if (args.url.contains("8082")) {
             sh "docker logs test-product-service --tail 300 || true"
+             dumpSpringServiceDiagnostics("test-product-service", 8082)
         } else if (args.url.contains("8083")) {
             sh "docker logs test-order-service --tail 300 || true"
+             dumpSpringServiceDiagnostics("test-order-service", 8083)
         } else if (args.url.contains("8084")) {
             sh "docker logs test-payment-service --tail 300 || true"
+             dumpSpringServiceDiagnostics("test-payment-service", 8084)
         } else if (args.url.contains("8090")) {
             sh "docker logs test-api-gateway --tail 300 || true"
+             dumpSpringServiceDiagnostics("test-api-gateway", 8090)
         }
         echo "==== Order Service Diagnostics ===="
 
@@ -866,4 +910,33 @@ docker inspect test-payment-service --format '{{.State.OOMKilled}}' || true
 docker inspect test-api-gateway --format '{{.State.OOMKilled}}' || true
 '''
     error("❌ ${args.description} did not become healthy within ${args.timeoutSecs}s")
+}
+
+def dumpSpringServiceDiagnostics(String container, int port) {
+
+    sh """
+        echo "===== ${container} ====="
+
+        docker inspect ${container} --format '{{json .State}}' || true
+        docker inspect ${container} --format '{{json .State.Health}}' || true
+
+        docker exec ${container} jps -lv || true
+        docker exec ${container} ps -ef || true
+
+        docker exec ${container} sh -c "netstat -tulpn 2>/dev/null || ss -tulpn" || true
+
+        docker exec ${container} \
+        wget -qO- http://localhost:${port}/actuator/health || true
+
+        docker exec ${container} \
+        sh -c "nc -z postgres 5432; echo POSTGRES=\$?" || true
+
+        docker exec ${container} \
+        sh -c "nc -z redis 6379; echo REDIS=\$?" || true
+
+        docker exec ${container} \
+        sh -c "nc -z kafka 29092; echo KAFKA=\$?" || true
+
+        docker logs ${container} --tail 300 || true
+    """
 }
