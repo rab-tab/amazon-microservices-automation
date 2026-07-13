@@ -636,6 +636,7 @@ def dumpKafkaDiagnostics(){
                 echo "===== ZOOKEEPER HEALTH ====="
                 docker logs test-zookeeper --tail 100
 
+
                 echo
                 echo "===== ZOOKEEPER RUOK ====="
                 docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
