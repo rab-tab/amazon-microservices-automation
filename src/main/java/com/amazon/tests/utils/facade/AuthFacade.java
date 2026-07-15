@@ -28,13 +28,14 @@ public class AuthFacade {
 
     }
 
-    public void login(String email, String password) {
+    public TestModels.AuthResponse login(String email, String password) {
         // ─── STEP 2: Login ─────────────────────────────────────────────
 
         TestModels.AuthResponse loginAuth = AuthUtils.login(
                 email, password);
 
         assertThat(loginAuth.getAccessToken()).isNotBlank();
+        return loginAuth;
 
     }
 

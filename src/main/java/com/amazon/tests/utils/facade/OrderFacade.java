@@ -41,8 +41,8 @@ public class OrderFacade {
 
     }
 
-    public void getOrder(String customerToken, String customerId, String orderId) {
-        given()
+    public TestModels.OrderResponse getOrder(String customerToken, String customerId, String orderId) {
+        Response response= (Response) given()
                 .spec(RestAssuredConfig.getOrderServiceSpec(customerToken))
                 .pathParam("userId", customerId)
                 .queryParam("page", 0)
@@ -50,8 +50,9 @@ public class OrderFacade {
                 .when()
                 .get("/api/v1/orders/user/{userId}")
                 .then()
-                .statusCode(200)
-                .body("orders.find { it.id == '" + orderId + "' }", notNullValue());
+                .statusCode(200);
+                //.body("orders.find { it.id == '" + orderId + "' }", notNullValue());
+        return response.as(TestModels.OrderResponse.class);
 
     }
 

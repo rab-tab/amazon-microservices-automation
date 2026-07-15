@@ -6,18 +6,16 @@ import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-import lombok.Builder;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotNull;
+import lombok.*;
 
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.UUID;
 
 public class TestModels {
 
@@ -241,5 +239,48 @@ public class TestModels {
 
             return p.getText();
         }
+    }
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PaymentResponse {
+        private UUID id;
+        private UUID orderId;
+        private UUID userId;
+        private BigDecimal amount;
+        private String currency;
+        private PaymentStatus status;
+        private PaymentMethod paymentMethod;
+        private String transactionId;
+        private String failureReason;
+        private LocalDateTime createdAt;
+    }
+
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PaymentRequest {
+        @NotNull
+        private UUID orderId;
+
+        @NotNull
+        @DecimalMin("0.01")
+        private BigDecimal amount;
+
+        @Builder.Default
+        private String currency = "USD";
+
+        @NotNull
+        private PaymentMethod paymentMethod;
+    }
+    public enum PaymentStatus {
+        PENDING, PROCESSING, SUCCESS, FAILED, REFUNDED, CANCELLED
+    }
+    public enum PaymentMethod {
+        CREDIT_CARD, DEBIT_CARD, PAYPAL, UPI, NET_BANKING, WALLET
     }
 }

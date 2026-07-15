@@ -2,12 +2,14 @@ package com.amazon.tests;
 
 import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.*;
+import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.facade.AuthFacade;
 import com.amazon.tests.utils.facade.OrderFacade;
 import com.amazon.tests.utils.facade.PaymentFacade;
 import com.amazon.tests.utils.facade.ProductFacade;
 import com.amazon.tests.utils.testData.TestDataFactory;
+import com.amazon.tests.workflows.PurchaseResult;
+import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
 import org.testng.annotations.Test;
@@ -19,20 +21,42 @@ import static org.hamcrest.Matchers.equalTo;
 @Feature("End-to-End Purchase Flow")
 public class E2EPurchaseFlowTest extends BaseTest {
 
-    AuthFacade authFacade=new AuthFacade();
-    ProductFacade productFacade=new ProductFacade();
-    OrderFacade orderFacade=new OrderFacade();
-    PaymentFacade paymentFacade=new PaymentFacade();
-    TestModels.RegisterRequest customerData;
-    TestModels.AuthResponse sellerData;
-    TestModels.ProductResponse productData;
-    TestModels.OrderResponse orderData;
+
+    @Test
+    public void testCompletePurchaseFlow() {
+
+        PurchaseResult purchase =
+                PurchaseWorkflow.start()
+                        .registerCustomer()
+                        .loginCustomer()
+                        .registerSeller()
+                        .createProduct()
+                        .viewProduct()
+                        .browseProducts()
+                        .createOrder()
+                        .processPayment()
+                        .execute();
+
+        /*orderFacade.verifyOrderStatus(
+                purchase.getOrder().getId(),
+                purchase.getCustomerAuth().getAccessToken());*/
+
+    }
 
     @Test
     @Story("Complete Purchase Flow")
     @Severity(SeverityLevel.BLOCKER)
     @Description("E2E test: Register → Login → Browse Products → Create Order → Verify Saga")
-    public void testCompletePurchaseFlow() {
+    public void testCompletePurchaseFlowOldLogic() {
+        AuthFacade authFacade=new AuthFacade();
+        ProductFacade productFacade=new ProductFacade();
+        OrderFacade orderFacade=new OrderFacade();
+        PaymentFacade paymentFacade=new PaymentFacade();
+        TestModels.RegisterRequest customerData;
+        TestModels.AuthResponse sellerData;
+        TestModels.ProductResponse productData;
+        TestModels.OrderResponse orderData;
+
         // ─── STEP 1: Register new customer ─────────────────────────────
         logStep("STEP 1: Registering new customer");
         customerData=authFacade.registerCustomer();

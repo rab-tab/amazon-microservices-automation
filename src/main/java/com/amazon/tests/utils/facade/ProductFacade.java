@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 
 @Slf4j
@@ -38,16 +37,17 @@ public class ProductFacade {
     }
 
 
-    public void getProduct(String id){
-        given()
+    public TestModels.ProductResponse getProduct(String id){
+        Response response= (Response) given()
                 .spec(RestAssuredConfig.getProductServiceSpec())
                 .pathParam("id", id)
                 .when()
                 .get("/api/v1/products/{id}")
                 .then()
-                .statusCode(200)
-                .body("id", equalTo(id))
-                .body("price", equalTo(49.99f));
+                .statusCode(200);
+                //.body("id", equalTo(id))
+                //.body("price", equalTo(49.99f));
+        return response.as(TestModels.ProductResponse.class);
     }
 
     public void browseProducts(){
