@@ -8,6 +8,7 @@ import com.amazon.tests.utils.facade.OrderFacade;
 import com.amazon.tests.utils.facade.PaymentFacade;
 import com.amazon.tests.utils.facade.ProductFacade;
 import com.amazon.tests.utils.testData.TestDataFactory;
+import com.amazon.tests.validators.PurchaseValidator;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.qameta.allure.*;
@@ -21,28 +22,34 @@ import static org.hamcrest.Matchers.equalTo;
 @Feature("End-to-End Purchase Flow")
 public class E2EPurchaseFlowTest extends BaseTest {
 
+    private final PurchaseValidator purchaseValidator=new PurchaseValidator();
+
 
     @Test
+    @Story("Complete Purchase Flow")
+    @Severity(SeverityLevel.BLOCKER)
+    @Description("E2E test: Register → Login → Browse Products → Create Order → Verify Saga")
     public void testCompletePurchaseFlow() {
 
-        PurchaseResult purchase =
-                PurchaseWorkflow.start()
-                        .registerCustomer()
-                        .loginCustomer()
-                        .registerSeller()
-                        .createProduct()
-                        .viewProduct()
-                        .browseProducts()
-                        .createOrder()
-                        .processPayment()
-                        .execute();
+        logStep("Executing Purchase Workflow");
 
-        /*orderFacade.verifyOrderStatus(
-                purchase.getOrder().getId(),
-                purchase.getCustomerAuth().getAccessToken());*/
+        PurchaseResult purchase = PurchaseWorkflow.start()
 
+                .registerCustomer()
+                .loginCustomer()
+                .registerSeller()
+                .createProduct()
+                .viewProduct()
+                .browseProducts()
+                .createOrder()
+                .processPayment()
+                .execute();
+
+        logStep("Validating Purchase Workflow");
+        purchaseValidator.verifyPurchaseCompleted(purchase);
+
+        logStep("✅ E2E Purchase Flow completed successfully!");
     }
-
     @Test
     @Story("Complete Purchase Flow")
     @Severity(SeverityLevel.BLOCKER)
@@ -100,7 +107,7 @@ public class E2EPurchaseFlowTest extends BaseTest {
         logStep("STEP 12: Checking payment status (Kafka Saga)");
         // Allow time for Kafka saga to process
         try { Thread.sleep(3000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        paymentFacade.processPayment(orderData.getId());
+        //paymentFacade.processPayment(orderData.getId());
 
 
         // ─── STEP 13: Verify order status updated after payment ─────────
