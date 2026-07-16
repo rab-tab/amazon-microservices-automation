@@ -1,4 +1,4 @@
-package com.amazon.tests.orderCreationFlow;
+package com.amazon.tests.regression.orderCreationFlow;
 
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
@@ -6,6 +6,9 @@ import com.amazon.tests.dataseeding.seeders.OrderSeeder;
 import com.amazon.tests.dataseeding.seeders.ProductSeeder;
 import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.validators.PurchaseValidator;
+import com.amazon.tests.workflows.PurchaseResult;
+import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.restassured.specification.RequestSpecification;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.Test;
@@ -26,6 +29,7 @@ import static org.testng.Assert.*;
  */
 @Slf4j
 public class OrderCreationFlowTest extends BaseTest {
+    PurchaseValidator purchaseValidator=new PurchaseValidator();
 
     // ==========================================
     // SCENARIO 1: Happy Path - Single User, Single Product, Single Order
@@ -34,51 +38,22 @@ public class OrderCreationFlowTest extends BaseTest {
     @Test(description = "User registers, views product, and places single-item order")
     public void testBasicOrderCreationFlow() throws Exception {
         log.info("=== Scenario 1: Basic Order Creation ===");
+        PurchaseResult purchase = PurchaseWorkflow.start()
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProduct()
+                    .browseProducts()
+                    .viewProduct()
+                    .createOrder()
+                    .execute();
 
-        // Step 1: Register new user
-        UserSeeder userSeeder = UserSeeder.builder(context)
-                .count(1)
-                .build();
-        UserSeeder.UserSeedResult userResult = userSeeder.seed();
-        TestModels.UserResponse user = userResult.getFirst();
+        logStep("Validating Purchase Workflow");
 
-        log.info("✓ User registered: {} ({})", user.getEmail(), user.getId());
+        purchaseValidator.verifyPurchaseCompleted(purchase);
 
-        // Step 2: Create product
-        ProductSeeder productSeeder = ProductSeeder.builder(context)
-                .count(1)
-                .mediumPrice()  // $20-$100
-                .highStock()    // 100-1000 units
-                .build();
-        ProductSeeder.ProductSeedResult productResult = productSeeder.seed();
-        TestModels.ProductResponse product = productResult.getFirst();
+        logStep("✅ Basic Order Creation completed successfully!");
 
-        log.info("✓ Product created: {} - ${}", product.getName(), product.getPrice());
-
-        // Step 3: Wait for eventual consistency
-        waitForDataPropagation(1000);
-
-        // Step 4: Create order
-        OrderSeeder orderSeeder = OrderSeeder.builder(context)
-                .forUser(user)
-                .withProducts(productResult.getProducts())
-                .count(1)
-                .itemsPerOrder(1, 1)  // Exactly 1 item
-                .build();
-        OrderSeeder.OrderSeedResult orderResult = orderSeeder.seed();
-        TestModels.OrderResponse order = orderResult.getFirst();
-
-        log.info("✓ Order created: {} with {} items", order.getId(), order.getItems().size());
-
-        // Verify order details
-        assertNotNull(order.getId(), "Order ID should be generated");
-        assertEquals(order.getUserId(), user.getId(), "Order should belong to user");
-        assertEquals(order.getStatus(), "PENDING", "Order should be in PENDING status");
-        assertEquals(order.getItems().size(), 1, "Order should have 1 item");
-        assertNotNull(order.getTotalAmount(), "Order should have total amount");
-        assertTrue(order.getTotalAmount().compareTo(BigDecimal.ZERO) > 0, "Total amount should be > 0");
-
-        log.info("✅ Scenario 1 PASSED: Order total = ${}", order.getTotalAmount());
     }
 
     // ==========================================

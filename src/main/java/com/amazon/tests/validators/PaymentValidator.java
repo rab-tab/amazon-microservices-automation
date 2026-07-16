@@ -4,6 +4,9 @@ package com.amazon.tests.validators;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.facade.PaymentFacade;
 import com.amazon.tests.workflows.PurchaseResult;
+import org.awaitility.Awaitility;
+
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,13 +23,38 @@ public class PaymentValidator {
                 purchase.getOrder().getId());
     }
 
+    public void verifySuccessfulPayment(PurchaseResult purchase) {
+
+        verifyPaymentSuccessful(purchase);
+        verifyOrder(purchase);
+        verifyUser(purchase);
+        verifyAmount(purchase);
+        verifyTransactionGenerated(purchase);
+        verifyNoFailureReason(purchase);
+    }
+
     /**
      * Verify payment completed successfully
      */
     public void verifyPaymentSuccessful(PurchaseResult purchase) {
 
-        assertThat(getPayment(purchase).getStatus())
-                .isEqualTo(TestModels.PaymentStatus.SUCCESS);
+        Awaitility.await()
+                .alias("Waiting for payment to complete")
+                .atMost(Duration.ofSeconds(20))
+                .pollInterval(Duration.ofSeconds(1))
+                .ignoreExceptions()
+                .untilAsserted(() -> {
+
+                    TestModels.PaymentResponse payment =
+                            getPayment(purchase);
+
+                    assertThat(payment).isNotNull();
+
+                    assertThat(payment.getStatus())
+                            .isEqualTo(TestModels.PaymentStatus.SUCCESS);
+
+                });
+
     }
 
     /**

@@ -8,9 +8,9 @@
   </listeners>
   <test name="Order Tests">
     <classes>
-      <class name="com.amazon.tests.orderCreationFlow.OrderCreationFlowTest"/>
-      <class name="com.amazon.tests.orderCreationFlow.OrderCreationNegativeTest"/>
-      <class name="com.amazon.tests.orderCreationFlow.DistributedIdempotencyTest"/>
+      <class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationFlowTest"/>
+      <class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationNegativeTest"/>
+      <class name="com.amazon.tests.regression.orderCreationFlow.DistributedIdempotencyTest"/>
     </classes></test>
 
 </suite>

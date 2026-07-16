@@ -31,6 +31,13 @@ public class ProductValidator {
                 .isEqualTo("ACTIVE");
     }
 
+    public void verifyProductCreated(PurchaseResult purchase) {
+
+        verifyProductIsActive(purchase);
+        verifyProductPrice(purchase);
+        verifyProductBelongsToSeller(purchase);
+    }
+
     /**
      * Verify product name
      */

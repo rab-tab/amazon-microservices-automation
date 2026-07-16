@@ -55,6 +55,19 @@ public class OrderFacade {
         return response.as(TestModels.OrderResponse.class);
 
     }
+    public void cancelOrder(String customerToken,
+                            String customerId,
+                            String orderId) {
+
+        given()
+                .spec(RestAssuredConfig.getOrderServiceSpec(customerToken))
+                .header("X-User-Id", customerId)
+                .pathParam("id", orderId)
+                .when()
+                .patch("/api/v1/orders/{id}/cancel")
+                .then()
+                .statusCode(200);
+    }
 
     public void verofyOrderStatus(String orderId, String customerToken) {
         given()

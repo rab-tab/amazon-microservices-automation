@@ -51,7 +51,7 @@
 
     <test name="End-to-End Tests">
         <classes>
-            <class name="com.amazon.tests.E2EPurchaseFlowTest"/>
+            <class name="com.amazon.tests.regression.E2EPurchaseFlowTest"/>
         </classes>
     </test>
 

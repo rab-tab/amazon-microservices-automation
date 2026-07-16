@@ -9,19 +9,32 @@ public class PurchaseValidator {
 
     public void verifyPurchaseCompleted(PurchaseResult purchase) {
 
+        productValidator.verifyProductCreated(purchase);
+        orderValidator.verifyOrderCreated(purchase);
+        paymentValidator.verifySuccessfulPayment(purchase);
+    }
+
+    public void verifySingleItemPurchaseCompleted(PurchaseResult purchase) {
+
+        verifyPurchaseCompleted(purchase);
+        orderValidator.verifySingleItem(purchase);
+    }
+
+    public void verifyOrderCancelled(PurchaseResult purchase) {
+
+        orderValidator.verifyCancelled(purchase);
         productValidator.verifyProductIsActive(purchase);
-        productValidator.verifyProductPrice(purchase);
         productValidator.verifyProductBelongsToSeller(purchase);
+    }
+    public void verifyOrderRefunded(PurchaseResult purchase) {
 
-        orderValidator.verifyConfirmed(purchase);
-        orderValidator.verifyOrderBelongsToUser(purchase);
-        orderValidator.verifyProduct(purchase);
+    }
 
-        paymentValidator.verifyPaymentSuccessful(purchase);
-        paymentValidator.verifyOrder(purchase);
-        paymentValidator.verifyUser(purchase);
-        paymentValidator.verifyAmount(purchase);
-        paymentValidator.verifyTransactionGenerated(purchase);
-        paymentValidator.verifyNoFailureReason(purchase);
+    public void verifyOrderReturned(PurchaseResult purchase) {
+
+    }
+
+    public void verifyOrderDelivered(PurchaseResult purchase) {
+
     }
 }

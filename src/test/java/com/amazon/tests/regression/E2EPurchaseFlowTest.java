@@ -1,22 +1,16 @@
-package com.amazon.tests;
+package com.amazon.tests.regression;
 
-import com.amazon.tests.config.RestAssuredConfig;
+import com.amazon.tests.BaseTest;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.facade.AuthFacade;
 import com.amazon.tests.utils.facade.OrderFacade;
 import com.amazon.tests.utils.facade.PaymentFacade;
 import com.amazon.tests.utils.facade.ProductFacade;
-import com.amazon.tests.utils.testData.TestDataFactory;
 import com.amazon.tests.validators.PurchaseValidator;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.qameta.allure.*;
-import io.restassured.response.Response;
 import org.testng.annotations.Test;
-
-import static io.restassured.RestAssured.given;
-import static org.hamcrest.Matchers.equalTo;
 
 @Epic("Amazon Microservices")
 @Feature("End-to-End Purchase Flow")
@@ -42,7 +36,6 @@ public class E2EPurchaseFlowTest extends BaseTest {
                 .viewProduct()
                 .browseProducts()
                 .createOrder()
-                .processPayment()
                 .execute();
 
         logStep("Validating Purchase Workflow");
@@ -50,6 +43,29 @@ public class E2EPurchaseFlowTest extends BaseTest {
 
         logStep("✅ E2E Purchase Flow completed successfully!");
     }
+
+
+    @Test
+    @Story("Order Cancellation Flow")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("E2E test: Create order then cancel it")
+    public void testOrderCancellationFlow() {
+
+        PurchaseResult purchase = PurchaseWorkflow.start()
+
+                .registerCustomer()
+                .loginCustomer()
+                .registerSeller()
+                .createProduct()
+                .createOrder()
+                .cancelOrder()
+                .execute();
+
+        purchaseValidator.verifyOrderCancelled(purchase);
+
+        logStep("✅ Order Cancellation Flow completed successfully!");
+    }
+
     @Test
     @Story("Complete Purchase Flow")
     @Severity(SeverityLevel.BLOCKER)
@@ -116,64 +132,5 @@ public class E2EPurchaseFlowTest extends BaseTest {
 
 
         logStep("✅ E2E Purchase Flow completed successfully!");
-    }
-
-    @Test
-    @Story("Order Cancellation Flow")
-    @Severity(SeverityLevel.CRITICAL)
-    @Description("E2E test: Create order then cancel it")
-    public void testOrderCancellationFlow() {
-        logStep("STEP 1: Setup customer and product");
-        TestModels.AuthResponse customerAuth = AuthUtils.registerAndGetAuth();
-        String customerToken = customerAuth.getAccessToken();
-        String customerId = customerAuth.getUser().getId();
-
-        TestModels.AuthResponse sellerAuth = AuthUtils.registerAndGetAuth();
-        Response productResp = given()
-                .spec(RestAssuredConfig.getProductServiceSpec())
-                .header("X-User-Id", sellerAuth.getUser().getId())
-                .body(TestDataFactory.createProductWithPrice(19.99))
-                .when()
-                .post("/api/v1/products")
-                .then()
-                .statusCode(201)
-                .extract().response();
-        TestModels.ProductResponse product = productResp.as(TestModels.ProductResponse.class);
-
-        logStep("STEP 2: Create order");
-        Response orderResp = given()
-                .spec(RestAssuredConfig.getOrderServiceSpec(customerToken))
-                .header("X-User-Id", customerId)
-                .body(TestDataFactory.createOrderRequest(
-                        product.getId(), product.getName(), product.getPrice()))
-                .when()
-                .post("/api/v1/orders")
-                .then()
-                .statusCode(201)
-                .extract().response();
-        String orderId = orderResp.jsonPath().getString("id");
-
-        logStep("STEP 3: Cancel order");
-        given()
-                .spec(RestAssuredConfig.getOrderServiceSpec(customerToken))
-                .header("X-User-Id", customerId)
-                .pathParam("id", orderId)
-                .when()
-                .patch("/api/v1/orders/{id}/cancel")
-                .then()
-                .statusCode(200)
-                .body("status", equalTo("CANCELLED"));
-
-        logStep("STEP 4: Verify cancellation");
-        given()
-                .spec(RestAssuredConfig.getOrderServiceSpec(customerToken))
-                .pathParam("id", orderId)
-                .when()
-                .get("/api/v1/orders/{id}")
-                .then()
-                .statusCode(200)
-                .body("status", equalTo("CANCELLED"));
-
-        logStep("✅ Order Cancellation Flow completed successfully!");
     }
 }

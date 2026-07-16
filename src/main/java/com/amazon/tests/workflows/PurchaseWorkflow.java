@@ -87,9 +87,12 @@ public class PurchaseWorkflow {
         return this;
     }
 
-    public PurchaseWorkflow processPayment() {
+    public PurchaseWorkflow cancelOrder() {
 
-        paymentFacade.processPayment(result.getOrder().getId());
+        orderFacade.cancelOrder(
+                result.getOrder().getId(),
+                result.getCustomerAuth().getAccessToken(),
+                result.getCustomerAuth().getUser().getId());
 
         return this;
     }

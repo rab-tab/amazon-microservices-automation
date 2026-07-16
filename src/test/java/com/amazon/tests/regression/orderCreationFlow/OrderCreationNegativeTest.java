@@ -1,4 +1,4 @@
-package com.amazon.tests.orderCreationFlow;
+package com.amazon.tests.regression.orderCreationFlow;
 
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
