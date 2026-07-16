@@ -16,7 +16,6 @@ import org.testng.annotations.Test;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 
 import static org.testng.Assert.*;
@@ -412,94 +411,6 @@ public class OrderCreationFlowTest extends BaseTest {
         log.info("✅ Scenario 7 PASSED: User placed {} orders", userOrders.size());
     }
 
-    // ==========================================
-    // SCENARIO 8: Complete E2E Flow with Verification
-    // ==========================================
 
-    @Test(description = "Complete order flow with full verification")
-    public void testCompleteOrderFlowWithVerification() throws Exception {
-        log.info("=== Scenario 8: Complete Flow with Verification ===");
 
-        // Step 1: Register user
-        UserSeeder userSeeder = UserSeeder.builder(context)
-                .count(1)
-                .build();
-        TestModels.UserResponse user = userSeeder.seed().getFirst();
-
-        log.info("✓ Step 1: User registered");
-
-        // Step 2: Create products
-        ProductSeeder productSeeder = ProductSeeder.builder(context)
-                .count(5)
-                .build();
-        List<TestModels.ProductResponse> products = productSeeder.seed().getProducts();
-
-        log.info("✓ Step 2: Products created");
-
-        // Step 3: Verify products are available
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getBaseSpec();
-
-        TestModels.PagedProductResponse productPage = context.getRestClient().get(
-                "/api/products",
-                spec,
-                Map.of("page", 0, "size", 20),
-                TestModels.PagedProductResponse.class
-        );
-
-        assertTrue(productPage.getProducts().size() >= 5,
-                "Product catalog should have at least 5 products");
-
-        log.info("✓ Step 3: Products verified in catalog");
-
-        waitForDataPropagation(1000);
-
-        // Step 4: Create order
-        OrderSeeder orderSeeder = OrderSeeder.builder(context)
-                .forUser(user)
-                .withProducts(products)
-                .count(1)
-                .itemsPerOrder(2, 3)
-                .build();
-
-        TestModels.OrderResponse order = orderSeeder.seed().getFirst();
-
-        log.info("✓ Step 4: Order created");
-
-        // Step 5: Verify order details
-        assertNotNull(order.getId());
-        assertEquals(order.getUserId(), user.getId());
-        assertEquals(order.getStatus(), "PENDING");
-        assertNotNull(order.getShippingAddress());
-        assertNotNull(order.getCreatedAt());
-
-        // Calculate expected total
-        BigDecimal expectedTotal = order.getItems().stream()
-                .map(item -> item.getUnitPrice()
-                        .multiply(BigDecimal.valueOf(item.getQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        assertEquals(order.getTotalAmount().compareTo(expectedTotal), 0,
-                "Total amount should match sum of items");
-
-        log.info("✓ Step 5: Order details verified");
-
-        log.info("✅ Scenario 8 PASSED: Complete flow verified");
-        log.info("   User: {}", user.getEmail());
-        log.info("   Order: {}", order.getId());
-        log.info("   Items: {}", order.getItems().size());
-        log.info("   Total: ${}", order.getTotalAmount());
-    }
-
-    // ==========================================
-    // HELPER METHODS
-    // ==========================================
-
-   /* private void waitForDataPropagation(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }*/
 }

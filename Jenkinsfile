@@ -562,10 +562,10 @@ def waitForKafka(Map args) {
                 error("Kafka unhealthy")
                 }
 
-
-        }
         sleep(10)
         elapsed += 10
+        }
+
     }
    echo "Kafka never became healthy within timeout"
    dumpKafkaDiagnostics()
@@ -604,7 +604,7 @@ def dumpKafkaDiagnostics(){
                   cat "$f"
                 done
                 '
-                docker exec test-kafka bash -c "</dev/tcp/localhost/29092"
+                docker exec test-kafka bash -c "</dev/tcp/localhost/29092" || true
                 docker exec test-kafka sh -c '
                 for f in $(find /var/log/kafka -type f); do
                   echo "===== $f ====="
@@ -640,6 +640,11 @@ def dumpKafkaDiagnostics(){
                 echo
                 echo "===== ZOOKEEPER RUOK ====="
                 docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
+                echo stat | nc localhost 2181
+
+                PID=$(docker exec test-kafka jps | awk '/Kafka/ {print $1}')
+
+                docker exec test-kafka jstack $PID
 
                 echo
                 echo "===== KAFKA LISTENERS ====="
