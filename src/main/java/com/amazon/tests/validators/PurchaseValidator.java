@@ -19,6 +19,17 @@ public class PurchaseValidator {
         verifyPurchaseCompleted(purchase);
         orderValidator.verifySingleItem(purchase);
     }
+    public void verifyMultiItemPurchaseCompleted(PurchaseResult purchase,
+                                                 int minItems,
+                                                 int maxItems) {
+
+        verifyPurchaseCompleted(purchase);
+
+        orderValidator.verifyMultiItemOrder(
+                purchase,
+                minItems,
+                maxItems);
+    }
 
     public void verifyOrderCancelled(PurchaseResult purchase) {
 

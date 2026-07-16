@@ -6,6 +6,9 @@ import com.amazon.tests.utils.testData.TestDataFactory;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -34,6 +37,19 @@ public class ProductFacade {
 
         log.info("Product created: " + product.getId() + " - " + product.getName());
         return product;
+    }
+
+    public List<TestModels.ProductResponse> createProducts(
+            TestModels.AuthResponse sellerData,
+            int count) {
+
+        List<TestModels.ProductResponse> products = new ArrayList<>();
+
+        for (int i = 0; i < count; i++) {
+            products.add(createProduct(sellerData));
+        }
+
+        return products;
     }
 
 

@@ -13,7 +13,6 @@ import io.restassured.specification.RequestSpecification;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.Test;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -41,7 +40,7 @@ public class OrderCreationFlowTest extends BaseTest {
                     .registerCustomer()
                     .loginCustomer()
                     .registerSeller()
-                    .createProduct()
+                    .createProduct(1)
                     .browseProducts()
                     .viewProduct()
                     .createOrder()
@@ -60,57 +59,29 @@ public class OrderCreationFlowTest extends BaseTest {
     // ==========================================
 
     @Test(description = "User places order with multiple different products")
-    public void testMultiItemOrderCreation() throws Exception {
-        log.info("=== Scenario 2: Multi-Item Order ===");
+    public void testMultiItemOrderCreation() {
 
-        // Step 1: Register user
-        TestModels.UserResponse user = UserSeeder.builder(context)
-                .count(1)
-                .build()
-                .seed()
-                .getFirst();
+        logStep("Executing Multi Item Purchase Workflow");
 
-        log.info("✓ User registered: {}", user.getEmail());
+        PurchaseResult purchase = PurchaseWorkflow.start()
+                .registerCustomer()
+                .loginCustomer()
+                .registerSeller()
+                .createProduct(5)
+                .browseProducts()
+                .viewProduct()
+                .createOrder()
+                .execute();
 
-        // Step 2: Create 5 products in different price ranges
-        ProductSeeder productSeeder = ProductSeeder.builder(context)
-                .count(5)
-                .parallel()
-                .build();
-        ProductSeeder.ProductSeedResult productResult = productSeeder.seed();
+        logStep("Validating Multi Item Purchase");
 
-        log.info("✓ Created {} products", productResult.getCount());
+        purchaseValidator.verifyMultiItemPurchaseCompleted(
+                purchase,
+                3,
+                5);
 
-        waitForDataPropagation(1000);
-
-        // Step 3: Create order with 3-5 items
-        OrderSeeder orderSeeder = OrderSeeder.builder(context)
-                .forUser(user)
-                .withProducts(productResult.getProducts())
-                .count(1)
-                .itemsPerOrder(3, 5) // 3-5 items
-                .build();
-        TestModels.OrderResponse order = orderSeeder.seed().getFirst();
-
-        log.info("✓ Order created with {} items", order.getItems().size());
-
-        // Verify multi-item order
-        assertTrue(order.getItems().size() >= 3 && order.getItems().size() <= 5,
-                "Order should have 3-5 items");
-
-        // Verify each item
-        for (TestModels.OrderItemResponse item : order.getItems()) {
-            assertNotNull(item.getProductId(), "Each item should have product ID");
-            assertNotNull(item.getProductName(), "Each item should have product name");
-            assertTrue(item.getQuantity() > 0, "Each item should have quantity > 0");
-            assertTrue(item.getUnitPrice().compareTo(BigDecimal.ZERO) > 0,
-                    "Each item should have unit price > 0");
-        }
-
-        log.info("✅ Scenario 2 PASSED: {} items, Total = ${}",
-                order.getItems().size(), order.getTotalAmount());
+        logStep("✅ Multi Item Purchase completed successfully!");
     }
-
     // ==========================================
     // SCENARIO 3: Multiple Users, Multiple Orders
     // ==========================================

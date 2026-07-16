@@ -6,6 +6,9 @@ import com.amazon.tests.utils.facade.OrderFacade;
 import com.amazon.tests.utils.facade.PaymentFacade;
 import com.amazon.tests.utils.facade.ProductFacade;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class PurchaseWorkflow {
 
     private final AuthFacade authFacade = new AuthFacade();
@@ -17,6 +20,7 @@ public class PurchaseWorkflow {
     private final PaymentFacade paymentFacade = new PaymentFacade();
 
     private final PurchaseResult result = new PurchaseResult();
+    private List<TestModels.ProductResponse> products = new ArrayList<>();
 
     public static PurchaseWorkflow start() {
         return new PurchaseWorkflow();
@@ -48,12 +52,11 @@ public class PurchaseWorkflow {
         return this;
     }
 
-    public PurchaseWorkflow createProduct() {
 
-        TestModels.ProductResponse product =
-                productFacade.createProduct(result.getSellerAuth());
+    public PurchaseWorkflow createProduct(int count) {
 
-        result.setProduct(product);
+        result.getProducts().addAll(
+                productFacade.createProducts(result.getSellerAuth(), count));
 
         return this;
     }
@@ -65,22 +68,15 @@ public class PurchaseWorkflow {
         return this;
     }
 
+
     public PurchaseWorkflow viewProduct() {
-
-        productFacade.getProduct(result.getProduct().getId());
-
+        productFacade.getProduct(result.getFirstProduct().getId());
         return this;
     }
-
     public PurchaseWorkflow createOrder() {
 
         TestModels.OrderResponse order =
-                orderFacade.createOrder(
-                        result.getProduct().getId(),
-                        result.getProduct().getName(),
-                        result.getProduct().getPrice(),
-                        result.getCustomerAuth().getUser().getId(),
-                        result.getCustomerAuth().getAccessToken());
+                orderFacade.createOrder(result);
 
         result.setOrder(order);
 
@@ -101,5 +97,19 @@ public class PurchaseWorkflow {
 
         return result;
     }
+    /*public PurchaseWorkflow createMultiItemOrder(int minItems, int maxItems) {
+
+        TestModels.OrderResponse order =
+                orderFacade.createMultiItemOrder(
+                        result.getProduct().getId(),
+                        result.getCustomerAuth().getUser().getId(),
+                        result.getCustomerAuth().getAccessToken(),
+                        minItems,
+                        maxItems);
+
+        result.setOrder(order);
+
+        return this;
+    }*/
 
 }

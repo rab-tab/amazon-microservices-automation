@@ -8,6 +8,7 @@ import org.awaitility.Awaitility;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.*;
@@ -79,6 +80,36 @@ public class OrderValidator {
                 purchase.getOrder().getItems().size(),
                 1,
                 "Order should contain exactly one item");
+    }
+    public void verifyMultiItemOrder(PurchaseResult purchase,
+                                     int minItems,
+                                     int maxItems) {
+
+        verifyOrderCreated(purchase);
+
+        List<TestModels.OrderItemResponse> items =
+                purchase.getOrder().getItems();
+
+        assertTrue(
+                items.size() >= minItems && items.size() <= maxItems,
+                String.format("Order should contain between %d and %d items",
+                        minItems, maxItems));
+
+        items.forEach(this::verifyOrderItem);
+    }
+    private void verifyOrderItem(TestModels.OrderItemResponse item) {
+
+        assertNotNull(item.getProductId(),
+                "Each item should have product ID");
+
+        assertNotNull(item.getProductName(),
+                "Each item should have product name");
+
+        assertTrue(item.getQuantity() > 0,
+                "Each item should have quantity > 0");
+
+        assertTrue(item.getUnitPrice().compareTo(BigDecimal.ZERO) > 0,
+                "Each item should have unit price > 0");
     }
 
 
