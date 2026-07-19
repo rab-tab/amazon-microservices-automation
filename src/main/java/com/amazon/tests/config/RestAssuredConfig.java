@@ -111,6 +111,28 @@ public class RestAssuredConfig {
                 .build();
     }
 
+   /* private static RequestSpecification createBaseSpec() {
+        PoolingHttpClientConnectionManager connManager = new PoolingHttpClientConnectionManager();
+        connManager.setMaxTotal(50);
+        connManager.setDefaultMaxPerRoute(20);   // raised well above the classic default of 2
+
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(connManager)
+                .setConnectionManagerShared(true)   // don't let this client's .close() tear down a pool other threads still use
+                .build();
+
+        return new RequestSpecBuilder()
+                .setBaseUri(ConfigManager.getInstance().getBaseUrl())
+                .setContentType(ContentType.JSON)
+                .setAccept(ContentType.JSON)
+                .addFilter(new AllureRestAssured())
+                .log(LogDetail.ALL)
+                .setConfig(io.restassured.config.RestAssuredConfig.config()
+                        .httpClient(io.restassured.config.HttpClientConfig.httpClientConfig()
+                                .httpClientFactory(() -> httpClient)
+                                .reuseHttpClientInstance()))
+                .build();
+    }*/
     /**
      * Create specification for a specific service URL.
      */

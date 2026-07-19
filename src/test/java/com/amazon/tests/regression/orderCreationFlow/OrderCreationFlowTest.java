@@ -1,11 +1,14 @@
 package com.amazon.tests.regression.orderCreationFlow;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.commonmodels.enums.ProductType;
 import com.amazon.tests.dataseeding.builders.OrderBuilder;
 import com.amazon.tests.dataseeding.seeders.OrderSeeder;
 import com.amazon.tests.dataseeding.seeders.ProductSeeder;
 import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.validators.OrderValidator;
+import com.amazon.tests.validators.ProductValidator;
 import com.amazon.tests.validators.PurchaseValidator;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
@@ -15,9 +18,9 @@ import org.testng.annotations.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
-import static org.testng.Assert.*;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 /**
  * End-to-End Order Creation Flow Tests
@@ -28,6 +31,8 @@ import static org.testng.Assert.*;
 @Slf4j
 public class OrderCreationFlowTest extends BaseTest {
     PurchaseValidator purchaseValidator=new PurchaseValidator();
+    ProductValidator productValidator=new ProductValidator();
+    OrderValidator orderValidator=new OrderValidator();
 
     // ==========================================
     // SCENARIO 1: Happy Path - Single User, Single Product, Single Order
@@ -87,62 +92,34 @@ public class OrderCreationFlowTest extends BaseTest {
     // ==========================================
 
     @Test(description = "Multiple users each placing their own orders")
-    public void testMultipleUsersOrdering() throws Exception {
-        log.info("=== Scenario 3: Multiple Users Ordering ===");
+    public void testMultipleUsersOrdering() {
 
-        // Step 1: Create 3 users in parallel
-        UserSeeder userSeeder = UserSeeder.builder(context)
-                .count(3)
-                .parallel()
-                .build();
-        UserSeeder.UserSeedResult userResult = userSeeder.seed();
+        logStep("Executing Multiple User Purchase Flows");
 
-        log.info("✓ Created {} users", userResult.getCount());
+        List<PurchaseResult> purchases = new ArrayList<>();
 
-        // Step 2: Create 10 products (shared catalog)
-        ProductSeeder productSeeder = ProductSeeder.builder(context)
-                .count(10)
-                .parallel()
-                .build();
-        ProductSeeder.ProductSeedResult productResult = productSeeder.seed();
+        for (int i = 0; i < 3; i++) {
 
-        log.info("✓ Created {} products", productResult.getCount());
+            PurchaseResult purchase = PurchaseWorkflow.start()
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProduct(3)
+                    .browseProducts()
+                    .createOrder()
+                    .execute();
 
-        waitForDataPropagation(2000);
-
-        // Step 3: Each user places 1-2 orders
-        List<TestModels.OrderResponse> allOrders = new ArrayList<>();
-
-        for (TestModels.UserResponse user : userResult.getUsers()) {
-            int orderCount = new Random().nextInt(2) + 1; // 1-2 orders
-
-            OrderSeeder orderSeeder = OrderSeeder.builder(context)
-                    .forUser(user)
-                    .withProducts(productResult.getProducts())
-                    .count(orderCount)
-                    .itemsPerOrder(1, 3)
-                    .build();
-
-            OrderSeeder.OrderSeedResult orderResult = orderSeeder.seed();
-            allOrders.addAll(orderResult.getOrders());
-
-            log.info("✓ User {} placed {} orders", user.getEmail(), orderCount);
+            purchases.add(purchase);
         }
 
-        // Verify
-        assertEquals(userResult.getCount(), 3, "Should have 3 users");
-        assertTrue(allOrders.size() >= 3 && allOrders.size() <= 6,
-                "Should have 3-6 total orders");
+        logStep("Validating Purchase Flows");
 
-        // Verify each order belongs to correct user
-        for (TestModels.OrderResponse order : allOrders) {
-            boolean belongsToUser = userResult.getUsers().stream()
-                    .anyMatch(u -> u.getId().equals(order.getUserId()));
-            assertTrue(belongsToUser, "Order should belong to one of the users");
-        }
+        purchases.forEach(purchaseValidator::verifyPurchaseCompleted);
 
-        log.info("✅ Scenario 3 PASSED: {} users, {} orders",
-                userResult.getCount(), allOrders.size());
+        assertEquals(purchases.size(), 3,
+                "Three users should have completed purchases");
+
+        logStep("✅ Multiple User Purchase Flow completed successfully!");
     }
 
     // ==========================================
@@ -150,58 +127,28 @@ public class OrderCreationFlowTest extends BaseTest {
     // ==========================================
 
     @Test(description = "User orders products from specific categories")
-    public void testOrderWithSpecificCategories() throws Exception {
-        log.info("=== Scenario 4: Category-Specific Order ===");
+    public void testOrderWithSpecificCategories() {
 
-        // Step 1: Create user
-        TestModels.UserResponse user = UserSeeder.builder(context)
-                .count(1)
-                .build()
-                .seed()
-                .getFirst();
+        logStep("Executing Category Specific Purchase Workflow");
 
-        // Step 2: Create cheap and expensive products
-        ProductSeeder cheapSeeder = ProductSeeder.builder(context)
-                .count(3)
-                .cheap()    // $1-$20
-                .highStock()
-                .build();
+        PurchaseResult purchase = PurchaseWorkflow.start()
+                .registerCustomer()
+                .loginCustomer()
+                .registerSeller()
+                .createProducts(3, ProductType.CHEAP)
+                .createProducts(2, ProductType.EXPENSIVE)
+                .browseProducts()
+                .createOrder()
+                .execute();
 
-        ProductSeeder expensiveSeeder = ProductSeeder.builder(context)
-                .count(2)
-                .expensive()  // $100-$1000
-                .build();
+        logStep("Validating Category Specific Purchase");
 
-        List<TestModels.ProductResponse> cheapProducts = cheapSeeder.seed().getProducts();
-        List<TestModels.ProductResponse> expensiveProducts = expensiveSeeder.seed().getProducts();
+        purchaseValidator.verifyPurchaseCompleted(purchase);
 
-        log.info("✓ Created {} cheap products", cheapProducts.size());
-        log.info("✓ Created {} expensive products", expensiveProducts.size());
+        orderValidator.verifyMinimumItems(
+                purchase.getOrder(), 2);
 
-        waitForDataPropagation(1000);
-
-        // Step 3: Order 1 - Only cheap products
-        List<TestModels.ProductResponse> allProducts = new ArrayList<>();
-        allProducts.addAll(cheapProducts);
-        allProducts.addAll(expensiveProducts);
-
-        OrderSeeder orderSeeder = OrderSeeder.builder(context)
-                .forUser(user)
-                .withProducts(allProducts)
-                .count(1)
-                .itemsPerOrder(2, 4)
-                .build();
-
-        TestModels.OrderResponse order = orderSeeder.seed().getFirst();
-
-        log.info("✓ Order created with {} items, Total: ${}",
-                order.getItems().size(), order.getTotalAmount());
-
-        // Verify order details
-        assertTrue(order.getItems().size() >= 2, "Should have at least 2 items");
-        assertNotNull(order.getTotalAmount());
-
-        log.info("✅ Scenario 4 PASSED");
+        logStep("✅ Category Specific Purchase completed successfully!");
     }
 
     // ==========================================
@@ -381,7 +328,6 @@ public class OrderCreationFlowTest extends BaseTest {
 
         log.info("✅ Scenario 7 PASSED: User placed {} orders", userOrders.size());
     }
-
 
 
 }

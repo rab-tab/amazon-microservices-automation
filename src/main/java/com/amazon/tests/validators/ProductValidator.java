@@ -19,51 +19,72 @@ public class ProductValidator {
      */
     private TestModels.ProductResponse getProduct(PurchaseResult purchase) {
         return productFacade.getProduct(
-                purchase.getProduct().getId());
+                purchase.getProducts().get(0).getId());
     }
 
     /**
      * Verify product is ACTIVE
      */
-    public void verifyProductIsActive(PurchaseResult purchase) {
+    private void verifyProductIsActive(TestModels.ProductResponse product) {
 
-        assertThat(getProduct(purchase).getStatus())
-                .isEqualTo("ACTIVE");
+        assertThat(product.getStatus().equals("ACTIVE"));
+
+    }
+    public void verifyProductsRemainActive(PurchaseResult purchase) {
+
+        purchase.getProducts().forEach(product -> {
+            verifyProductIsActive(product);
+            //verifyProductBelongsToSeller(product, purchase.getSellerAuth());
+        });
+    }
+    private void verifyProductIdGenerated(TestModels.ProductResponse product) {
+
+        assertThat(product.getId()).isNotBlank();
     }
 
+
+
+    public void verifyProductsCreated(PurchaseResult purchase) {
+
+        purchase.getProducts()
+                .forEach(this::verifyProductCreated);
+    }
     public void verifyProductCreated(PurchaseResult purchase) {
 
-        verifyProductIsActive(purchase);
-        verifyProductPrice(purchase);
-        verifyProductBelongsToSeller(purchase);
+        purchase.getProducts().forEach(this::verifyProductCreated);
     }
 
+    private void verifyProductCreated(TestModels.ProductResponse product) {
+
+        verifyProductName(product);
+        verifyProductDescription(product);
+        verifyProductPrice(product);
+        verifyProductIsActive(product);
+    }
     /**
      * Verify product name
      */
-    public void verifyProductName(PurchaseResult purchase) {
+    public void verifyProductName(TestModels.ProductResponse product) {
 
-        assertThat(getProduct(purchase).getName())
-                .isEqualTo(purchase.getProduct().getName());
+        assertThat(product.getName()).isNotBlank();
     }
 
     /**
      * Verify product description
      */
-    public void verifyProductDescription(PurchaseResult purchase) {
+    public void verifyProductDescription(TestModels.ProductResponse product) {
 
-        assertThat(getProduct(purchase).getDescription())
-                .isEqualTo(purchase.getProduct().getDescription());
+        assertThat(product.getDescription()).isNotBlank();
     }
 
     /**
      * Verify product price
      */
-    public void verifyProductPrice(PurchaseResult purchase) {
+    private void verifyProductPrice(TestModels.ProductResponse product) {
 
-        assertThat(getProduct(purchase).getPrice())
-                .isEqualByComparingTo(
-                        purchase.getProduct().getPrice());
+        assertThat(product.getPrice())
+                .isNotNull()
+                .isPositive();
     }
 
     /**

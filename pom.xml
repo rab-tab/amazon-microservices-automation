@@ -26,6 +26,7 @@
         <postgresql.version>42.7.1</postgresql.version>
         <awaitility.version>4.2.0</awaitility.version>
         <testcontainers.version>1.19.7</testcontainers.version>  <!-- Latest version -->
+        <jacoco.version>0.8.11</jacoco.version>
     </properties>
 
     <dependencies>
@@ -240,29 +241,29 @@
         </dependency>
 
 
-            <dependency>
-                <groupId>org.testcontainers</groupId>
-                <artifactId>testcontainers</artifactId>
-                <version>${testcontainers.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.testcontainers</groupId>
-                <artifactId>kafka</artifactId>
-                <version>${testcontainers.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.testcontainers</groupId>
-                <artifactId>toxiproxy</artifactId>
-                <version>${testcontainers.version}</version>
-                <scope>test</scope>
-            </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>kafka</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>toxiproxy</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
 
 
         <dependency>
             <groupId>org.testcontainers</groupId>
-             <artifactId>junit-jupiter</artifactId>
+            <artifactId>junit-jupiter</artifactId>
             <version>1.19.3</version>
             <scope>test</scope>
         </dependency>
@@ -317,20 +318,41 @@
 
     <build>
         <plugins>
+            <!--
+                CONSOLIDATED: this used to be 4 separate maven-surefire-plugin blocks
+                with overlapping/conflicting <argLine> and <suiteXmlFiles> — Maven merges
+                them by plugin execution id, which made the *effective* argLine and listener
+                config unpredictable. Everything is combined into one block below.
+
+                Note the argLine now uses @{argLine} — this is JaCoCo's placeholder token.
+                JaCoCo's prepare-agent execution (below) sets the "argLine" property to its
+                -javaagent flag at build time; @{argLine} substitutes it in. If you ever add
+                another plugin that also wants to inject an argLine, append to this same
+                @{argLine} token rather than adding a 5th surefire block.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.3</version>
+                <version>3.2.5</version>
                 <configuration>
                     <suiteXmlFiles>
                         <suiteXmlFile>src/test/resources/testng.xml</suiteXmlFile>
                     </suiteXmlFiles>
                     <argLine>
+                        @{argLine}
                         -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/1.9.21/aspectjweaver-1.9.21.jar"
+                        -XX:+HeapDumpOnOutOfMemoryError
+                        -XX:HeapDumpPath=${project.build.directory}/diagnostics/heap-dumps/
                     </argLine>
                     <systemPropertyVariables>
                         <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
                     </systemPropertyVariables>
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>com.amazon.tests.listeners.AllureTestListener</value>
+                        </property>
+                    </properties>
                 </configuration>
                 <dependencies>
                     <dependency>
@@ -348,56 +370,32 @@
                     <reportVersion>${allure.version}</reportVersion>
                 </configuration>
             </plugin>
+
+            <!--
+                JaCoCo: generates the coverage data SonarQube's quality gate reads.
+                prepare-agent sets the "argLine" Maven property (consumed by @{argLine}
+                above) BEFORE surefire forks the test JVM — must stay bound to a phase
+                that runs before `test`.
+            -->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
-                <configuration>
-                    <properties>
-                        <property>
-                            <name>listener</name>
-                            <value>com.amazon.tests.listeners.AllureTestListener</value>
-                        </property>
-                    </properties>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
-                <configuration>
-                    <argLine>
-                        -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/1.9.21/aspectjweaver-1.9.21.jar"
-                    </argLine>
-                    <suiteXmlFiles>
-                        <suiteXmlFile>src/test/resources/your-suite.xml</suiteXmlFile>
-                    </suiteXmlFiles>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.1.2</version>
-                <configuration>
-                    <suiteXmlFiles>
-                        <suiteXmlFile>src/test/resources/testng.xml</suiteXmlFile>
-                    </suiteXmlFiles>
-                    <argLine>-Drp.enable=true</argLine>
-                    <systemPropertyVariables>
-                        <rp.enable>true</rp.enable>
-                    </systemPropertyVariables>
-                    <!-- This is the critical part -->
-                    <properties>
-                        <property>
-                            <name>usedefaultlisteners</name>
-                            <value>false</value>
-                        </property>
-                        <property>
-                            <name>listener</name>
-                            <value>com.epam.reportportal.testng.ReportPortalTestNGListener</value>
-                        </property>
-                    </properties>
-                </configuration>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

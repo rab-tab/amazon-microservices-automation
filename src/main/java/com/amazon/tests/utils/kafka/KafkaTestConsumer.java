@@ -110,55 +110,29 @@ public class KafkaTestConsumer implements AutoCloseable {
         log.warn("⏰ No matching message found within {}s", timeoutSeconds);
         return Optional.empty();
     }*/
-    public Optional<JsonNode> waitForMessage(
-            Predicate<JsonNode> predicate,
-            int timeoutSeconds) {
+    public Optional<JsonNode> waitForMessage(Predicate<JsonNode> predicate, int timeoutSeconds) {
 
         long searchStart = System.currentTimeMillis();
-
-        long deadline =
-                searchStart + (timeoutSeconds * 1000L);
+        long deadline = searchStart + (timeoutSeconds * 1000L);
 
         while (System.currentTimeMillis() < deadline) {
-
-            ConsumerRecords<String, String> records =
-                    consumer.poll(Duration.ofMillis(500));
-
+            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
             for (ConsumerRecord<String, String> record : records) {
-
-                MetricsManager.recordKafkaConsumed();
-
+                    MetricsManager.recordKafkaConsumed();
                 try {
-
-                    JsonNode node =
-                            objectMapper.readTree(record.value());
-
-                    log.debug(
-                            "Received message from topic={} key={}",
-                            record.topic(),
-                            record.key()
-                    );
-
+                    JsonNode node = objectMapper.readTree(record.value());
+                    log.debug("Received message from topic={} key={}", record.topic(), record.key());
                     if (predicate.test(node)) {
-
-                        long waitTime =
-                                System.currentTimeMillis()
-                                        - searchStart;
+                        long waitTime = System.currentTimeMillis() - searchStart;
 
                         MetricsManager.recordKafkaMatched();
-
                         MetricsManager.recordKafkaWait(waitTime);
 
-                        log.info(
-                                "✅ Matching message found. wait={}ms",
-                                waitTime
-                        );
-
+                        log.info("✅ Matching message found. wait={}ms", waitTime);
                         return Optional.of(node);
                     }
 
                 } catch (Exception e) {
-
                     log.warn(
                             "Failed to parse message: {}",
                             record.value()
@@ -167,17 +141,9 @@ public class KafkaTestConsumer implements AutoCloseable {
             }
         }
 
-        long waitTime =
-                System.currentTimeMillis()
-                        - searchStart;
-
+        long waitTime = System.currentTimeMillis() - searchStart;
         MetricsManager.recordKafkaWait(waitTime);
-
-        log.warn(
-                "⏰ No matching message found within {}s",
-                timeoutSeconds
-        );
-
+        log.warn("⏰ No matching message found within {}s", timeoutSeconds);
         return Optional.empty();
     }
 

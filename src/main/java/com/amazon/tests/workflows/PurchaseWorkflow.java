@@ -1,5 +1,6 @@
 package com.amazon.tests.workflows;
 
+import com.amazon.tests.commonmodels.enums.ProductType;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.facade.AuthFacade;
 import com.amazon.tests.utils.facade.OrderFacade;
@@ -61,6 +62,18 @@ public class PurchaseWorkflow {
         return this;
     }
 
+    public PurchaseWorkflow createProducts(int count, ProductType type) {
+
+        List<TestModels.ProductResponse> products =
+                productFacade.createProducts(
+                        result.getSellerAuth(),
+                        count,
+                        type);
+
+        result.getProducts().addAll(products);
+
+        return this;
+    }
     public PurchaseWorkflow browseProducts() {
 
         productFacade.browseProducts();

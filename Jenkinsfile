@@ -385,6 +385,59 @@ api-gateway:          ${env.TAG_API_GATEWAY}
             }
         }
 
+        // ── Stage: Static Analysis (SonarQube) ────────────────────
+        // Runs AFTER Run Tests, not before — it needs the JaCoCo coverage
+        // data (target/jacoco.exec) that only exists once tests have executed.
+        // This is a CI *gate* for the mechanical, structural bugs: unclosed
+        // resources (Connection/ExecutorService/WebDriver), missing
+        // ThreadLocal.remove(), unsynchronized shared collections, etc.
+        // It will NOT catch cross-thread field races or actual runtime memory
+        // growth — that's what the thread/heap sampling in runTestSuite() and
+        // the archived diagnostics below are for.
+        //
+        // 'SonarQubeServer' below must match the name configured under
+        // Jenkins → Manage Jenkins → System → SonarQube servers.
+        stage('Static Analysis - SonarQube') {
+            steps {
+                withSonarQubeEnv('SonarQubeServer') {
+                    sh '''
+                        mvn sonar:sonar \
+                            -Dsonar.projectKey=amazon-microservices-automation \
+                            -Dsonar.projectName="Amazon Microservices Automation" \
+                            -Dsonar.java.binaries=target/classes,target/test-classes \
+                            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                            --no-transfer-progress -q
+                    '''
+                }
+            }
+        }
+
+        // ── Stage: Quality Gate ────────────────────────────────────
+        // Sonar's analysis happens above; the quality gate result is computed
+        // server-side and reported back asynchronously via a webhook. This step
+        // blocks (up to 5 min) waiting for that webhook rather than polling —
+        // requires a webhook configured on the Sonar project pointing back at
+        // this Jenkins instance (Administration → Webhooks).
+        //
+        // Currently set to mark UNSTABLE rather than hard-fail — change to
+        // error(...) once the ruleset has been tuned and false positives cleared,
+        // so a gate failure actually blocks image promotion.
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    script {
+                        def qg = waitForQualityGate()
+                        if (qg.status != 'OK') {
+                            echo "⚠️ SonarQube Quality Gate: ${qg.status}"
+                            currentBuild.result = 'UNSTABLE'
+                        } else {
+                            echo "✅ SonarQube Quality Gate passed"
+                        }
+                    }
+                }
+            }
+        }
+
         // ── Stage 11: Allure Report ───────────────────────────────
         // Always run this — even if tests failed.
         // A failing test is only useful if you can see WHY it failed.
@@ -432,6 +485,15 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                 // Collect final JUnit results for Jenkins trend charts
                 junit allowEmptyResults: true,
                       testResults: '**/target/surefire-reports/TEST-*.xml'
+
+                // Archive thread/heap diagnostics from the periodic sampler in
+                // runTestSuite(), plus any OOM-triggered heap dump from the
+                // -XX:+HeapDumpOnOutOfMemoryError flag in pom.xml. cleanWs() below
+                // wipes the workspace, so without this archive step these are lost
+                // the moment the build finishes.
+                archiveArtifacts artifacts: 'target/diagnostics/**',
+                                  allowEmptyArchive: true,
+                                  fingerprint: false
             }
         }
 
@@ -484,6 +546,30 @@ def runTestSuite(String suite, String displayName) {
             echo
             echo "Exit code from curl: \$?"
 
+        mkdir -p target/diagnostics/heap-dumps target/diagnostics/thread-dumps
+
+        # ── Background sampler ──────────────────────────────────────
+        # Runs alongside the test JVM for the whole suite. Every 3 minutes it takes
+        # a thread dump (jstack) and a live heap histogram (jmap -histo, cheap —
+        # does NOT pause the JVM like a full heap dump would) of the Surefire-forked
+        # JVM actually running the tests. This is what lets us catch a growing
+        # thread count (leaked ThreadLocal/executor) or growing retained-object
+        # count (leaked collection) DURING a run, not just after an OOM crash.
+        (
+          while true; do
+            sleep 180
+            PID=\$(jps -l 2>/dev/null | grep surefirebooter | awk '{print \$1}' | head -1)
+            if [ -n "\$PID" ]; then
+              TS=\$(date +%Y%m%d-%H%M%S)
+              jstack \$PID > target/diagnostics/thread-dumps/${suite}-\${TS}.txt 2>/dev/null || true
+              jmap -histo \$PID 2>/dev/null | head -30 > target/diagnostics/heap-dumps/${suite}-histo-\${TS}.txt || true
+              THREAD_COUNT=\$(jstack \$PID 2>/dev/null | grep -c '^\"')
+              echo "[sampler] \${TS} suite=${suite} pid=\$PID threads=\$THREAD_COUNT" >> target/diagnostics/thread-dumps/${suite}-summary.log
+            fi
+          done
+        ) &
+        SAMPLER_PID=\$!
+
         # cd test-automation
         mvn test \
           -Dsurefire.suiteXmlFiles=src/test/resources/${suite} \
@@ -500,6 +586,28 @@ def runTestSuite(String suite, String displayName) {
           -Dredis.password=redis123 \
           --no-transfer-progress \
           -Dmaven.test.failure.ignore=true
+        TEST_EXIT_CODE=\$?
+
+        # Stop the background sampler now that the suite is done — leaving it running
+        # would leak a shell process per suite across the pipeline's life.
+        kill \$SAMPLER_PID 2>/dev/null || true
+        wait \$SAMPLER_PID 2>/dev/null || true
+
+        # Quick eyeballed leak signal: if the LAST thread-count sample is >50% higher
+        # than the FIRST, something in this suite is accumulating threads over the run.
+        if [ -f target/diagnostics/thread-dumps/${suite}-summary.log ]; then
+            FIRST=\$(head -1 target/diagnostics/thread-dumps/${suite}-summary.log | grep -oE 'threads=[0-9]+' | cut -d= -f2)
+            LAST=\$(tail -1 target/diagnostics/thread-dumps/${suite}-summary.log | grep -oE 'threads=[0-9]+' | cut -d= -f2)
+            if [ -n "\$FIRST" ] && [ -n "\$LAST" ] && [ "\$FIRST" -gt 0 ]; then
+                GROWTH=\$(( (LAST - FIRST) * 100 / FIRST ))
+                echo "[sampler] ${suite} thread count: \$FIRST → \$LAST (\${GROWTH}% growth)"
+                if [ "\$GROWTH" -gt 50 ]; then
+                    echo "⚠️  Thread count grew >50% during ${suite} — check target/diagnostics/thread-dumps/${suite}-summary.log"
+                fi
+            fi
+        fi
+
+        exit \$TEST_EXIT_CODE
     """
 }
 
@@ -565,11 +673,12 @@ def waitForKafka(Map args) {
         sleep(10)
         elapsed += 10
         }
+           echo "Kafka never became healthy within timeout"
+           dumpKafkaDiagnostics()
+           error("Kafka failed to become healthy")
 
     }
-   echo "Kafka never became healthy within timeout"
-   dumpKafkaDiagnostics()
-   error("Kafka failed to become healthy")
+
 
 
 def dumpKafkaDiagnostics(){
@@ -592,6 +701,9 @@ def dumpKafkaDiagnostics(){
                 echo
                 echo "===== Generated kafka.properties ====="
                 docker exec test-kafka cat /etc/kafka/kafka.properties || true
+
+                docker exec test-zookeeper sh -c "which nc"
+                docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181"
 
                 echo "===== Server Log Directory ====="
                 docker exec test-kafka ls -la /var/log/kafka || true

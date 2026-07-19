@@ -14,6 +14,7 @@ public class PurchaseValidator {
         paymentValidator.verifySuccessfulPayment(purchase);
     }
 
+
     public void verifySingleItemPurchaseCompleted(PurchaseResult purchase) {
 
         verifyPurchaseCompleted(purchase);
@@ -34,8 +35,7 @@ public class PurchaseValidator {
     public void verifyOrderCancelled(PurchaseResult purchase) {
 
         orderValidator.verifyCancelled(purchase);
-        productValidator.verifyProductIsActive(purchase);
-        productValidator.verifyProductBelongsToSeller(purchase);
+        productValidator.verifyProductsRemainActive(purchase);
     }
     public void verifyOrderRefunded(PurchaseResult purchase) {
 

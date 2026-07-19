@@ -9,6 +9,8 @@ import org.awaitility.Awaitility;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.*;
@@ -22,6 +24,15 @@ public class OrderValidator {
                 purchase.getCustomerAuth().getAccessToken(),
                 purchase.getCustomerAuth().getUser().getId(),
                 purchase.getOrder().getId());
+    }
+
+    public void verifyMinimumItems(TestModels.OrderResponse order,
+                                   int minimumItems) {
+
+        assertNotNull(order.getItems(), "Order items should exist");
+
+        assertTrue(order.getItems().size() >= minimumItems,
+                String.format("Order should contain at least %d items", minimumItems));
     }
 
     public void verifyOrderCreated(PurchaseResult purchase) {
@@ -141,10 +152,15 @@ public class OrderValidator {
     }
 
     public void verifyProduct(PurchaseResult purchase) {
-        assertThat(getOrder(purchase).getItems().get(0).getProductId())
-                .isEqualTo(purchase.getProduct().getId());
-    }
 
+        Set<String> productIds = purchase.getProducts().stream()
+                .map(TestModels.ProductResponse::getId)
+                .collect(Collectors.toSet());
+
+        getOrder(purchase).getItems().forEach(item ->
+                assertThat(productIds)
+                        .contains(item.getProductId()));
+    }
     public void verifySingleItem(PurchaseResult purchase) {
         assertEquals(
                 purchase.getOrder().getItems().size(),

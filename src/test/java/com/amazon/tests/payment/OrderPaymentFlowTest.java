@@ -5,9 +5,11 @@ import com.amazon.tests.config.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.testData.TestDataFactory;
+import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
 import io.qameta.allure.*;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
+import org.awaitility.core.ConditionTimeoutException;
 import org.testng.ITestResult;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -18,7 +20,6 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -213,67 +214,30 @@ public class OrderPaymentFlowTest extends BaseTest {
 
 
     private Response pollOrderUntilStatusAsync(String orderId, String expectedStatus, int timeoutSeconds) {
-        long startTime = System.currentTimeMillis();
-        long timeoutMs = timeoutSeconds * 1000;
-
         AtomicReference<String> lastSeenStatus = new AtomicReference<>("UNKNOWN");
         AtomicInteger pollCount = new AtomicInteger(0);
+        AtomicReference<Response> lastResponse = new AtomicReference<>();
 
-        CompletableFuture<Response> orderStatusFuture = CompletableFuture.supplyAsync(() -> {
-            while (System.currentTimeMillis() - startTime < timeoutMs) {
-                try {
-                    pollCount.incrementAndGet();
-                    Response response = getOrder(orderId);
-                    String currentStatus = response.jsonPath().getString("status");
-                    lastSeenStatus.set(currentStatus);
-
-                    if (expectedStatus.equals(currentStatus)) {
-                        long elapsed = System.currentTimeMillis() - startTime;
-                        logStep("✅ Status '" + expectedStatus + "' found in " + elapsed + "ms");
-                        return response;
-                    }
-
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return null;
-                } catch (Exception e) {
-                    // Continue
-                }
-            }
-            return null;
-        });
-
-        // Wait for completion
-        while (System.currentTimeMillis() - startTime < timeoutMs) {
-            if (orderStatusFuture.isDone()) {
-                try {
-                    Response result = orderStatusFuture.get();
-                    if (result != null) {
-                        return result;
-                    }
-                    break;
-                } catch (Exception e) {
-                    orderStatusFuture.cancel(true);
-                    throw new RuntimeException("Polling failed", e);
-                }
-            }
-
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                orderStatusFuture.cancel(true);
-                throw new RuntimeException("Interrupted", e);
-            }
+        try {
+            await()
+                    .atMost(timeoutSeconds, TimeUnit.SECONDS)
+                    .pollInterval(50, TimeUnit.MILLISECONDS)
+                    .until(() -> {
+                        pollCount.incrementAndGet();
+                        Response response = getOrder(orderId);
+                        lastResponse.set(response);
+                        String status = response.jsonPath().getString("status");
+                        lastSeenStatus.set(status);
+                        return expectedStatus.equals(status);
+                    });
+        } catch (ConditionTimeoutException e) {
+            throw new AssertionError(String.format(
+                    "Order %s timeout after %ds (last: %s, polls: %d)",
+                    orderId, timeoutSeconds, lastSeenStatus.get(), pollCount.get()
+            ));
         }
 
-        // Timeout
-        orderStatusFuture.cancel(true);
-        throw new AssertionError(String.format(
-                "Order %s timeout after %ds (last: %s, polls: %d)",
-                orderId, timeoutSeconds, lastSeenStatus.get(), pollCount.get()
-        ));
+        return lastResponse.get();
     }
 
     /**
@@ -301,7 +265,7 @@ public class OrderPaymentFlowTest extends BaseTest {
     @Description("Verify order confirmation with successful payment using test scenario and API polling")
     public void testSuccessfulPaymentFlow() {
         logStep("═══════════════════════════════════════════════════════");
-        logStep("TEST: Successful Payment Flow");
+        logStep("TEST: Successful Pxayment Flow");
         logStep("═══════════════════════════════════════════════════════");
 
         String orderId = null;
