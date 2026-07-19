@@ -208,6 +208,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                     sh 'echo "Available memory before starting:"; free -h 2>/dev/null || vm_stat | head -5'
 
                     // Start only infrastructure, not microservices yet
+                    try{
                     sh """
                         export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
                         export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
@@ -215,19 +216,21 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
                         export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
                         export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
-                        try {
-                            sh """... docker-compose -f ${COMPOSE_FILE} up -d postgres redis zookeeper kafka zipkin db-init"""
-                        } catch (Exception e) {
-                            sh '''
-                                docker exec test-zookeeper sh -c "which nc" || true
-                                docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
-                                docker logs test-zookeeper --tail 100 || true
-                                docker inspect test-zookeeper --format '{{json .State.Health}}' || true
-                            '''
-                            throw e
-                        }
+                        docker-compose -f ${COMPOSE_FILE} up -d \
+                                              postgres redis zookeeper kafka zipkin db-init
+                        """
+                     } catch (Exception e) {
+                       sh '''
+                        echo "===== ZOOKEEPER DIAGNOSTICS ====="
+                          docker exec test-zookeeper sh -c "which nc" || true
+                          docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
+                          docker exec test-zookeeper sh -c "echo ruok | timeout 5 bash -c 'exec 3<>/dev/tcp/localhost/2181; cat >&3; cat <&3'" || true
+                          docker logs test-zookeeper --tail 100 || true
+                          docker inspect test-zookeeper --format '{{json .State.Health}}' || true
+                                    '''
+                                    throw e
+                           }
 
-                    """
                       sh '''
                           echo "==== Kafka configured healthcheck ===="
                           docker inspect test-kafka --format '{{json .Config.Healthcheck}}'
