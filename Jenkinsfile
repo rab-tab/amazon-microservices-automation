@@ -216,17 +216,16 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                         export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
                         export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
                         try {
-                        docker-compose -f ${COMPOSE_FILE} up -d \
-                            postgres redis zookeeper kafka zipkin db-init
-                            } catch (Exception e) {
-                                  sh '''
-                                      docker exec test-zookeeper sh -c "which nc" || true
-                                      docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
-                                      docker logs test-zookeeper --tail 100 || true
-                                      docker inspect test-zookeeper --format '{{json .State.Health}}' || true
-                                  '''
-                                  throw e
-                              }
+                            sh """... docker-compose -f ${COMPOSE_FILE} up -d postgres redis zookeeper kafka zipkin db-init"""
+                        } catch (Exception e) {
+                            sh '''
+                                docker exec test-zookeeper sh -c "which nc" || true
+                                docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
+                                docker logs test-zookeeper --tail 100 || true
+                                docker inspect test-zookeeper --format '{{json .State.Health}}' || true
+                            '''
+                            throw e
+                        }
 
                     """
                       sh '''
