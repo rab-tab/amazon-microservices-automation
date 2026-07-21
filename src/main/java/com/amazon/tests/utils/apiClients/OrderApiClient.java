@@ -1,118 +1,93 @@
 package com.amazon.tests.utils.apiClients;
 
 import com.amazon.tests.auth.AuthStrategy;
-import com.amazon.tests.config.RequestBuilder;
 import com.amazon.tests.dataseeding.core.SeedingContext;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.transport.HttpExecutor;
-import com.amazon.tests.transport.RestAssuredExecutor;
-import io.restassured.response.Response;
-import io.restassured.specification.RequestSpecification;
+import com.amazon.tests.transport.*;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class OrderApiClient {
 
     private final SeedingContext context;
-    private final HttpExecutor executor;
-    private AuthStrategy authStrategy;
+    private final RequestExecutor executor;
+    private final AuthStrategy authStrategy;
 
-    // Primary constructor
     public OrderApiClient(SeedingContext context,
                           AuthStrategy authStrategy,
-                          HttpExecutor executor) {
-
+                          RequestExecutor executor) {
         this.context = context;
         this.authStrategy = authStrategy;
         this.executor = executor;
     }
 
-    // Convenience constructor
-    public OrderApiClient(SeedingContext context,
-                          AuthStrategy authStrategy) {
-
-        this(context,
-                authStrategy,
-                new RestAssuredExecutor());
-    }
     // ============================================================
     // CREATE ORDER
     // ============================================================
 
-    public Response createOrder(
-            String userToken,
+    public ServiceResponse createOrder(
             String userId,
             String idempotencyKey,
             TestModels.CreateOrderRequest request) {
 
-        return createOrderInternal(
-                userToken,
-                userId,
-                idempotencyKey,
-                request,
-                null
-        );
+        return createOrderInternal(userId, idempotencyKey, request, null);
     }
 
-    public Response createOrderWithFault(
-            String userToken,
+    public ServiceResponse createOrderWithFault(
             String userId,
             String idempotencyKey,
             TestModels.CreateOrderRequest request,
             String faultHeader) {
 
-        return createOrderInternal(
-                userToken,
-                userId,
-                idempotencyKey,
-                request,
-                faultHeader
-        );
+        return createOrderInternal(userId, idempotencyKey, request, faultHeader);
     }
 
     // ============================================================
     // GET ORDER
     // ============================================================
 
-    public Response getOrder(
-            String userToken,
-            String userId,
-            String orderId) {
+    public ServiceResponse getOrder(String userId, String orderId) {
+        Map<String, String> headers = new HashMap<>(authStrategy.extraAuthHeaders());
+        headers.put("X-User-Id", userId);
 
-        RequestSpecification spec =
-                RequestBuilder.withBearerAuth(userToken);
+        ServiceRequest request = ServiceRequest.builder()
+                .method(HttpMethod.GET)
+                .endpoint("/api/orders/" + orderId)
+                .token(authStrategy.getToken())
+                .headers(headers)
+                .targetService(ServiceType.ORDER)
+                .build();
 
-        spec.header("X-User-Id", userId);
-
-        return executor.get(
-                spec,
-                "/api/orders/" + orderId
-        );
+        return executor.execute(request);
     }
 
     // ============================================================
     // PRIVATE HELPERS
     // ============================================================
 
-    private Response createOrderInternal(
-            String userToken,
+    private ServiceResponse createOrderInternal(
             String userId,
             String idempotencyKey,
-            TestModels.CreateOrderRequest request,
+            TestModels.CreateOrderRequest payload,
             String faultHeader) {
 
-        RequestSpecification spec= RequestBuilder.defaultSpec();
-        authStrategy.authenticate(spec);
-
-        spec.header("X-User-Id", userId);
-        spec.header("Idempotency-Key", idempotencyKey);
-
+        Map<String, String> headers = new HashMap<>(authStrategy.extraAuthHeaders());
+        headers.put("X-User-Id", userId);
+        headers.put("Idempotency-Key", idempotencyKey);
         if (faultHeader != null && !faultHeader.isBlank()) {
-            spec.header("X-Fault", faultHeader);
+            headers.put("X-Fault", faultHeader);
         }
 
-        return executor.post(
-                spec,
-                "/api/orders",
-                request
-        );
+        ServiceRequest request = ServiceRequest.builder()
+                .method(HttpMethod.POST)
+                .endpoint("/api/orders")
+                .payload(payload)
+                .token(authStrategy.getToken())
+                .headers(headers)
+                .targetService(ServiceType.ORDER)
+                .build();
+
+        return executor.execute(request);
     }
 }

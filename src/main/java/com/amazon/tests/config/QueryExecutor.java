@@ -1,5 +1,8 @@
 package com.amazon.tests.config;
 
+import com.amazon.tests.config.db.DatabaseConnectionManager;
+import com.amazon.tests.config.retry.RetryPolicy;
+
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;

@@ -2,8 +2,8 @@
 package com.amazon.tests;
 
 import com.amazon.tests.config.ConfigManager;
-import com.amazon.tests.config.ExtentReportManager;
-import com.amazon.tests.config.RestAssuredConfig;
+import com.amazon.tests.config.extentReports.ExtentReportManager;
+import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.config.TestConfig;
 import com.amazon.tests.dataseeding.cleanup.CleanupManager;
 import com.amazon.tests.dataseeding.core.SeedingContext;

@@ -1,7 +1,7 @@
 package com.amazon.tests.kafka.failures.consistency;
 
 import com.amazon.tests.BaseTest;
-import com.amazon.tests.config.RestAssuredConfig;
+import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.validators.DatabaseValidator;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;

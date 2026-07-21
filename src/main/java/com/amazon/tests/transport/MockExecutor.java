@@ -1,10 +1,9 @@
 package com.amazon.tests.transport;
 
-import com.amazon.tests.transport.HttpExecutor;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 
-public class MockExecutor implements HttpExecutor {
+public class MockExecutor implements RequestExecutor {
 
     @Override
     public Response get(RequestSpecification spec,

@@ -1,7 +1,7 @@
 package com.amazon.tests.listeners;
 
 
-import com.amazon.tests.config.ExtentReportManager;
+import com.amazon.tests.config.extentReports.ExtentReportManager;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.ISuite;
 import org.testng.ISuiteListener;

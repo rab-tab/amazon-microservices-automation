@@ -1,5 +1,5 @@
 // RestClient.java
-package com.amazon.tests.config;
+package com.amazon.tests.config.restAsssured;
 
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.filter.log.LogDetail;

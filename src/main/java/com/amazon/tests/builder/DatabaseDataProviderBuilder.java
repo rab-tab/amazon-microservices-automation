@@ -1,11 +1,11 @@
 package com.amazon.tests.builder;
 
-import com.amazon.tests.config.DatabaseConfig;
-import com.amazon.tests.config.DatabaseConnectionManager;
-import com.amazon.tests.config.DatabaseTransactionManager;
+import com.amazon.tests.config.db.DatabaseConfig;
+import com.amazon.tests.config.db.DatabaseConnectionManager;
+import com.amazon.tests.config.db.DatabaseTransactionManager;
 import com.amazon.tests.config.QueryExecutor;
 import com.amazon.tests.config.ResultMapper;
-import com.amazon.tests.config.RetryPolicy;
+import com.amazon.tests.config.retry.RetryPolicy;
 import com.amazon.tests.provider.DatabaseDataProvider;
 
 public class DatabaseDataProviderBuilder {

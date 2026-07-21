@@ -1,6 +1,7 @@
 // RestAssuredConfig.java
-package com.amazon.tests.config;
+package com.amazon.tests.config.restAsssured;
 
+import com.amazon.tests.config.TestConfig;
 import io.qameta.allure.restassured.AllureRestAssured;
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.builder.ResponseSpecBuilder;

@@ -3,7 +3,7 @@ package com.amazon.tests.transport;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 
-public class WebClientExecutor implements HttpExecutor {
+public class WebClientExecutor implements RequestExecutor {
     @Override
     public Response get(RequestSpecification spec, String path) {
         throw new UnsupportedOperationException(

@@ -1,4 +1,4 @@
-package com.amazon.tests.config;
+package com.amazon.tests.config.kafka;
 
 // src/main/java/com/amazon/tests/config/KafkaConfig.java
 

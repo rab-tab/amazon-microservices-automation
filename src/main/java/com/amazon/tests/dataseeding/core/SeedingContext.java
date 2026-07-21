@@ -1,8 +1,8 @@
 package com.amazon.tests.dataseeding.core;
 
 
-import com.amazon.tests.config.RestAssuredConfigFinal;
-import com.amazon.tests.config.RestClient;
+import com.amazon.tests.config.restAsssured.RestAssuredConfigFinal;
+import com.amazon.tests.config.restAsssured.RestClient;
 import com.amazon.tests.config.TestConfig;
 import lombok.Getter;
 

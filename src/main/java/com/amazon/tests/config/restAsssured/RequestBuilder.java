@@ -1,4 +1,4 @@
-package com.amazon.tests.config;
+package com.amazon.tests.config.restAsssured;
 
 
 import com.amazon.tests.dataseeding.core.SeedingContext;
@@ -168,6 +168,25 @@ public class RequestBuilder {
                     .httpClient(HttpClientConfig.httpClientConfig()
                             .setParam("http.connection.timeout", connectionTimeout)
                             .setParam("http.socket.timeout", socketTimeout)));
+        }
+
+        return builder.build();
+    }
+
+
+    public static RequestSpecification build(RequestSpecificationOptions options) {
+        RequestSpecBuilder builder = base(); // reuse your existing base() — no duplication
+
+        if (options.getToken() != null) builder.addHeader("Authorization", "Bearer " + options.getToken());
+        if (options.getHeaders() != null) builder.addHeaders(options.getHeaders());
+        if (options.getQueryParams() != null) builder.addQueryParams(options.getQueryParams());
+        if (options.getPathParams() != null) builder.addPathParams(options.getPathParams());
+        if (options.getBody() != null) builder.setBody(options.getBody());
+        if (options.getCookies() != null) builder.addCookies(options.getCookies());
+        if (options.getConnectionTimeout() != null) {
+            builder.setConfig(RestAssuredConfig.config().httpClient(HttpClientConfig.httpClientConfig()
+                    .setParam("http.connection.timeout", options.getConnectionTimeout())
+                    .setParam("http.socket.timeout", options.getSocketTimeout())));
         }
 
         return builder.build();

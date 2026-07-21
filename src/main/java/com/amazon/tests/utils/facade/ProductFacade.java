@@ -1,7 +1,7 @@
 package com.amazon.tests.utils.facade;
 
 import com.amazon.tests.commonmodels.enums.ProductType;
-import com.amazon.tests.config.RestAssuredConfig;
+import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.testData.TestDataFactory;
 import io.restassured.response.Response;

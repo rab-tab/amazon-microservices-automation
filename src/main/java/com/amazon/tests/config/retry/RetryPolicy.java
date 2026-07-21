@@ -1,4 +1,4 @@
-package com.amazon.tests.config;
+package com.amazon.tests.config.retry;
 
 
 public class RetryPolicy {

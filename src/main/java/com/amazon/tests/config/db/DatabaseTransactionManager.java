@@ -1,6 +1,8 @@
-package com.amazon.tests.config;
+package com.amazon.tests.config.db;
 
 
+
+import com.amazon.tests.config.db.DatabaseConnectionManager;
 
 import java.sql.Connection;
 import java.sql.SQLException;

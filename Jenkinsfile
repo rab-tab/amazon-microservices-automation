@@ -383,18 +383,18 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                 post { always { collectTestResults() } }
             }
 
-            stage('E2E Tests') {
-                when {
-                 not { expression { params.SKIP_E2E } }
-                }
-                steps { runTestSuite('testng-e2e.xml', 'End-to-End Tests') }
-                post { always { collectTestResults() } }
-            }*/
             stage('Kafka Event Tests') {
                             steps { runTestSuite('testng-kafka.xml', 'Kafka Event Tests') }
                             post { always { collectTestResults() } }
                         }
-            }
+            }*/
+            stage('E2E Tests') {
+                            when {
+                             not { expression { params.SKIP_E2E } }
+                            }
+                            steps { runTestSuite('testng-e2e.xml', 'End-to-End Tests') }
+                            post { always { collectTestResults() } }
+                       }
         }
 
         // ── Stage: Static Analysis (SonarQube) ────────────────────

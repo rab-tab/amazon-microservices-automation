@@ -1,5 +1,7 @@
-package com.amazon.tests.config;
+package com.amazon.tests.config.db;
 
+
+import com.amazon.tests.config.db.DatabaseConfig;
 
 import java.sql.Connection;
 import java.sql.DriverManager;

@@ -1,7 +1,7 @@
 package com.amazon.tests.payment;
 
 import com.amazon.tests.BaseTest;
-import com.amazon.tests.config.RestAssuredConfig;
+import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.testData.TestDataFactory;
