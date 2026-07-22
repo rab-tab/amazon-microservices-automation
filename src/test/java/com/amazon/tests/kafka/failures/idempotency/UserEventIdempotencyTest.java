@@ -1,7 +1,7 @@
 package com.amazon.tests.kafka.failures.idempotency;
 
 import com.amazon.tests.BaseTest;
-import com.amazon.tests.config.restAsssured.RestAssuredConfig;
+import com.amazon.tests.config.restAsssured.old.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.amazon.tests.utils.testData.TestDataFactory;

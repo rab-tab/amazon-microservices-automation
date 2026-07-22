@@ -9,13 +9,13 @@
     <!-- Full Suite -->
     <test name="Authentication Tests">
         <classes>
-            <class name="com.amazon.tests.AuthApiTest"/>
+            <class name="com.amazon.tests.regression.authentication.AuthApiTest"/>
         </classes>
     </test>
 
     <test name="User Management Tests">
         <classes>
-            <class name="com.amazon.tests.UserApiTest"/>
+            <class name="com.amazon.tests.regression.authentication.UserApiTest"/>
         </classes>
     </test>
 
@@ -51,7 +51,7 @@
 
     <test name="End-to-End Tests">
         <classes>
-            <class name="com.amazon.tests.regression.E2EPurchaseFlowTest"/>
+            <class name="com.amazon.tests.regression.e2e.E2EPurchaseFlowTest"/>
         </classes>
     </test>
 

@@ -1,12 +1,17 @@
 // BaseTest.java
 package com.amazon.tests;
 
+import com.amazon.tests.auth.AuthStrategy;
+import com.amazon.tests.auth.NoAuthStrategy;
 import com.amazon.tests.config.ConfigManager;
-import com.amazon.tests.config.extentReports.ExtentReportManager;
-import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.config.TestConfig;
+import com.amazon.tests.config.extentReports.ExtentReportManager;
+import com.amazon.tests.config.restAsssured.RestClient;
+import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.dataseeding.cleanup.CleanupManager;
 import com.amazon.tests.dataseeding.core.SeedingContext;
+import com.amazon.tests.transport.RequestExecutor;
+import com.amazon.tests.transport.RestHttpClient;
 import com.amazon.tests.utils.metrics.MetricsHttpServer;
 import com.amazon.tests.utils.metrics.MetricsManager;
 import com.amazon.tests.utils.metrics.MetricsPushService;
@@ -46,6 +51,11 @@ public abstract class BaseTest {
     private long cpuStart;
     private OperatingSystemMXBean osBean;
     private static MetricsHttpServer metricsServer;
+    public RestClient restClient;
+    public RestAssuredConfig restAssuredConfig;
+    public RequestExecutor executor;
+    public AuthStrategy authStrategy;
+
 
     private final MetricsManager metrics =
             MetricsManager.getInstance();
@@ -97,6 +107,10 @@ public abstract class BaseTest {
         // Initialize ExtentReportManager (creates report)
         ExtentReportManager.getInstance();
 
+         executor = new RestHttpClient(restClient, restAssuredConfig);
+         authStrategy = new NoAuthStrategy();  // registerCustomer/loginCustomer generate their own tokens later
+
+
         // ✅ Initialize TestConfig for data seeding (Owner library)
         String env = System.getProperty("env", "local");
         System.setProperty("env", env);
@@ -147,7 +161,7 @@ public abstract class BaseTest {
         String namespace = generateNamespace();
 
         // ✅ Initialize seeding context
-        context = new SeedingContext(namespace, testConfig);
+        context = new SeedingContext(namespace, testConfig, executor);
         testStart = System.currentTimeMillis();
 
         // ✅ Initialize cleanup manager
@@ -231,7 +245,7 @@ public abstract class BaseTest {
         }
 
         // ✅ Clear RestAssured ThreadLocal to prevent memory leaks
-        RestAssuredConfig.clearCache();
+      //  RestAssuredConfig.clearCache();
 
         log.info("✓ Test method cleanup complete");
     }

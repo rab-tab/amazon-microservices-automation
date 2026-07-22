@@ -100,20 +100,16 @@ public class RetryHandler {
             try {
                 T result = operation.get();
 
-                // Check if result is a Response and has retryable status
-                if (result instanceof Response) {
-                    Response response = (Response) result;
-                    int statusCode = response.getStatusCode();
-
-                    if (config.retryableStatusCodes.contains(statusCode)) {
-                        if (attempt < config.maxAttempts) {
-                            long delay = calculateDelay(config, attempt);
-                            logRetry(config, attempt, statusCode, delay);
-                            sleep(delay);
-                            continue;
-                        } else {
-                            logMaxRetriesExceeded(config, attempt, statusCode);
-                        }
+                // Check if result has a retryable status (Response or ServiceResponse)
+                Integer statusCode = extractStatusCode(result);
+                if (statusCode != null && config.retryableStatusCodes.contains(statusCode)) {
+                    if (attempt < config.maxAttempts) {
+                        long delay = calculateDelay(config, attempt);
+                        logRetry(config, attempt, statusCode, delay);
+                        sleep(delay);
+                        continue;
+                    } else {
+                        logMaxRetriesExceeded(config, attempt, statusCode);
                     }
                 }
 
@@ -126,7 +122,6 @@ public class RetryHandler {
             } catch (Exception e) {
                 lastException = e;
 
-                // Check if exception is retryable
                 boolean isRetryable = config.retryableExceptions.stream()
                         .anyMatch(exClass -> exClass.isInstance(e));
 
@@ -141,13 +136,11 @@ public class RetryHandler {
                             e
                     );
                 } else {
-                    // Non-retryable exception
                     throw e;
                 }
             }
         }
 
-        // Should not reach here, but just in case
         throw new RetryExhaustedException(
                 String.format("Operation failed after %d attempts", config.maxAttempts),
                 lastException
@@ -243,6 +236,15 @@ public class RetryHandler {
         }
     }
 
+    private static Integer extractStatusCode(Object result) {
+        if (result instanceof Response response) {
+            return response.getStatusCode();
+        }
+        if (result instanceof RetryableResponse retryable) {
+            return retryable.getStatusCode();
+        }
+        return null;
+    }
     /**
      * Custom exception for retry exhaustion
      */

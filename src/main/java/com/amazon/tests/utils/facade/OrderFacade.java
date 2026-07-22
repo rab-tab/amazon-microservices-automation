@@ -1,6 +1,6 @@
 package com.amazon.tests.utils.facade;
 
-import com.amazon.tests.config.restAsssured.RestAssuredConfig;
+import com.amazon.tests.config.restAsssured.old.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.workflows.PurchaseResult;
 import io.restassured.response.Response;

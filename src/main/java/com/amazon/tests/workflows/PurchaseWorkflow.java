@@ -1,35 +1,46 @@
 package com.amazon.tests.workflows;
 
+import com.amazon.tests.auth.AuthStrategy;
 import com.amazon.tests.commonmodels.enums.ProductType;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.facade.AuthFacade;
-import com.amazon.tests.utils.facade.OrderFacade;
-import com.amazon.tests.utils.facade.PaymentFacade;
-import com.amazon.tests.utils.facade.ProductFacade;
+import com.amazon.tests.transport.RequestExecutor;
+import com.amazon.tests.utils.apiClients.AuthApiClient;
+import com.amazon.tests.utils.apiClients.OrderApiClient;
+import com.amazon.tests.utils.apiClients.PaymentApiClient;
+import com.amazon.tests.utils.apiClients.ProductApiClient;
+import com.amazon.tests.utils.kafka.KafkaTestConsumer;
+import com.amazon.tests.utils.testData.TestDataFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class PurchaseWorkflow {
-
-    private final AuthFacade authFacade = new AuthFacade();
-
-    private final ProductFacade productFacade = new ProductFacade();
-
-    private final OrderFacade orderFacade = new OrderFacade();
-
-    private final PaymentFacade paymentFacade = new PaymentFacade();
-
-    private final PurchaseResult result = new PurchaseResult();
     private List<TestModels.ProductResponse> products = new ArrayList<>();
 
-    public static PurchaseWorkflow start() {
-        return new PurchaseWorkflow();
+    private final AuthApiClient authApiClient;
+    private final ProductApiClient productApiClient;
+    private final OrderApiClient orderApiClient;
+    private final PaymentApiClient paymentApiClient;
+    private static KafkaTestConsumer consumer = null;
+    private final PurchaseResult result = new PurchaseResult();
+
+    private PurchaseWorkflow(RequestExecutor executor, AuthStrategy authStrategy, KafkaTestConsumer consumer) {
+        this.authApiClient = new AuthApiClient(executor);
+        this.productApiClient = new ProductApiClient(executor);
+        this.consumer = consumer;
+        this.orderApiClient = new OrderApiClient(authStrategy, executor);
+        this.paymentApiClient = new PaymentApiClient(this.consumer, executor);
     }
+
+    public static PurchaseWorkflow start(RequestExecutor executor, AuthStrategy authStrategy) {
+        return new PurchaseWorkflow(executor, authStrategy, consumer);
+    }
+
+
 
     public PurchaseWorkflow registerCustomer() {
 
-        result.setCustomer(authFacade.registerCustomer());
+        result.setCustomer(authApiClient.registerCustomer());
 
         return this;
     }
@@ -37,7 +48,7 @@ public class PurchaseWorkflow {
     public PurchaseWorkflow loginCustomer() {
 
         TestModels.AuthResponse auth =
-                authFacade.login(
+                authApiClient.login(
                         result.getCustomer().getEmail(),
                         result.getCustomer().getPassword());
 
@@ -48,7 +59,7 @@ public class PurchaseWorkflow {
 
     public PurchaseWorkflow registerSeller() {
 
-        result.setSellerAuth(authFacade.registerSeller());
+        result.setSellerAuth(authApiClient.registerSeller());
 
         return this;
     }
@@ -57,15 +68,19 @@ public class PurchaseWorkflow {
     public PurchaseWorkflow createProduct(int count) {
 
         result.getProducts().addAll(
-                productFacade.createProducts(result.getSellerAuth(), count));
+                productApiClient.createProducts(result.getSellerAuth(), count));
 
+        return this;
+    }
+    public PurchaseWorkflow createProductWithStock(double price, int stockQuantity) {
+        result.getProducts().add(productApiClient.createProduct(result.getSellerAuth(), price, stockQuantity));
         return this;
     }
 
     public PurchaseWorkflow createProducts(int count, ProductType type) {
 
         List<TestModels.ProductResponse> products =
-                productFacade.createProducts(
+                productApiClient.createProducts(
                         result.getSellerAuth(),
                         count,
                         type);
@@ -74,31 +89,42 @@ public class PurchaseWorkflow {
 
         return this;
     }
+
+    public PurchaseWorkflow createOrderWithScenario(String testScenario) {
+        TestModels.OrderResponse order = orderApiClient.createOrderWithTestScenario(
+                result.getCustomerAuth().getUser().getId(),
+                TestDataFactory.newIdempotencyKey(),
+                result.getProducts(),
+                testScenario);
+        result.setOrder(order);
+        return this;
+    }
     public PurchaseWorkflow browseProducts() {
 
-        productFacade.browseProducts();
+        productApiClient.browseProducts();
 
         return this;
     }
 
 
     public PurchaseWorkflow viewProduct() {
-        productFacade.getProduct(result.getFirstProduct().getId());
+        productApiClient.getProduct(result.getFirstProduct().getId());
         return this;
     }
     public PurchaseWorkflow createOrder() {
 
-        TestModels.OrderResponse order =
-                orderFacade.createOrder(result);
+        String userId = result.getCustomerAuth().getUser().getId();
+        String idempotencyKey = java.util.UUID.randomUUID().toString();   // or however you generate these
 
+        TestModels.OrderResponse order = orderApiClient.createOrder(
+                userId, idempotencyKey, result.getProducts());
         result.setOrder(order);
-
         return this;
     }
 
     public PurchaseWorkflow cancelOrder() {
 
-        orderFacade.cancelOrder(
+        orderApiClient.cancelOrder(
                 result.getOrder().getId(),
                 result.getCustomerAuth().getAccessToken(),
                 result.getCustomerAuth().getUser().getId());

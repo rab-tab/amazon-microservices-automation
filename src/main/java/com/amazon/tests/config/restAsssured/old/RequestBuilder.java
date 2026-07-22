@@ -1,6 +1,7 @@
-package com.amazon.tests.config.restAsssured;
+package com.amazon.tests.config.restAsssured.old;
 
 
+import com.amazon.tests.config.restAsssured.RequestSpecificationOptions;
 import com.amazon.tests.dataseeding.core.SeedingContext;
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.config.HttpClientConfig;

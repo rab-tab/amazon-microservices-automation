@@ -15,7 +15,7 @@ public class SeederDataProviderFactory
 
         return SeederDataProviderBuilder.builder()
                 .withContext(new SeedingContext("QA",
-                        testConfig))
+                        testConfig, executor))
                 .build();
     }
 }

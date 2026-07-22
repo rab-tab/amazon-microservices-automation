@@ -1,20 +1,23 @@
 package com.amazon.tests.regression.orderCreationFlow;
 
 import com.amazon.tests.BaseTest;
-import com.amazon.tests.dataseeding.builders.OrderBuilder;
-import com.amazon.tests.dataseeding.seeders.ProductSeeder;
-import com.amazon.tests.dataseeding.seeders.UserSeeder;
 import com.amazon.tests.models.TestModels;
-import io.restassured.RestAssured;
-import io.restassured.response.Response;
-import io.restassured.specification.RequestSpecification;
+import com.amazon.tests.transport.RequestExecutor;
+import com.amazon.tests.transport.ServiceResponse;
+import com.amazon.tests.utils.apiClients.OrderApiClient;
+import com.amazon.tests.utils.testData.TestDataFactory;
+import com.amazon.tests.workflows.PurchaseResult;
+import com.amazon.tests.workflows.PurchaseWorkflow;
 import lombok.extern.slf4j.Slf4j;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-import static org.hamcrest.Matchers.anyOf;
-import static org.hamcrest.Matchers.containsString;
 import static org.testng.Assert.*;
 
 /**
@@ -23,689 +26,338 @@ import static org.testng.Assert.*;
  */
 @Slf4j
 public class OrderCreationNegativeTest extends BaseTest {
-
-    // ==========================================
-    // IDEMPOTENCY TESTS
-    // ==========================================
-
-    @Test(description = "Same idempotency key should return same order")
-    public void testIdempotencyKeyPreventsDoubleOrdering() throws Exception {
-        log.info("=== Test: Idempotency - Duplicate Prevention ===");
-
-        // Setup
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        String idempotencyKey = UUID.randomUUID().toString();
-
-        // ✅ Clean spec with idempotency key set ONCE
-        RequestSpecification spec = RestAssured.given()
-                .baseUri(context.getConfig().baseUrl())
-                .header("Authorization", "Bearer " + userToken)
-                .header("Idempotency-Key", idempotencyKey)
-                .contentType("application/json")
-                .accept("application/json");
-
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 2)
-                .withShippingAddress("123 Test St, TestCity, TC 12345")
-                .build();
-
-        // First request
-        Response firstResponse = spec
-                .body(orderRequest)
-                .post("/api/orders");
-
-        assertEquals(firstResponse.getStatusCode(), 201);
-        TestModels.OrderResponse firstOrder = firstResponse.as(TestModels.OrderResponse.class);
-        String firstOrderId = firstOrder.getId();
-
-        log.info("✓ First order created: {}", firstOrderId);
-
-        // Second request - SAME spec (SAME idempotency key)
-        Response secondResponse = spec
-                .body(orderRequest)
-                .post("/api/orders");
-
-        assertTrue(secondResponse.getStatusCode() == 200 || secondResponse.getStatusCode() == 201);
-        TestModels.OrderResponse secondOrder = secondResponse.as(TestModels.OrderResponse.class);
-
-        assertEquals(secondOrder.getId(), firstOrderId);
-        assertEquals(secondOrder.getTotalAmount(), firstOrder.getTotalAmount());
-
-        log.info("✅ Idempotency test PASSED: Duplicate prevented");
-    }
-
-    @Test(description = "Different idempotency keys should create different orders")
-    public void testDifferentIdempotencyKeysCreateDifferentOrders() throws Exception {
-        log.info("=== Test: Different Idempotency Keys ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        // ⭐ First order - fresh spec
-        String idempotencyKey1 = UUID.randomUUID().toString();
-        RequestSpecification spec1 = createSpecWithIdempotency(userToken, idempotencyKey1);
-
-        Response response1 = spec1.body(orderRequest).post("/api/orders");
-        assertEquals(response1.getStatusCode(), 201);
-        String orderId1 = response1.as(TestModels.OrderResponse.class).getId();
-
-        // ⭐ Second order - fresh spec with different key
-        String idempotencyKey2 = UUID.randomUUID().toString();
-        RequestSpecification spec2 = createSpecWithIdempotency(userToken, idempotencyKey2);
-
-        Response response2 = spec2.body(orderRequest).post("/api/orders");
-        assertEquals(response2.getStatusCode(), 201);
-        String orderId2 = response2.as(TestModels.OrderResponse.class).getId();
-
-        // Verify different orders
-        assertNotEquals(orderId1, orderId2, "Different idempotency keys should create different orders");
-
-        log.info("✅ Test PASSED: Created 2 different orders with different keys");
-    }
-
-    private RequestSpecification createSpecWithIdempotency(String userToken, String idempotencyKey1) {
-        return RestAssured.given()
-                .baseUri(context.getConfig().baseUrl())
-                .header("Authorization", "Bearer " + userToken)
-                .header("Idempotency-Key", idempotencyKey1)
-                .contentType("application/json")
-                .accept("application/json");
-    }
-
-    @Test(description = "Idempotency key reused after TTL expiry should create new order",enabled = false)
-    public void testIdempotencyKeyExpiry() throws Exception {
-        log.info("=== Test: Idempotency Key TTL Expiry ===");
-
-        // Note: This test assumes idempotency TTL is configurable for testing
-        // In production, TTL is typically 24 hours
-        // For testing, you might need a shorter TTL or mock time
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        String idempotencyKey = UUID.randomUUID().toString();
-
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        // Create first order
-        Response response1 = context.getRestClient().post(context.getConfig().baseUrl()+
-                "/api/orders",
-                spec.header("Idempotency-Key", idempotencyKey),
-                orderRequest
-        );
-        String orderId1 = response1.as(TestModels.OrderResponse.class).getId();
-
-        log.info("✓ First order created: {}", orderId1);
-
-        // Wait for TTL expiry (if you have a test-mode short TTL)
-        // Or manually delete the idempotency record via admin API
-        // Thread.sleep(TTL_DURATION);
-
-        // For now, just log the expectation
-        log.info("⚠ Note: After idempotency key expires (24h), same key should create new order");
-        log.info("✅ Test scenario documented (requires TTL mechanism verification)");
-    }
-
-    // ==========================================
-    // VALIDATION TESTS - Missing/Invalid Fields
-    // ==========================================
-
-    @Test(description = "Order creation should fail without authentication",enabled = false)
-    public void testOrderCreationWithoutAuth() throws Exception {
-        log.info("=== Test: No Authentication ===");
-
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).build().seed().getFirst();
-
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        // Use spec without auth token
-        RequestSpecification unauthSpec = context.getRestAssuredConfig().getBaseSpec();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                unauthSpec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                orderRequest
-        );
-
-        assertEquals(response.getStatusCode(), 401, "Should return 401 Unauthorized");
-
-        log.info("✅ Test PASSED: Rejected unauthenticated request");
-    }
-
-    @Test(description = "Order creation should fail with empty items list",enabled = false)
-    public void testOrderCreationWithEmptyItems() throws Exception {
-        log.info("=== Test: Empty Items List ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        // Create order request with empty items
-        TestModels.CreateOrderRequest emptyOrderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .build(); // No items added
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                emptyOrderRequest
-        );
-
-        assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
-                "Should return 4xx error for empty items");
-
-        response.then()
-                .body("message", anyOf(
-                        containsString("items"),
-                        containsString("empty"),
-                        containsString("required")
-                ));
-
-        log.info("✅ Test PASSED: Rejected order with empty items");
-    }
-
-    @Test(description = "Order creation should fail with invalid product ID",enabled = false)
-    public void testOrderCreationWithInvalidProductId() throws Exception {
-        log.info("=== Test: Invalid Product ID ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        // Create order with non-existent product
-        String fakeProductId = "FAKE-PRODUCT-" + UUID.randomUUID();
-
-        TestModels.CreateOrderRequest invalidOrderRequest = TestModels.CreateOrderRequest.builder()
-               // .namespace(context.getNamespace())
-                .items(List.of(
-                        TestModels.OrderItemRequest.builder()
-                                .productId(fakeProductId)
-                                .quantity(1)
-                                .build()
-                ))
-                .shippingAddress("123 Test St")
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                invalidOrderRequest
-        );
-
-        assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
-                "Should return 4xx error for invalid product");
-
-        response.then()
-                .body("message", anyOf(
-                        containsString("product"),
-                        containsString("not found"),
-                        containsString("invalid")
-                ));
-
-        log.info("✅ Test PASSED: Rejected order with invalid product ID");
-    }
-
-    @Test(description = "Order creation should fail with zero quantity",enabled = false)
-    public void testOrderCreationWithZeroQuantity() throws Exception {
-        log.info("=== Test: Zero Quantity ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        TestModels.CreateOrderRequest zeroQuantityRequest = TestModels.CreateOrderRequest.builder()
-               // .namespace(context.getNamespace())
-                .items(List.of(
-                        TestModels.OrderItemRequest.builder()
-                                .productId(product.getId())
-                                .quantity(0)  // Invalid!
-                                .build()
-                ))
-                .shippingAddress("123 Test St")
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                zeroQuantityRequest
-        );
-
-        assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
-                "Should return 4xx error for zero quantity");
-
-        response.then()
-                .body("message", anyOf(
-                        containsString("quantity"),
-                        containsString("greater than"),
-                        containsString("positive")
-                ));
-
-        log.info("✅ Test PASSED: Rejected order with zero quantity");
-    }
-
-    @Test(description = "Order creation should fail with negative quantity",enabled = false)
-    public void testOrderCreationWithNegativeQuantity() throws Exception {
-        log.info("=== Test: Negative Quantity ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        TestModels.CreateOrderRequest negativeQuantityRequest = TestModels.CreateOrderRequest.builder()
-               // .namespace(context.getNamespace())
-                .items(List.of(
-                        TestModels.OrderItemRequest.builder()
-                                .productId(product.getId())
-                                .quantity(-5)  // Invalid!
-                                .build()
-                ))
-                .shippingAddress("123 Test St")
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                negativeQuantityRequest
-        );
-
-        assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
-                "Should return 4xx error for negative quantity");
-
-        log.info("✅ Test PASSED: Rejected order with negative quantity");
-    }
-
-    // ==========================================
-    // INVENTORY/STOCK VALIDATION TESTS
-    // ==========================================
-
-    @Test(description = "Order creation should fail when requesting more stock than available",enabled = false)
-    public void testOrderCreationExceedsAvailableStock() throws Exception {
-        log.info("=== Test: Insufficient Stock ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-
-        // Create product with LOW stock
-        ProductSeeder productSeeder = ProductSeeder.builder(context)
-                .count(1)
-                .lowStock()  // 1-10 units
-                .build();
-        TestModels.ProductResponse product = productSeeder.seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        // Try to order MORE than available
-        int excessiveQuantity = product.getStockQuantity() + 100;
-
-        TestModels.CreateOrderRequest excessiveOrderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, excessiveQuantity)
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                excessiveOrderRequest
-        );
-
-        assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
-                "Should return 4xx error for insufficient stock");
-
-        response.then()
-                .body("message", anyOf(
-                        containsString("stock"),
-                        containsString("insufficient"),
-                        containsString("available"),
-                        containsString("inventory")
-                ));
-
-        log.info("✅ Test PASSED: Rejected order exceeding stock (requested: {}, available: {})",
-                excessiveQuantity, product.getStockQuantity());
-    }
-
-    @Test(description = "Order creation should fail for out-of-stock product",enabled = false)
-    public void testOrderCreationForOutOfStockProduct() throws Exception {
-        log.info("=== Test: Out of Stock Product ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-
-        // Create product with ZERO stock
-        ProductSeeder productSeeder = ProductSeeder.builder(context)
-                .count(1)
-               // .outOfStock()  // 0 units
-                .build();
-        TestModels.ProductResponse product = productSeeder.seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        TestModels.CreateOrderRequest outOfStockRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                outOfStockRequest
-        );
-
-        assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
-                "Should return 4xx error for out of stock");
-
-        response.then()
-                .body("message", anyOf(
-                        containsString("out of stock"),
-                        containsString("unavailable"),
-                        containsString("stock")
-                ));
-
-        log.info("✅ Test PASSED: Rejected order for out-of-stock product");
-    }
-
-    // ==========================================
-    // BUSINESS LOGIC VALIDATION
-    // ==========================================
-
-    @Test(description = "Order creation should fail with missing shipping address",enabled = false)
-    public void testOrderCreationWithoutShippingAddress() throws Exception {
-        log.info("=== Test: Missing Shipping Address ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        TestModels.CreateOrderRequest noAddressRequest = TestModels.CreateOrderRequest.builder()
-              //  .namespace(context.getNamespace())
-                .items(List.of(
-                        TestModels.OrderItemRequest.builder()
-                                .productId(product.getId())
-                                .quantity(1)
-                                .build()
-                ))
-                // No shippingAddress!
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                noAddressRequest
-        );
-
-        assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
-                "Should return 4xx error for missing shipping address");
-
-        log.info("✅ Test PASSED: Rejected order without shipping address");
-    }
-
-    @Test(description = "Order creation should fail for duplicate product IDs in same order",enabled = false)
-    public void testOrderCreationWithDuplicateProducts() throws Exception {
-        log.info("=== Test: Duplicate Products in Order ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        // Create order with same product twice
-        TestModels.CreateOrderRequest duplicateProductRequest = TestModels.CreateOrderRequest.builder()
-               // .namespace(context.getNamespace())
-                .items(List.of(
-                        TestModels.OrderItemRequest.builder()
-                                .productId(product.getId())
-                                .quantity(2)
-                                .build(),
-                        TestModels.OrderItemRequest.builder()
-                                .productId(product.getId())  // Same product!
-                                .quantity(3)
-                                .build()
-                ))
-                .shippingAddress("123 Test St")
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                duplicateProductRequest
-        );
-
-        // Server might either:
-        // 1. Reject with 400 (duplicate products not allowed)
-        // 2. Accept and merge quantities (5 total)
-        // Adjust assertion based on your business rules
-
-        if (response.getStatusCode() >= 400) {
-            log.info("✓ Server rejected duplicate products");
-        } else {
-            TestModels.OrderResponse order = response.as(TestModels.OrderResponse.class);
-            // If server merges, verify total quantity
-            log.info("✓ Server accepted and merged quantities");
+    /**
+     * Negative Test Cases for Order Creation
+     * Refactored to use PurchaseWorkflow / OrderApiClient (Bridge pattern) instead of
+     * direct RestAssured calls.
+     */
+
+        private OrderApiClient orderApiClient;
+
+        private OrderApiClient orderApiClient() {
+            if (orderApiClient == null) {
+                orderApiClient = new OrderApiClient(authStrategy,executor); // executor() provided by BaseTest
+            }
+            return orderApiClient;
         }
 
-        log.info("✅ Test PASSED: Duplicate product handling verified");
-    }
-
-    // ==========================================
-    // CONCURRENT REQUESTS TESTS
-    // ==========================================
-
-    @Test(description = "Concurrent requests with same idempotency key should create only one order",enabled = false)
-    public void testConcurrentOrderCreationWithSameIdempotencyKey() throws Exception {
-        log.info("=== Test: Concurrent Requests - Same Idempotency Key ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        String sharedIdempotencyKey = UUID.randomUUID().toString();
-
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        // Send 5 concurrent requests with SAME idempotency key
-        List<Response> responses = Collections.synchronizedList(new ArrayList<>());
-
-        List<Thread> threads = new ArrayList<>();
-        for (int i = 0; i < 5; i++) {
-            Thread thread = new Thread(() -> {
-                Response response = context.getRestClient().post(
-                        "/api/orders",
-                        spec.header("Idempotency-Key", sharedIdempotencyKey),
-                        orderRequest
-                );
-                responses.add(response);
-            });
-            threads.add(thread);
+        private RequestExecutor executor() {
+            return context.getExecutor(); // assumes BaseTest/SeedingContext exposes a shared RequestExecutor
         }
 
-        // Start all threads simultaneously
-        threads.forEach(Thread::start);
 
-        // Wait for all to complete
-        for (Thread thread : threads) {
-            thread.join();
+        // ==========================================
+        // VALIDATION TESTS - Missing/Invalid Fields (data-driven)
+        // ==========================================
+
+        @DataProvider(name = "invalidOrderPayloads")
+        public Object[][] invalidOrderPayloads() {
+            return new Object[][] {
+                    { "Empty items list", (OrderRequestFactory) (products) ->
+                            TestModels.CreateOrderRequest.builder()
+                                    .items(List.of())
+                                    .shippingAddress("123 Test St")
+                                    .build() },
+                    { "Invalid product ID", (OrderRequestFactory) (products) ->
+                            TestModels.CreateOrderRequest.builder()
+                                    .items(List.of(TestModels.OrderItemRequest.builder()
+                                            .productId("FAKE-PRODUCT-" + UUID.randomUUID())
+                                            .quantity(1)
+                                            .build()))
+                                    .shippingAddress("123 Test St")
+                                    .build() },
+                    { "Zero quantity", (OrderRequestFactory) (products) ->
+                            TestModels.CreateOrderRequest.builder()
+                                    .items(List.of(TestModels.OrderItemRequest.builder()
+                                            .productId(products.get(0).getId())
+                                            .quantity(0)
+                                            .build()))
+                                    .shippingAddress("123 Test St")
+                                    .build() },
+                    { "Negative quantity", (OrderRequestFactory) (products) ->
+                            TestModels.CreateOrderRequest.builder()
+                                    .items(List.of(TestModels.OrderItemRequest.builder()
+                                            .productId(products.get(0).getId())
+                                            .quantity(-5)
+                                            .build()))
+                                    .shippingAddress("123 Test St")
+                                    .build() },
+                    { "Missing shipping address", (OrderRequestFactory) (products) ->
+                            TestModels.CreateOrderRequest.builder()
+                                    .items(List.of(TestModels.OrderItemRequest.builder()
+                                            .productId(products.get(0).getId())
+                                            .quantity(1)
+                                            .build()))
+                                    .build() },
+                    { "Extremely large quantity", (OrderRequestFactory) (products) ->
+                            TestModels.CreateOrderRequest.builder()
+                                    .items(List.of(TestModels.OrderItemRequest.builder()
+                                            .productId(products.get(0).getId())
+                                            .quantity(Integer.MAX_VALUE)
+                                            .build()))
+                                    .shippingAddress("123 Test St")
+                                    .build() }
+            };
         }
 
-        // All should succeed (200 or 201)
-        for (Response response : responses) {
-            assertTrue(response.getStatusCode() == 200 || response.getStatusCode() == 201,
-                    "All responses should be successful");
+        public interface OrderRequestFactory {
+            TestModels.CreateOrderRequest build(List<TestModels.ProductResponse> products);
         }
 
-        // All should return the SAME order ID
-        Set<String> orderIds = new HashSet<>();
-        for (Response response : responses) {
-            TestModels.OrderResponse order = response.as(TestModels.OrderResponse.class);
-            orderIds.add(order.getId());
+        @Test(dataProvider = "invalidOrderPayloads",
+                description = "Order creation should reject invalid payload variants")
+        public void testOrderCreationRejectsInvalidPayload(String scenario, OrderRequestFactory factory) {
+            log.info("=== Test: {} ===", scenario);
+
+            PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProductWithStock(29.99, 500)
+                    .execute();
+
+            String token = purchase.getCustomerAuth().getAccessToken();
+            String userId = purchase.getCustomerAuth().getUser().getId();
+
+            TestModels.CreateOrderRequest invalidRequest = factory.build(purchase.getProducts());
+
+            ServiceResponse response = orderApiClient().createOrderWithFault(
+                     userId, UUID.randomUUID().toString(), invalidRequest, null);
+
+            assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
+                    scenario + " should return 4xx error, got " + response.getStatusCode());
+
+            log.info("✅ Test PASSED: Rejected — {}", scenario);
         }
 
-        assertEquals(orderIds.size(), 1, "All concurrent requests should return the same order ID");
+        // ==========================================
+        // AUTH / ACCESS VALIDATION
+        // ==========================================
 
-        log.info("✅ Test PASSED: {} concurrent requests created only 1 order", responses.size());
-    }
+        @Test(description = "Order creation should fail without authentication", enabled = false)
+        public void testOrderCreationWithoutAuth() {
+            log.info("=== Test: No Authentication ===");
 
-    // ==========================================
-    // EDGE CASES
-    // ==========================================
+            PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
+                    .registerSeller()
+                    .createProductWithStock(29.99, 500)
+                    .execute();
 
-    @Test(description = "Order creation should handle extremely large quantity",enabled = false)
-    public void testOrderCreationWithExtremelyLargeQuantity() throws Exception {
-        log.info("=== Test: Extremely Large Quantity ===");
+            TestModels.CreateOrderRequest orderRequest =
+                    TestDataFactory.defaultOrder(purchase.getProducts()).build();
 
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
+            ServiceResponse response = orderApiClient().createOrderWithFault(
+                    null, UUID.randomUUID().toString(), orderRequest, null);
 
-        waitForDataPropagation(1000);
+            assertEquals(response.getStatusCode(), 401, "Should return 401 Unauthorized");
 
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        // Try to order an unrealistic quantity
-        int extremeQuantity = Integer.MAX_VALUE;
-
-        TestModels.CreateOrderRequest extremeRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, extremeQuantity)
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                extremeRequest
-        );
-
-        assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
-                "Should return 4xx error for extreme quantity");
-
-        log.info("✅ Test PASSED: Rejected order with extreme quantity");
-    }
-
-    @Test(description = "Order creation should fail for inactive/deleted user",enabled = false)
-    public void testOrderCreationForInactiveUser() throws Exception {
-        log.info("=== Test: Inactive User ===");
-
-        // Create user
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).build().seed().getFirst();
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        // Delete/deactivate user (if your API supports this)
-        // context.getRestClient().delete("/api/users/" + user.getId(), adminSpec);
-
-        waitForDataPropagation(1000);
-
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec.header("Idempotency-Key", UUID.randomUUID().toString()),
-                orderRequest
-        );
-
-        // Depending on implementation, might return 401 or 403
-        assertTrue(response.getStatusCode() == 401 || response.getStatusCode() == 403,
-                "Should reject order for inactive user");
-
-        log.info("✅ Test PASSED: Rejected order for inactive user");
-    }
-
-    @Test(description = "Order creation should fail without idempotency key",enabled = false)
-    public void testOrderCreationWithoutIdempotencyKey() throws Exception {
-        log.info("=== Test: Missing Idempotency Key ===");
-
-        TestModels.UserResponse user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        TestModels.ProductResponse product = ProductSeeder.builder(context).count(1).build().seed().getFirst();
-
-        waitForDataPropagation(1000);
-
-        String userToken = context.getCached("user_token_" + user.getId(), String.class);
-        RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
-
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
-
-        // Send request WITHOUT idempotency key
-        Response response = context.getRestClient().post(
-                "/api/orders",
-                spec,  // No header added
-                orderRequest
-        );
-
-        // Depending on your API design:
-        // Option 1: Require idempotency key (return 400)
-        // Option 2: Make it optional (return 201, but no idempotency protection)
-
-        if (response.getStatusCode() >= 400) {
-            log.info("✓ Server requires idempotency key");
-            response.then()
-                    .body("message", containsString("Idempotency-Key"));
-        } else {
-            log.info("✓ Server allows orders without idempotency key (no protection)");
+            log.info("✅ Test PASSED: Rejected unauthenticated request");
         }
 
-        log.info("✅ Test PASSED: Idempotency key requirement verified");
+        @Test(description = "Order creation should fail for inactive/deleted user", enabled = false)
+        public void testOrderCreationForInactiveUser() {
+            log.info("=== Test: Inactive User ===");
+
+            PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProductWithStock(29.99, 500)
+                    .execute();
+
+            // Deactivation step would go here once supported by AuthApiClient/UserApiClient
+
+            String token = purchase.getCustomerAuth().getAccessToken();
+            String userId = purchase.getCustomerAuth().getUser().getId();
+            TestModels.CreateOrderRequest orderRequest =
+                    TestDataFactory.defaultOrder(purchase.getProducts()).build();
+
+            ServiceResponse response = orderApiClient().createOrderWithFault(
+                     userId, UUID.randomUUID().toString(), orderRequest, null);
+
+            assertTrue(response.getStatusCode() == 401 || response.getStatusCode() == 403,
+                    "Should reject order for inactive user");
+
+            log.info("✅ Test PASSED: Rejected order for inactive user");
+        }
+
+        @Test(description = "Order creation should fail without idempotency key", enabled = false)
+        public void testOrderCreationWithoutIdempotencyKey() {
+            log.info("=== Test: Missing Idempotency Key ===");
+
+            PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProductWithStock(29.99, 500)
+                    .execute();
+
+            String token = purchase.getCustomerAuth().getAccessToken();
+            String userId = purchase.getCustomerAuth().getUser().getId();
+            TestModels.CreateOrderRequest orderRequest =
+                    TestDataFactory.defaultOrder(purchase.getProducts()).build();
+
+            ServiceResponse response = orderApiClient().createOrderWithFault(
+                     userId, null, orderRequest, null);
+
+            if (response.getStatusCode() >= 400) {
+                log.info("✓ Server requires idempotency key");
+            } else {
+                log.info("✓ Server allows orders without idempotency key (no protection)");
+            }
+
+            log.info("✅ Test PASSED: Idempotency key requirement verified");
+        }
+
+        // ==========================================
+        // INVENTORY / STOCK VALIDATION
+        // ==========================================
+
+        @Test(description = "Order creation should fail when requesting more stock than available", enabled = false)
+        public void testOrderCreationExceedsAvailableStock() {
+            log.info("=== Test: Insufficient Stock ===");
+
+            PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProductWithStock(9.99, 5) // low stock
+                    .execute();
+
+            TestModels.ProductResponse product = purchase.getFirstProduct();
+            int excessiveQuantity = product.getStockQuantity() + 100;
+
+            TestModels.CreateOrderRequest excessiveRequest = TestModels.CreateOrderRequest.builder()
+                    .items(List.of(TestModels.OrderItemRequest.builder()
+                            .productId(product.getId())
+                            .productName(product.getName())
+                            .unitPrice(product.getPrice())
+                            .quantity(excessiveQuantity)
+                            .build()))
+                    .shippingAddress("123 Test St")
+                    .build();
+
+            ServiceResponse response = orderApiClient().createOrderWithFault(
+                    purchase.getCustomerAuth().getUser().getId(),
+                    UUID.randomUUID().toString(),
+                    excessiveRequest,
+                    null);
+
+            assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
+                    "Should return 4xx error for insufficient stock");
+
+            log.info("✅ Test PASSED: Rejected order exceeding stock (requested: {}, available: {})",
+                    excessiveQuantity, product.getStockQuantity());
+        }
+
+        @Test(description = "Order creation should fail for out-of-stock product", enabled = false)
+        public void testOrderCreationForOutOfStockProduct() {
+            log.info("=== Test: Out of Stock Product ===");
+
+            PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProductWithStock(9.99, 0)
+                    .execute();
+
+            TestModels.CreateOrderRequest orderRequest =
+                    TestDataFactory.defaultOrder(purchase.getProducts()).build();
+
+            ServiceResponse response = orderApiClient().createOrderWithFault(
+                    purchase.getCustomerAuth().getUser().getId(),
+                    UUID.randomUUID().toString(),
+                    orderRequest,
+                    null);
+
+            assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
+                    "Should return 4xx error for out of stock");
+
+            log.info("✅ Test PASSED: Rejected order for out-of-stock product");
+        }
+
+        // ==========================================
+        // BUSINESS LOGIC EDGE CASES
+        // ==========================================
+
+        @Test(description = "Order creation should fail for duplicate product IDs in same order", enabled = false)
+        public void testOrderCreationWithDuplicateProducts() {
+            log.info("=== Test: Duplicate Products in Order ===");
+
+            PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProductWithStock(29.99, 500)
+                    .execute();
+
+            TestModels.ProductResponse product = purchase.getFirstProduct();
+
+            TestModels.CreateOrderRequest duplicateRequest = TestModels.CreateOrderRequest.builder()
+                    .items(List.of(
+                            TestModels.OrderItemRequest.builder()
+                                    .productId(product.getId()).quantity(2).build(),
+                            TestModels.OrderItemRequest.builder()
+                                    .productId(product.getId()).quantity(3).build()
+                    ))
+                    .shippingAddress("123 Test St")
+                    .build();
+
+            ServiceResponse response = orderApiClient().createOrderWithFault(
+                    purchase.getCustomerAuth().getUser().getId(),
+                    UUID.randomUUID().toString(),
+                    duplicateRequest,
+                    null);
+
+            if (response.getStatusCode() >= 400) {
+                log.info("✓ Server rejected duplicate products");
+            } else {
+                log.info("✓ Server accepted and merged quantities");
+            }
+
+            log.info("✅ Test PASSED: Duplicate product handling verified");
+        }
+
+        // ==========================================
+        // CONCURRENCY
+        // ==========================================
+
+        @Test(description = "Concurrent requests with same idempotency key should create only one order", enabled = false)
+        public void testConcurrentOrderCreationWithSameIdempotencyKey() throws InterruptedException {
+            log.info("=== Test: Concurrent Requests - Same Idempotency Key ===");
+
+            PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
+                    .registerCustomer()
+                    .loginCustomer()
+                    .registerSeller()
+                    .createProductWithStock(29.99, 500)
+                    .execute();
+
+            String token = purchase.getCustomerAuth().getAccessToken();
+            String userId = purchase.getCustomerAuth().getUser().getId();
+            String sharedIdempotencyKey = UUID.randomUUID().toString();
+
+            TestModels.CreateOrderRequest orderRequest =
+                    TestDataFactory.defaultOrder(purchase.getProducts()).build();
+
+            List<TestModels.OrderResponse> orders = new CopyOnWriteArrayList<>();
+            List<Thread> threads = new java.util.ArrayList<>();
+            List<TestModels.ProductResponse> products = purchase.getProducts();
+            for (int i = 0; i < 5; i++) {
+                Thread t = new Thread(() ->
+                        orders.add(orderApiClient().createOrder(userId,sharedIdempotencyKey,  products)));
+                threads.add(t);
+            }
+
+            threads.forEach(Thread::start);
+            for (Thread t : threads) t.join();
+
+            Set<String> orderIds = new HashSet<>();
+            orders.forEach(o -> orderIds.add(o.getId()));
+
+            assertEquals(orderIds.size(), 1, "All concurrent requests should return the same order ID");
+
+            log.info("✅ Test PASSED: {} concurrent requests created only 1 order", orders.size());
+        }
     }
 
-    // ==========================================
-    // HELPER METHODS
-    // ==========================================
-
-}

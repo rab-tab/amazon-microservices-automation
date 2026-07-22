@@ -151,6 +151,10 @@ public class TestModels {
         private String shippingAddress;
         private String paymentId;
         private String trackingNumber;
+        private String paymentTransactionId;
+        private String paymentFailureReason;
+        private Boolean paymentRetryable;
+        private Integer paymentFraudScore;
         @JsonDeserialize(using = LocalDateTimeToStringDeserializer.class)
         private String createdAt;
     }

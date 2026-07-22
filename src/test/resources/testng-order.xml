@@ -10,7 +10,7 @@
     <classes>
       <class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationFlowTest"/>
       <class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationNegativeTest"/>
-      <class name="com.amazon.tests.regression.orderCreationFlow.DistributedIdempotencyTest"/>
+      <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyTest"/>
     </classes></test>
 
 </suite>

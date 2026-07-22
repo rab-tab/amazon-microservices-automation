@@ -1,163 +1,69 @@
 package com.amazon.tests.config.restAsssured;
 
-import com.amazon.tests.config.ConfigManager;
+import com.amazon.tests.config.TestConfig;
 import io.qameta.allure.restassured.AllureRestAssured;
 import io.restassured.builder.RequestSpecBuilder;
-import io.restassured.builder.ResponseSpecBuilder;
 import io.restassured.filter.log.LogDetail;
 import io.restassured.http.ContentType;
 import io.restassured.specification.RequestSpecification;
-import io.restassured.specification.ResponseSpecification;
 
-/**
- * RestAssured specification builder using thread-safe ConfigManager.
- * All methods are thread-safe for parallel test execution.
- */
 public class RestAssuredConfig {
 
-    // ✅ ThreadLocal for thread-safe caching in parallel execution
-    private static ThreadLocal<RequestSpecification> baseSpec = new ThreadLocal<>();
+    private final TestConfig config;
 
-    // ✅ Private constructor prevents instantiation
-    private RestAssuredConfig() {
-        throw new IllegalStateException("Utility class - do not instantiate");
+
+    public RestAssuredConfig(TestConfig config) {
+        this.config = config;
+
     }
 
-    /**
-     * Get base specification with common configuration.
-     * Thread-safe - each thread gets its own cached instance.
-     */
-    public static RequestSpecification getBaseSpec() {
-        if (baseSpec.get() == null) {
-            baseSpec.set(createBaseSpec());
-        }
-        return baseSpec.get();
+    // ---- Named services (most common case) ----
+    public RequestSpecification getOrderServiceSpec(String token) {
+        return buildSpec(config.orderServiceUrl(), token);
+    }
+    public RequestSpecification getPaymentServiceSpec(String token) {
+        return buildSpec(config.paymentServiceUrl(), token);
+    }
+    public RequestSpecification getProductServiceSpec(String token) {
+        return buildSpec(config.productServiceUrl(), token);
+    }
+    public RequestSpecification getUserServiceSpec(String token) {
+        return buildSpec(config.userServiceUrl(), token);
     }
 
-    /**
-     * Get authenticated specification.
-     * Creates new spec each time (token might change).
-     */
-    public static RequestSpecification getAuthSpec(String token) {
-        return new RequestSpecBuilder()
-                .addRequestSpecification(getBaseSpec())
-                .addHeader("Authorization", "Bearer " + token)
-                .build();
+    // ---- Generic / gateway fallback (for anything without a named service) ----
+    public RequestSpecification getGatewaySpec(String token) {
+        return buildSpec(GatewayUriResolver.resolve(config), token);
     }
 
-    /**
-     * Get User Service specification.
-     */
-    public static RequestSpecification getUserServiceSpec() {
-        return createSpec(ConfigManager.getInstance().getUserServiceUrl());
+    // ---- Escape hatch for full flexibility (replaces customSpec) ----
+    public RequestSpecification build(String baseUri, RequestSpecificationOptions options) {
+        RequestSpecBuilder builder = baseBuilder(baseUri);
+        applyOptions(builder, options);
+        return builder.build();
     }
 
-    /**
-     * Get authenticated User Service specification.
-     */
-    public static RequestSpecification getUserServiceSpec(String token) {
-        return createAuthSpec(ConfigManager.getInstance().getUserServiceUrl(), token);
+    private RequestSpecification buildSpec(String baseUri, String token) {
+        RequestSpecBuilder builder = baseBuilder(baseUri);
+        if (token != null) builder.addHeader("Authorization", "Bearer " + token);
+        return builder.build();
     }
 
-    /**
-     * Get Product Service specification.
-     */
-    public static RequestSpecification getProductServiceSpec() {
-        return createSpec(ConfigManager.getInstance().getProductServiceUrl());
-    }
-
-    /**
-     * Get Order Service specification with authentication.
-     */
-    public static RequestSpecification getOrderServiceSpec(String token) {
-        return createAuthSpec(ConfigManager.getInstance().getOrderServiceUrl(), token);
-    }
-
-    /**
-     * Get Payment Service specification with authentication.
-     */
-    public static RequestSpecification getPaymentServiceSpec(String token) {
-        return createAuthSpec(ConfigManager.getInstance().getPaymentServiceUrl(), token);
-    }
-
-    /**
-     * Get success response specification.
-     */
-    public static ResponseSpecification getSuccessResponseSpec() {
-        return new ResponseSpecBuilder()
-                .expectContentType(ContentType.JSON)
-                .log(LogDetail.ALL)
-                .build();
-    }
-
-    /**
-     * Clear ThreadLocal cache (call in @AfterMethod to prevent memory leaks).
-     */
-    public static void clearCache() {
-        baseSpec.remove();
-    }
-
-    // ===== PRIVATE HELPER METHODS (DRY principle) =====
-
-    /**
-     * Create base specification with common settings.
-     */
-    private static RequestSpecification createBaseSpec() {
-        return new RequestSpecBuilder()
-                .setBaseUri(ConfigManager.getInstance().getBaseUrl())
-                .setContentType(ContentType.JSON)
-                .setAccept(ContentType.JSON)
-                .addFilter(new AllureRestAssured())
-                .log(LogDetail.ALL)
-                .build();
-    }
-
-   /* private static RequestSpecification createBaseSpec() {
-        PoolingHttpClientConnectionManager connManager = new PoolingHttpClientConnectionManager();
-        connManager.setMaxTotal(50);
-        connManager.setDefaultMaxPerRoute(20);   // raised well above the classic default of 2
-
-        CloseableHttpClient httpClient = HttpClients.custom()
-                .setConnectionManager(connManager)
-                .setConnectionManagerShared(true)   // don't let this client's .close() tear down a pool other threads still use
-                .build();
-
-        return new RequestSpecBuilder()
-                .setBaseUri(ConfigManager.getInstance().getBaseUrl())
-                .setContentType(ContentType.JSON)
-                .setAccept(ContentType.JSON)
-                .addFilter(new AllureRestAssured())
-                .log(LogDetail.ALL)
-                .setConfig(io.restassured.config.RestAssuredConfig.config()
-                        .httpClient(io.restassured.config.HttpClientConfig.httpClientConfig()
-                                .httpClientFactory(() -> httpClient)
-                                .reuseHttpClientInstance()))
-                .build();
-    }*/
-    /**
-     * Create specification for a specific service URL.
-     */
-    private static RequestSpecification createSpec(String baseUri) {
+    private RequestSpecBuilder baseBuilder(String baseUri) {
         return new RequestSpecBuilder()
                 .setBaseUri(baseUri)
                 .setContentType(ContentType.JSON)
                 .setAccept(ContentType.JSON)
                 .addFilter(new AllureRestAssured())
-                .log(LogDetail.ALL)
-                .build();
+                .log(LogDetail.ALL);
     }
 
-    /**
-     * Create authenticated specification for a specific service URL.
-     */
-    private static RequestSpecification createAuthSpec(String baseUri, String token) {
-        return new RequestSpecBuilder()
-                .setBaseUri(baseUri)
-                .setContentType(ContentType.JSON)
-                .setAccept(ContentType.JSON)
-                .addHeader("Authorization", "Bearer " + token)
-                .addFilter(new AllureRestAssured())
-                .log(LogDetail.ALL)
-                .build();
+    private void applyOptions(RequestSpecBuilder builder, RequestSpecificationOptions options) {
+        if (options.getToken() != null) builder.addHeader("Authorization", "Bearer " + options.getToken());
+        if (options.getHeaders() != null) builder.addHeaders(options.getHeaders());
+        if (options.getQueryParams() != null) builder.addQueryParams(options.getQueryParams());
+        if (options.getPathParams() != null) builder.addPathParams(options.getPathParams());
+        if (options.getBody() != null) builder.setBody(options.getBody());
+        if (options.getCookies() != null) builder.addCookies(options.getCookies());
     }
 }

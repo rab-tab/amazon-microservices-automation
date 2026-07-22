@@ -2,7 +2,7 @@ package com.amazon.tests.validators;
 
 
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.facade.OrderFacade;
+import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.workflows.PurchaseResult;
 import org.awaitility.Awaitility;
 
@@ -17,10 +17,14 @@ import static org.testng.Assert.*;
 
 public class OrderValidator {
 
-    private final OrderFacade orderFacade = new OrderFacade();
+    private final OrderApiClient orderApiClient;
+
+    public OrderValidator(OrderApiClient orderApiClient) {
+        this.orderApiClient = orderApiClient;
+    }
 
     private TestModels.OrderResponse getOrder(PurchaseResult purchase) {
-        return orderFacade.getOrder(
+        return orderApiClient.getOrder(
                 purchase.getCustomerAuth().getAccessToken(),
                 purchase.getCustomerAuth().getUser().getId(),
                 purchase.getOrder().getId());

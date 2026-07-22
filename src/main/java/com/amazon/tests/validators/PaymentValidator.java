@@ -2,7 +2,7 @@ package com.amazon.tests.validators;
 
 
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.facade.PaymentFacade;
+import com.amazon.tests.utils.apiClients.PaymentApiClient;
 import com.amazon.tests.workflows.PurchaseResult;
 import org.awaitility.Awaitility;
 
@@ -12,15 +12,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class PaymentValidator {
 
-    private final PaymentFacade paymentFacade = new PaymentFacade();
+    private final PaymentApiClient paymentApiClient;
 
-    /**
-     * Fetch latest payment details
-     */
+    public PaymentValidator(PaymentApiClient paymentApiClient) {
+        this.paymentApiClient = paymentApiClient;
+    }
+
     private TestModels.PaymentResponse getPayment(PurchaseResult purchase) {
-
-        return paymentFacade.getPayment(
-                purchase.getOrder().getId());
+        return paymentApiClient.getPayment(purchase.getOrder().getId());
     }
 
     public void verifySuccessfulPayment(PurchaseResult purchase) {

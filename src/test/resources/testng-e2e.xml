@@ -2,5 +2,5 @@
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
 <suite name="E2E Tests" verbose="1">
   <listeners><listener class-name="com.amazon.tests.listeners.AllureTestListener"/></listeners>
-  <test name="E2E Purchase Flow"><classes><class name="com.amazon.tests.regression.E2EPurchaseFlowTest"/></classes></test>
+  <test name="E2E Purchase Flow"><classes><class name="com.amazon.tests.regression.e2e.E2EPurchaseFlowTest"/></classes></test>
 </suite>

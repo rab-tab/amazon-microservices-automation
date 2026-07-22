@@ -1,6 +1,7 @@
-package com.amazon.tests;
+package com.amazon.tests.regression.authentication;
 
-import com.amazon.tests.config.restAsssured.RestAssuredConfig;
+import com.amazon.tests.BaseTest;
+import com.amazon.tests.config.restAsssured.old.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.testData.TestDataFactory;
 import io.qameta.allure.*;

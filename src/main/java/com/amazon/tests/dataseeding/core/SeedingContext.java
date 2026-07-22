@@ -1,9 +1,10 @@
 package com.amazon.tests.dataseeding.core;
 
 
-import com.amazon.tests.config.restAsssured.RestAssuredConfigFinal;
+import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.config.restAsssured.RestClient;
 import com.amazon.tests.config.TestConfig;
+import com.amazon.tests.transport.RequestExecutor;
 import lombok.Getter;
 
 import java.util.Deque;
@@ -21,7 +22,7 @@ public class SeedingContext {
 
     private final String namespace;
     private final RestClient restClient;
-    private final RestAssuredConfigFinal restAssuredConfig;
+    private final RestAssuredConfig restAssuredConfig;
     private final TestConfig config;
 
     // Cleanup tasks in LIFO order
@@ -32,12 +33,14 @@ public class SeedingContext {
 
     // Track seeding statistics
     private final Map<String, Integer> seedingStats;
+    private final RequestExecutor executor;
 
-    public SeedingContext(String namespace,  TestConfig config) {
+    public SeedingContext(String namespace, TestConfig config, RequestExecutor executor) {
         this.namespace = namespace;
         this.config=config;
+        this.executor = executor;
         this.restClient = new RestClient();
-        this.restAssuredConfig = new RestAssuredConfigFinal(config);
+        this.restAssuredConfig = new RestAssuredConfig(config);
         this.cleanupTasks = new ConcurrentLinkedDeque<>();
         this.cache = new ConcurrentHashMap<>();
         this.seedingStats = new ConcurrentHashMap<>();
@@ -77,6 +80,10 @@ public class SeedingContext {
      */
     public Map<String, Integer> getStats() {
         return new HashMap<>(seedingStats);
+    }
+
+    public RequestExecutor getExecutor() {
+        return executor;
     }
 
     @lombok.Value

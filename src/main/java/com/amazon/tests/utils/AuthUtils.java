@@ -1,6 +1,6 @@
 package com.amazon.tests.utils;
 
-import com.amazon.tests.config.restAsssured.RestAssuredConfig;
+import com.amazon.tests.config.restAsssured.old.RestAssuredConfig;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.testData.TestDataFactory;
 import io.restassured.response.Response;

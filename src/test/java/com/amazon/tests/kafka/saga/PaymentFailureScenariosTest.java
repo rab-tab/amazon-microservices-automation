@@ -9,7 +9,7 @@ import com.amazon.tests.dataseeding.core.SeedingException;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.TestMetrics;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
-import com.amazon.tests.utils.apiClients.PaymentEventClient;
+import com.amazon.tests.utils.apiClients.PaymentApiClient;
 import com.amazon.tests.utils.assertions.OrderAssertions;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -67,7 +67,7 @@ public class PaymentFailureScenariosTest extends BaseTest {
     private TestMetrics metrics;
     private TestEnvironment env=new TestEnvironment();
     private OrderApiClient orderApiClient;
-    private PaymentEventClient paymentEventClient;
+    private PaymentApiClient paymentEventClient;
 
 
 

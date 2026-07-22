@@ -1,6 +1,6 @@
 package com.amazon.tests.transport;
 
-import com.amazon.tests.config.restAsssured.RestAssuredConfigFinal;
+import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.config.restAsssured.RestClient;
 import io.restassured.http.Header;
 import io.restassured.response.Response;
@@ -13,9 +13,9 @@ import java.util.stream.Collectors;
 public class RestHttpClient implements RequestExecutor {
 
     private final RestClient restClient;
-    private final RestAssuredConfigFinal restAssuredConfig;  // reuse what you already have — don't build a parallel policy system
+    private final RestAssuredConfig restAssuredConfig;  // reuse what you already have — don't build a parallel policy system
 
-    public RestHttpClient(RestClient restClient, RestAssuredConfigFinal restAssuredConfig) {
+    public RestHttpClient(RestClient restClient, RestAssuredConfig restAssuredConfig) {
         this.restClient = restClient;
         this.restAssuredConfig = restAssuredConfig;
     }

@@ -3,12 +3,12 @@ package com.amazon.tests.utils.testData;
 import com.amazon.tests.models.TestModels;
 import com.github.javafaker.Faker;
 import lombok.experimental.UtilityClass;
+import org.apache.commons.math3.dfp.DfpField;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.UUID;
-import java.math.RoundingMode;
-
 
 import static com.amazon.tests.models.TestModels.*;
 
@@ -87,5 +87,29 @@ public class TestDataFactory {
 
     public static String randomPassword() {
         return "Test@" + faker.internet().password(6, 10) + "1";
+    }
+    public static TestModels.CreateOrderRequest.CreateOrderRequestBuilder defaultOrder(
+            List<TestModels.ProductResponse> products) {
+        List<TestModels.OrderItemRequest> items = products.stream()
+                .map(p -> TestModels.OrderItemRequest.builder()
+                        .productId(p.getId())
+                        .productName(p.getName())
+                        .unitPrice(p.getPrice())
+                        .quantity(1)
+                        .build())
+                .toList();
+
+        return TestModels.CreateOrderRequest.builder()
+                .items(items)
+                .shippingAddress("123 Amazon Way, Seattle, WA 98101");
+    }
+
+    public static ProductRequest createProductWithPriceAndStock(double price, int stockQuantity) {
+        return ProductRequest.builder()
+                .name(faker.commerce().productName())
+                .description(faker.lorem().sentence())
+                .price(BigDecimal.valueOf(price).setScale(2, RoundingMode.HALF_UP))
+                .stockQuantity(stockQuantity)
+                .build();
     }
 }

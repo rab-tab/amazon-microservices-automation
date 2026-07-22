@@ -1,9 +1,8 @@
 package com.amazon.tests.validators;
 
 
-
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.facade.ProductFacade;
+import com.amazon.tests.utils.apiClients.ProductApiClient;
 import com.amazon.tests.workflows.PurchaseResult;
 
 import java.math.BigDecimal;
@@ -12,14 +11,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class ProductValidator {
 
-    private final ProductFacade productFacade = new ProductFacade();
+    private final ProductApiClient productApiClient;
 
-    /**
-     * Fetch latest product details from Product Service
-     */
+    public ProductValidator(ProductApiClient productApiClient) {
+        this.productApiClient = productApiClient;
+    }
+
     private TestModels.ProductResponse getProduct(PurchaseResult purchase) {
-        return productFacade.getProduct(
-                purchase.getProducts().get(0).getId());
+        return productApiClient.getProduct(purchase.getProducts().get(0).getId());
     }
 
     /**
