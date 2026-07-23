@@ -40,6 +40,15 @@ public class ProductApiClient {
         return createProductInternal(sellerData, TestDataFactory.createProductWithPrice(price), 201)
                 .as(TestModels.ProductResponse.class);
     }
+    public ServiceResponse browseProducts(int page, int size) {
+        ServiceRequest request = ServiceRequest.builder()
+                .method(HttpMethod.GET)
+                .endpoint("/api/v1/products")
+                .attribute(RequestAttributes.QUERY_PARAMS, Map.of("page", page, "size", size))
+                .targetService(ServiceType.PRODUCT)
+                .build();
+        return requireSuccess(executor.execute(request), 200);
+    }
 
     public TestModels.ProductResponse createProduct(TestModels.AuthResponse sellerData, double price, int stockQuantity) {
         return createProductInternal(sellerData, TestDataFactory.createProductWithPriceAndStock(price, stockQuantity), 201)

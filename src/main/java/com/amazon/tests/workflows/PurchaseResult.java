@@ -10,7 +10,7 @@ import java.util.List;
 @Getter
 @Setter
 public class PurchaseResult {
-    private TestModels.RegisterRequest customer;
+    private TestModels.AuthResponse customer;
 
     private TestModels.AuthResponse customerAuth;
 

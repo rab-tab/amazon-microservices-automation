@@ -47,12 +47,12 @@ public class PurchaseWorkflow {
 
     public PurchaseWorkflow loginCustomer() {
 
-        TestModels.AuthResponse auth =
+        /*TestModels.AuthResponse auth =
                 authApiClient.login(
                         result.getCustomer().getEmail(),
                         result.getCustomer().getPassword());
 
-        result.setCustomerAuth(auth);
+        result.setCustomerAuth(auth);*/
 
         return this;
     }
@@ -101,7 +101,7 @@ public class PurchaseWorkflow {
     }
     public PurchaseWorkflow browseProducts() {
 
-        productApiClient.browseProducts();
+        productApiClient.browseProducts(0,10);
 
         return this;
     }

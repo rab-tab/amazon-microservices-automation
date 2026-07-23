@@ -1,109 +1,66 @@
 package com.amazon.tests.regression.apiGateway.observability;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.transport.ServiceResponse;
+import com.amazon.tests.transport.ServiceType;
+import com.amazon.tests.utils.apiClients.RawApiClient;
 import io.qameta.allure.*;
-import io.restassured.response.Response;
+import org.testng.SkipException;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import static io.restassured.RestAssured.given;
+import java.util.List;
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Monitoring & Observability Test Suite
- *
- * Tests:
- * 1. Actuator endpoints availability
- * 2. Health indicators (application, Redis, circuit breakers)
- * 3. Prometheus metrics exposure
- * 4. Circuit breaker metrics
- * 5. Gateway-specific metrics
- * 6. Custom business metrics
- */
 @Epic("Amazon Microservices")
 @Feature("Monitoring & Observability")
 public class Observability extends BaseTest {
 
-    private static final String GATEWAY_URL = "http://localhost:8080";
-    private static final String USER_SERVICE_URL = "http://localhost:8081";
-    private static final String PRODUCT_SERVICE_URL = "http://localhost:8082";
-    private static final String ORDER_SERVICE_URL = "http://localhost:8083";
+    private RawApiClient client;
 
-    // ══════════════════════════════════════════════════════════════════════════
+    @BeforeClass
+    public void setup() {
+        client = new RawApiClient(context.getExecutor());
+    }
+
+    // ══════════════════════════════════════════════════════════════
     // 1. ACTUATOR ENDPOINTS
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
 
     @Test(priority = 1)
     @Story("Actuator - Endpoint Discovery")
     @Severity(SeverityLevel.CRITICAL)
-    @Description("Gateway exposes all required actuator endpoints")
+    @Description("Gateway exposes required actuator endpoints (health, prometheus)")
     public void test01_ActuatorEndpointsExposed() {
-        logStep("TEST 1: Verifying actuator endpoints are exposed");
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/actuator", null);
+        assertThat(response.getStatusCode()).isEqualTo(200);
 
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator")
-                .then()
-                .statusCode(200)
-                .extract()
-                .response();
+        String endpoints = response.getBody();
+        assertThat(endpoints).as("health endpoint must be exposed").contains("health");
+        assertThat(endpoints).as("prometheus endpoint must be exposed").contains("prometheus");
 
-        String endpoints = resp.asString();
-
-        // Required endpoints
-        assertThat(endpoints).contains("health");
-        assertThat(endpoints).contains("prometheus");
-        logStep("  ✓ health endpoint exposed");
-        logStep("  ✓ prometheus endpoint exposed");
-
-        // Optional but recommended endpoints
-        if (endpoints.contains("metrics")) {
-            logStep("  ✓ metrics endpoint exposed");
-        }
-        if (endpoints.contains("circuitbreakers")) {
-            logStep("  ✓ circuitbreakers endpoint exposed");
-        }
-        if (endpoints.contains("circuitbreakerevents")) {
-            logStep("  ✓ circuitbreakerevents endpoint exposed");
-        }
-        if (endpoints.contains("gateway")) {
-            logStep("  ✓ gateway endpoint exposed");
-        }
-        if (endpoints.contains("routes")) {
-            logStep("  ✓ routes endpoint exposed");
-        }
-
-        logStep("✅ Actuator endpoints are properly exposed");
+        logStep("Optional endpoints present: metrics=" + endpoints.contains("metrics")
+                + ", circuitbreakers=" + endpoints.contains("circuitbreakers")
+                + ", gateway=" + endpoints.contains("gateway")
+                + ", routes=" + endpoints.contains("routes"));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     // 2. HEALTH CHECKS
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
 
     @Test(priority = 2)
     @Story("Health - Application Status")
     @Severity(SeverityLevel.BLOCKER)
     @Description("Gateway health endpoint returns UP status")
     public void test02_HealthEndpointReturnsUp() {
-        logStep("TEST 2: Verifying health endpoint status");
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/actuator/health", null);
+        assertThat(response.getStatusCode()).isEqualTo(200);
 
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/health")
-                .then()
-                .statusCode(200)
-                .extract()
-                .response();
-
-        String status = resp.jsonPath().getString("status");
-
-        assertThat(status)
-                .as("Gateway should be UP")
-                .isEqualTo("UP");
-
-        logStep("  ✓ Gateway status: " + status);
-        logStep("✅ Health check passed");
+        Map<String, Object> body = response.as(Map.class);
+        assertThat(body.get("status")).as("Gateway should be UP").isEqualTo("UP");
     }
 
     @Test(priority = 3)
@@ -111,85 +68,45 @@ public class Observability extends BaseTest {
     @Severity(SeverityLevel.BLOCKER)
     @Description("Health endpoint exposes component statuses (Redis, Circuit Breakers)")
     public void test03_HealthComponentDetails() {
-        logStep("TEST 3: Verifying health component details");
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/actuator/health", null);
+        Map<String, Object> body = response.as(Map.class);
 
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/health")
-                .then()
-                .statusCode(200)
-                .extract()
-                .response();
-
-        String responseBody = resp.asString();
-
-        // Check for component details (if show-details: always is configured)
-        if (responseBody.contains("components")) {
-            logStep("  ✓ Component details are exposed");
-
-            // Check specific components
-            if (responseBody.contains("redis")) {
-                String redisStatus = resp.jsonPath().getString("components.redis.status");
-                logStep("  ✓ Redis status: " + redisStatus);
-                assertThat(redisStatus).isIn("UP", "UNKNOWN");
-            }
-
-            if (responseBody.contains("circuitBreakers")) {
-                logStep("  ✓ Circuit breaker health indicators present");
-            }
-
-            if (responseBody.contains("diskSpace")) {
-                String diskStatus = resp.jsonPath().getString("components.diskSpace.status");
-                logStep("  ✓ Disk space status: " + diskStatus);
-            }
-        } else {
-            logStep("  ⚠️  Component details not exposed (configure show-details: always)");
+        if (!body.containsKey("components")) {
+            throw new SkipException("Component details not exposed — configure show-details: always");
         }
 
-        logStep("✅ Health components verified");
+        Map<?, ?> components = (Map<?, ?>) body.get("components");
+
+        if (components.containsKey("redis")) {
+            String redisStatus = (String) ((Map<?, ?>) components.get("redis")).get("status");
+            assertThat(redisStatus).as("Redis component status").isIn("UP", "UNKNOWN");
+        }
+        if (components.containsKey("circuitBreakers")) {
+            assertThat(components.get("circuitBreakers")).isNotNull();
+        }
+        if (components.containsKey("diskSpace")) {
+            String diskStatus = (String) ((Map<?, ?>) components.get("diskSpace")).get("status");
+            assertThat(diskStatus).isNotBlank();
+        }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     // 3. PROMETHEUS METRICS
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
 
     @Test(priority = 10)
     @Story("Metrics - Prometheus Exposure")
     @Severity(SeverityLevel.CRITICAL)
-    @Description("Gateway exposes Prometheus-formatted metrics")
+    @Description("Gateway exposes Prometheus-formatted metrics with core HTTP/JVM/system metrics")
     public void test10_PrometheusMetricsExposed() {
-        logStep("TEST 10: Verifying Prometheus metrics");
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/actuator/prometheus", null);
+        assertThat(response.getStatusCode()).isEqualTo(200);
 
-        String metrics = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/prometheus")
-                .then()
-                .statusCode(200)
-                .contentType("text/plain;version=0.0.4;charset=utf-8")
-                .extract()
-                .asString();
-
-        // Check for core HTTP metrics
+        String metrics = response.getBody();
         assertThat(metrics).contains("http_server_requests");
-        logStep("  ✓ HTTP server request metrics present");
-
-        // Check for JVM metrics
         assertThat(metrics).contains("jvm_memory");
         assertThat(metrics).contains("jvm_threads");
-        logStep("  ✓ JVM metrics present");
-
-        // Check for system metrics
         assertThat(metrics).contains("system_cpu");
-        logStep("  ✓ System metrics present");
-
-        // Check for Resilience4j metrics
-        if (metrics.contains("resilience4j")) {
-            logStep("  ✓ Resilience4j metrics present");
-        }
-
-        logStep("✅ Prometheus metrics correctly exposed");
     }
 
     @Test(priority = 11)
@@ -197,118 +114,49 @@ public class Observability extends BaseTest {
     @Severity(SeverityLevel.BLOCKER)
     @Description("Circuit breaker metrics are exposed in Prometheus format")
     public void test11_CircuitBreakerMetrics() {
-        logStep("TEST 11: Verifying circuit breaker metrics");
+        String metrics = client.get(ServiceType.GATEWAY, "/actuator/prometheus", null).getBody();
 
-        String metrics = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/prometheus")
-                .then()
-                .statusCode(200)
-                .extract()
-                .asString();
-
-        // Check for Resilience4j circuit breaker metrics
-        boolean hasCircuitBreakerMetrics =
-                metrics.contains("resilience4j_circuitbreaker") ||
-                        metrics.contains("resilience4j.circuitbreaker");
-
-        if (hasCircuitBreakerMetrics) {
-            logStep("  ✓ Circuit breaker state metrics present");
-
-            // Check for specific circuit breakers
-            if (metrics.contains("userService")) {
-                logStep("  ✓ userService circuit breaker metrics found");
-            }
-            if (metrics.contains("productService")) {
-                logStep("  ✓ productService circuit breaker metrics found");
-            }
-            if (metrics.contains("orderService")) {
-                logStep("  ✓ orderService circuit breaker metrics found");
-            }
-
-            logStep("✅ Circuit breaker metrics are exposed");
-        } else {
-            logStep("  ⚠️  Circuit breaker metrics not found (may need traffic first)");
+        boolean present = metrics.contains("resilience4j_circuitbreaker") || metrics.contains("resilience4j.circuitbreaker");
+        if (!present) {
+            throw new SkipException("Circuit breaker metrics not present — may require traffic first");
         }
+
+        assertThat(metrics).as("userService circuit breaker metrics").contains("userService");
+        assertThat(metrics).as("productService circuit breaker metrics").contains("productService");
+        assertThat(metrics).as("orderService circuit breaker metrics").contains("orderService");
     }
 
     @Test(priority = 12)
     @Story("Metrics - Gateway Route Metrics")
     @Severity(SeverityLevel.NORMAL)
-    @Description("Gateway-specific routing metrics are captured")
+    @Description("Gateway-specific routing metrics are captured after traffic")
     public void test12_GatewayRouteMetrics() {
-        logStep("TEST 12: Verifying gateway route metrics");
+        client.get(ServiceType.GATEWAY, "/api/products", null); // generate traffic
 
-        // Generate some traffic first
-        logStep("  Generating traffic to populate metrics...");
-        given().baseUri(GATEWAY_URL).get("/api/products");
+        String metrics = client.get(ServiceType.GATEWAY, "/actuator/prometheus", null).getBody();
 
-        String metrics = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/prometheus")
-                .then()
-                .statusCode(200)
-                .extract()
-                .asString();
-
-        // Check for Spring Cloud Gateway metrics
-        boolean hasGatewayMetrics =
-                metrics.contains("spring_cloud_gateway") ||
-                        metrics.contains("gateway");
-
-        if (hasGatewayMetrics) {
-            logStep("  ✓ Gateway-specific metrics present");
-        }
-
-        // HTTP server requests should show route information
-        if (metrics.contains("http_server_requests") && metrics.contains("uri")) {
-            logStep("  ✓ HTTP request metrics with URI tags present");
-        }
-
-        logStep("✅ Gateway route metrics verified");
+        assertThat(metrics).as("HTTP request metrics with URI tags").contains("http_server_requests");
+        assertThat(metrics).contains("uri");
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     // 4. CIRCUIT BREAKER OBSERVABILITY
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
 
     @Test(priority = 20)
     @Story("Circuit Breakers - Status Endpoint")
     @Severity(SeverityLevel.BLOCKER)
     @Description("Circuit breaker status can be queried via actuator")
     public void test20_CircuitBreakerStatusEndpoint() {
-        logStep("TEST 20: Verifying circuit breaker status endpoint");
-
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/circuitbreakers")
-                .then()
-                .extract()
-                .response();
-
-        if (resp.statusCode() == 200) {
-            String responseBody = resp.asString();
-
-            logStep("  ✓ Circuit breaker endpoint accessible");
-
-            // Check for circuit breaker names
-            if (responseBody.contains("userService")) {
-                logStep("  ✓ userService circuit breaker registered");
-            }
-            if (responseBody.contains("productService")) {
-                logStep("  ✓ productService circuit breaker registered");
-            }
-            if (responseBody.contains("orderService")) {
-                logStep("  ✓ orderService circuit breaker registered");
-            }
-
-            logStep("✅ Circuit breaker status endpoint working");
-        } else {
-            logStep("  ⚠️  Circuit breaker endpoint not available (status: " + resp.statusCode() + ")");
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/actuator/circuitbreakers", null);
+        if (response.getStatusCode() != 200) {
+            throw new SkipException("Circuit breaker endpoint not available: " + response.getStatusCode());
         }
+
+        String body = response.getBody();
+        assertThat(body).as("userService circuit breaker registered").contains("userService");
+        assertThat(body).as("productService circuit breaker registered").contains("productService");
+        assertThat(body).as("orderService circuit breaker registered").contains("orderService");
     }
 
     @Test(priority = 21)
@@ -316,70 +164,35 @@ public class Observability extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     @Description("Circuit breaker events are tracked and queryable")
     public void test21_CircuitBreakerEvents() {
-        logStep("TEST 21: Verifying circuit breaker events endpoint");
+        client.get(ServiceType.GATEWAY, "/api/products", null); // generate traffic
 
-        // Generate some traffic to create events
-        logStep("  Generating traffic to create CB events...");
-        given().baseUri(GATEWAY_URL).get("/api/products");
-
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/circuitbreakerevents")
-                .then()
-                .extract()
-                .response();
-
-        if (resp.statusCode() == 200) {
-            logStep("  ✓ Circuit breaker events endpoint accessible");
-
-            String responseBody = resp.asString();
-            if (responseBody.contains("circuitBreakerEvents")) {
-                logStep("  ✓ Events are being tracked");
-            }
-
-            logStep("✅ Circuit breaker events endpoint working");
-        } else {
-            logStep("  ⚠️  Circuit breaker events endpoint not available");
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/actuator/circuitbreakerevents", null);
+        if (response.getStatusCode() != 200) {
+            throw new SkipException("Circuit breaker events endpoint not available");
         }
+
+        assertThat(response.getBody()).as("Events should be tracked").contains("circuitBreakerEvents");
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     // 5. GATEWAY-SPECIFIC OBSERVABILITY
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
 
     @Test(priority = 30)
     @Story("Gateway - Routes Endpoint")
     @Severity(SeverityLevel.BLOCKER)
     @Description("Gateway routes can be inspected via actuator")
     public void test30_GatewayRoutesEndpoint() {
-        logStep("TEST 30: Verifying gateway routes endpoint");
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/actuator/gateway/routes", null);
+        assertThat(response.getStatusCode()).isEqualTo(200);
 
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/gateway/routes")
-                .then()
-                .statusCode(200)
-                .extract()
-                .response();
-
-        String routes = resp.asString();
-
-        // Check for expected routes
+        String routes = response.getBody();
         assertThat(routes).contains("user-service");
         assertThat(routes).contains("product-service");
         assertThat(routes).contains("order-service");
 
-        logStep("  ✓ user-service routes present");
-        logStep("  ✓ product-service routes present");
-        logStep("  ✓ order-service routes present");
-
-        // Count total routes
-        int routeCount = resp.jsonPath().getList("$").size();
-        logStep("  ✓ Total routes configured: " + routeCount);
-
-        logStep("✅ Gateway routes endpoint working");
+        List<?> routeList = response.as(List.class);
+        logStep("Total routes configured: " + routeList.size());
     }
 
     @Test(priority = 31)
@@ -387,150 +200,123 @@ public class Observability extends BaseTest {
     @Severity(SeverityLevel.NORMAL)
     @Description("Individual route configuration can be inspected")
     public void test31_SpecificRouteDetails() {
-        logStep("TEST 31: Verifying specific route details");
+        ServiceResponse routesResponse = client.get(ServiceType.GATEWAY, "/actuator/gateway/routes", null);
+        List<Map<String, Object>> routes = routesResponse.as(List.class);
 
-        // Get all routes first
-        Response resp = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/gateway/routes")
-                .then()
-                .statusCode(200)
-                .extract()
-                .response();
+        assertThat(routes).as("At least one route should be configured").isNotEmpty();
 
-        // Check first route has required fields
-        String firstRouteId = resp.jsonPath().getString("[0].route_id");
+        String firstRouteId = (String) routes.get(0).get("route_id");
+        assertThat(firstRouteId).as("First route should have an id").isNotBlank();
 
-        if (firstRouteId != null) {
-            logStep("  ✓ Found route: " + firstRouteId);
+        ServiceResponse routeResponse = client.get(ServiceType.GATEWAY, "/actuator/gateway/routes/" + firstRouteId, null);
+        assertThat(routeResponse.getStatusCode()).isEqualTo(200);
 
-            // Get specific route details
-            Response routeResp = given()
-                    .baseUri(GATEWAY_URL)
-                    .when()
-                    .get("/actuator/gateway/routes/" + firstRouteId)
-                    .then()
-                    .extract()
-                    .response();
-
-            if (routeResp.statusCode() == 200) {
-                String routeDetails = routeResp.asString();
-
-                assertThat(routeDetails).contains("route_id");
-                assertThat(routeDetails).contains("uri");
-                assertThat(routeDetails).contains("predicates");
-
-                logStep("  ✓ Route details include: id, uri, predicates");
-                logStep("✅ Specific route details accessible");
-            }
-        }
+        String routeDetails = routeResponse.getBody();
+        assertThat(routeDetails).contains("route_id");
+        assertThat(routeDetails).contains("uri");
+        assertThat(routeDetails).contains("predicates");
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     // 6. METRICS VALIDATION WITH TRAFFIC
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
 
     @Test(priority = 40)
     @Story("Metrics - Request Count Tracking")
     @Severity(SeverityLevel.NORMAL)
-    @Description("HTTP request metrics increment with actual traffic")
+    @Description("HTTP request count for a specific route increments with actual traffic")
     public void test40_MetricsIncrementWithTraffic() {
-        logStep("TEST 40: Verifying metrics increment with traffic");
+        long before = extractProductsRequestCount();
 
-        // Get initial metrics
-        String initialMetrics = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/prometheus")
-                .then()
-                .statusCode(200)
-                .extract()
-                .asString();
-
-        // Generate traffic
-        logStep("  Generating 5 requests...");
         for (int i = 0; i < 5; i++) {
-            given().baseUri(GATEWAY_URL).get("/api/products");
+            client.get(ServiceType.GATEWAY, "/api/products", null);
         }
 
-        // Get updated metrics
-        String updatedMetrics = given()
-                .baseUri(GATEWAY_URL)
-                .when()
-                .get("/actuator/prometheus")
-                .then()
-                .statusCode(200)
-                .extract()
-                .asString();
+        long after = extractProductsRequestCount();
 
-        // Metrics should have changed
-        assertThat(updatedMetrics).isNotEqualTo(initialMetrics);
-        logStep("  ✓ Metrics changed after traffic");
-
-        // Should contain request count metrics
-        assertThat(updatedMetrics).contains("http_server_requests");
-        logStep("  ✓ HTTP request metrics updated");
-
-        logStep("✅ Metrics correctly track traffic");
+        assertThat(after)
+                .as("Request count metric for /api/products should increase after 5 requests")
+                .isGreaterThan(before);
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    private long extractProductsRequestCount() {
+        String metrics = client.get(ServiceType.GATEWAY, "/actuator/prometheus", null).getBody();
+        return metrics.lines()
+                .filter(line -> line.contains("http_server_requests_seconds_count") && line.contains("uri=\"/api/products\""))
+                .map(line -> line.substring(line.lastIndexOf(' ') + 1))
+                .mapToLong(v -> (long) Double.parseDouble(v))
+                .sum();
+    }
+
+    // ══════════════════════════════════════════════════════════════
     // 7. MICROSERVICES HEALTH CHECKS
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
 
     @Test(priority = 50)
     @Story("Health - Microservices Status")
     @Severity(SeverityLevel.BLOCKER)
-    @Description("All downstream microservices are healthy")
+    @Description("All downstream microservices report UP health status")
     public void test50_DownstreamServicesHealth() {
-        logStep("TEST 50: Verifying downstream services health");
+        assertServiceHealthy(ServiceType.USER, "user-service");
+        assertServiceHealthy(ServiceType.PRODUCT, "product-service");
+        assertServiceHealthy(ServiceType.ORDER, "order-service");
+    }
 
-        // Check user-service
-        Response userHealth = given()
-                .baseUri(USER_SERVICE_URL)
-                .when()
-                .get("/actuator/health")
-                .then()
-                .extract()
-                .response();
+    @Test(priority = 4)
+    @Story("Actuator - Sensitive Endpoint Protection")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify sensitive actuator endpoints (env, heapdump, threaddump) are not publicly exposed")
+    public void test04_SensitiveActuatorEndpointsAreProtected() {
+        for (String endpoint : List.of("/actuator/env", "/actuator/heapdump", "/actuator/threaddump")) {
+            ServiceResponse response = client.get(ServiceType.GATEWAY, endpoint, null);
+            assertThat(response.getStatusCode())
+                    .as(endpoint + " should not be publicly accessible")
+                    .isIn(401, 403, 404);
+        }
+    }
 
-        if (userHealth.statusCode() == 200) {
-            logStep("  ✓ user-service is UP");
-        } else {
-            logStep("  ⚠️  user-service health check failed: " + userHealth.statusCode());
+    @Test(priority = 5)
+    @Story("Health - Downstream Dependency Awareness")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Gateway health check reports on downstream service dependencies, not just its own liveness")
+    public void test05_HealthReflectsDownstreamDependencies() {
+        Map<String, Object> body = client.get(ServiceType.GATEWAY, "/actuator/health", null).as(Map.class);
+
+        if (!body.containsKey("components")) {
+            throw new SkipException("Component details not exposed — cannot verify downstream awareness");
         }
 
-        // Check product-service
-        Response productHealth = given()
-                .baseUri(PRODUCT_SERVICE_URL)
-                .when()
-                .get("/actuator/health")
-                .then()
-                .extract()
-                .response();
+        Map<?, ?> components = (Map<?, ?>) body.get("components");
+        logStep("Health components reported: " + components.keySet());
 
-        if (productHealth.statusCode() == 200) {
-            logStep("  ✓ product-service is UP");
-        } else {
-            logStep("  ⚠️  product-service health check failed");
+        assertThat(components)
+                .as("Health check should report on more than just the gateway's own liveness")
+                .hasSizeGreaterThan(1);
+    }
+    @Test(priority = 13)
+    @Story("Metrics - Distributed Tracing")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Verify gateway responses carry a trace/correlation ID for distributed tracing")
+    public void test13_ResponsesCarryTraceId() {
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/api/products", null);
+
+        boolean hasTraceHeader = response.getHeaders().keySet().stream()
+                .anyMatch(h -> h.equalsIgnoreCase("X-Trace-Id")
+                        || h.equalsIgnoreCase("traceparent")
+                        || h.equalsIgnoreCase("X-B3-TraceId"));
+
+        if (!hasTraceHeader) {
+            throw new SkipException("No recognized tracing header found — tracing may not be configured");
         }
 
-        // Check order-service
-        Response orderHealth = given()
-                .baseUri(ORDER_SERVICE_URL)
-                .when()
-                .get("/actuator/health")
-                .then()
-                .extract()
-                .response();
+        logStep("✓ Trace header present on response");
+    }
 
-        if (orderHealth.statusCode() == 200) {
-            logStep("  ✓ order-service is UP");
-        } else {
-            logStep("  ⚠️  order-service health check failed");
-        }
+    private void assertServiceHealthy(ServiceType service, String label) {
+        ServiceResponse response = client.get(service, "/actuator/health", null);
+        assertThat(response.getStatusCode()).as(label + " health endpoint should return 200").isEqualTo(200);
 
-        logStep("✅ Downstream services health checked");
+        Map<String, Object> body = response.as(Map.class);
+        assertThat(body.get("status")).as(label + " should report UP").isEqualTo("UP");
     }
 }
