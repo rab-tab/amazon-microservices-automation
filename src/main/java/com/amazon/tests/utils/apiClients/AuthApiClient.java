@@ -1,10 +1,12 @@
 package com.amazon.tests.utils.apiClients;
 
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.transport.RequestExecutor;
+import com.amazon.tests.transport.*;
 import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.testData.TestDataFactory;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 @Slf4j
@@ -41,6 +43,26 @@ public class AuthApiClient {
         assertThat(loginAuth.getAccessToken()).isNotBlank();
         return loginAuth;
 
+    }
+
+    public ServiceResponse registerRaw(TestModels.RegisterRequest payload) {
+        ServiceRequest request = ServiceRequest.builder()
+                .method(HttpMethod.POST)
+                .endpoint("/api/v1/auth/register")
+                .payload(payload)
+                .targetService(ServiceType.USER)
+                .build();
+        return executor.execute(request);
+    }
+
+    public ServiceResponse loginRaw(String email, String password) {
+        ServiceRequest request = ServiceRequest.builder()
+                .method(HttpMethod.POST)
+                .endpoint("/api/v1/auth/login")
+                .payload(Map.of("email", email, "password", password))
+                .targetService(ServiceType.USER)
+                .build();
+        return executor.execute(request);
     }
 
     public TestModels.AuthResponse registerSeller(){

@@ -9,7 +9,7 @@
     <!-- Full Suite -->
     <test name="Authentication Tests">
         <classes>
-            <class name="com.amazon.tests.regression.authentication.AuthApiTest"/>
+            <class name="com.amazon.tests.regression.apiGateway.authentication.AuthApiTest"/>
         </classes>
     </test>
 
@@ -21,7 +21,7 @@
 
     <test name="Product Catalog Tests">
         <classes>
-            <class name="com.amazon.tests.ProductApiTest"/>
+            <class name="com.amazon.tests.regression.productFlow.ProductApiTest"/>
         </classes>
     </test>
 
