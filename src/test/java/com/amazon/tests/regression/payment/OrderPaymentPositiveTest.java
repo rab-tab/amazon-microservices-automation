@@ -54,7 +54,7 @@ public class OrderPaymentPositiveTest extends BaseTest {
         assertThat(payment.getStatus()).isEqualTo(TestModels.PaymentStatus.SUCCESS);
         assertThat(payment.getFailureReason()).as("No failure reason for successful payment").isNull();
 
-        log.info("✅ Order confirmed: {} | Payment: {} | Txn: {}",
+        logStep("✅ Order confirmed: {} | Payment: {} | Txn: {}",
                 orderId, order.getPaymentId(), payment.getTransactionId());
     }
     @Test(timeOut = 30000)
@@ -77,7 +77,7 @@ public class OrderPaymentPositiveTest extends BaseTest {
 
         TestModels.OrderResponse firstOrder = orderApiClient(token)
                 .createOrderWithTestScenario(userId, idempotencyKey, purchase.getProducts(), "SUCCESS");
-        log.info("✅ First order created: {}", firstOrder.getId());
+        logStep("✅ First order created: {}", firstOrder.getId());
 
         TestModels.OrderResponse duplicateOrder = orderApiClient(token)
                 .createOrderWithTestScenario(userId, idempotencyKey, purchase.getProducts(), "SUCCESS");
@@ -85,6 +85,6 @@ public class OrderPaymentPositiveTest extends BaseTest {
         assertThat(duplicateOrder.getId()).as("Duplicate request should return same order ID")
                 .isEqualTo(firstOrder.getId());
 
-        log.info("✅ Idempotency verified — same order returned: {}", duplicateOrder.getId());
+        logStep("✅ Idempotency verified — same order returned: {}", duplicateOrder.getId());
     }
 }

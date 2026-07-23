@@ -35,6 +35,17 @@ public class OrderApiClient {
                 ? Map.of("X-Fault", faultHeader) : null;
         return createOrderInternal(userId, idempotencyKey, request, extra);
     }
+    public ServiceResponse cancelOrderRaw(String token, String userId, String orderId) {
+        ServiceRequest request = ServiceRequest.builder()
+                .method(HttpMethod.DELETE)
+                .endpoint("/api/v1/orders/{id}")
+                .attribute(RequestAttributes.PATH_PARAMS, Map.of("id", orderId))
+                .token(token)
+                .header("X-User-Id", userId)
+                .targetService(ServiceType.ORDER)
+                .build();
+        return executor.execute(request);
+    }
 
     public TestModels.OrderResponse createOrderWithTestScenario(String userId, String idempotencyKey,
                                                                 List<TestModels.ProductResponse> products,

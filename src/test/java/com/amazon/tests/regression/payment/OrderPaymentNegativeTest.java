@@ -105,7 +105,7 @@ public class OrderPaymentNegativeTest extends BaseTest {
     @Severity(SeverityLevel.CRITICAL)
     @Description("Verify payment failure reasons are surfaced correctly with proper retryable flag")
     public void testPaymentFailureScenario(PaymentFailureScenario scenario) {
-        log.info("=== Payment Failure: {} ===", scenario.getDescription());
+        logStep("=== Payment Failure: {} ===", scenario.getDescription());
 
         PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
                 .registerCustomer()
@@ -145,7 +145,7 @@ public class OrderPaymentNegativeTest extends BaseTest {
                     .isEqualTo(scenario.getExpectedFraudScore());
         }
 
-        log.info("✅ PASSED: {} — reason={}, retryable={}",
+        logStep("✅ PASSED: {} — reason={}, retryable={}",
                 scenario.getDescription(), actualReason, failureEvent.get("retryable").asBoolean());
     }
 
@@ -170,7 +170,7 @@ public class OrderPaymentNegativeTest extends BaseTest {
         String userId = purchase.getCustomerAuth().getUser().getId();
         String orderId = purchase.getOrder().getId();
 
-        log.info("⏳ Waiting 8 seconds for timeout scenario...");
+        logStep("⏳ Waiting 8 seconds for timeout scenario...");
         Thread.sleep(8000);
 
         TestModels.OrderResponse order = orderApiClient(token).getOrder(token, userId, orderId);
@@ -179,7 +179,7 @@ public class OrderPaymentNegativeTest extends BaseTest {
         assertThat(order.getPaymentId()).as("No payment ID on timeout").isNull();
         assertThat(order.getPaymentFailureReason()).as("No failure reason on timeout").isNull();
 
-        log.info("✅ PASSED: Order remained PENDING on timeout — {}", orderId);
+        logStep("✅ PASSED: Order remained PENDING on timeout — {}", orderId);
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -225,6 +225,6 @@ public class OrderPaymentNegativeTest extends BaseTest {
         assertThat(r3.getPaymentFailureReason()).isEqualTo("Fraud detected");
         assertThat(r4.getStatus()).isEqualTo("CONFIRMED");
 
-        log.info("✅ PASSED: outcomes differentiated correctly across 4 orders");
+        logStep("✅ PASSED: outcomes differentiated correctly across 4 orders");
     }
 }

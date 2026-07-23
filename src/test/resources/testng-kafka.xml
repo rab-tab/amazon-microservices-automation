@@ -34,7 +34,7 @@
       <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerLifecycleFailuresTest"/>
       <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerNetworkFailuresTest"/>
       <class name="com.amazon.tests.kafka.orders.publishing.failures.ProducerTopicFailuresTest"/>-->
-      <class name="com.amazon.tests.regression.kafka.saga.OrderPaymentSagaFlowTest"/>
+      <class name="com.amazon.tests.regression.kafka.sagaFlow.OrderPaymentSagaFlowTest"/>
     </classes>
   </test>
 </suite>

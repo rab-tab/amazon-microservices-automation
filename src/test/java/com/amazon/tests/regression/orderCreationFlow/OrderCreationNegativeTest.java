@@ -107,7 +107,7 @@ public class OrderCreationNegativeTest extends BaseTest {
         @Test(dataProvider = "invalidOrderPayloads",
                 description = "Order creation should reject invalid payload variants")
         public void testOrderCreationRejectsInvalidPayload(String scenario, OrderRequestFactory factory) {
-            log.info("=== Test: {} ===", scenario);
+            logStep("=== Test: {} ===", scenario);
 
             PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
                     .registerCustomer()
@@ -127,7 +127,7 @@ public class OrderCreationNegativeTest extends BaseTest {
             assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
                     scenario + " should return 4xx error, got " + response.getStatusCode());
 
-            log.info("✅ Test PASSED: Rejected — {}", scenario);
+            logStep("✅ Test PASSED: Rejected — {}", scenario);
         }
 
         // ==========================================
@@ -136,7 +136,7 @@ public class OrderCreationNegativeTest extends BaseTest {
 
         @Test(description = "Order creation should fail without authentication", enabled = false)
         public void testOrderCreationWithoutAuth() {
-            log.info("=== Test: No Authentication ===");
+            logStep("=== Test: No Authentication ===");
 
             PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
                     .registerSeller()
@@ -151,12 +151,12 @@ public class OrderCreationNegativeTest extends BaseTest {
 
             assertEquals(response.getStatusCode(), 401, "Should return 401 Unauthorized");
 
-            log.info("✅ Test PASSED: Rejected unauthenticated request");
+            logStep("✅ Test PASSED: Rejected unauthenticated request");
         }
 
         @Test(description = "Order creation should fail for inactive/deleted user", enabled = false)
         public void testOrderCreationForInactiveUser() {
-            log.info("=== Test: Inactive User ===");
+            logStep("=== Test: Inactive User ===");
 
             PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
                     .registerCustomer()
@@ -178,12 +178,12 @@ public class OrderCreationNegativeTest extends BaseTest {
             assertTrue(response.getStatusCode() == 401 || response.getStatusCode() == 403,
                     "Should reject order for inactive user");
 
-            log.info("✅ Test PASSED: Rejected order for inactive user");
+            logStep("✅ Test PASSED: Rejected order for inactive user");
         }
 
         @Test(description = "Order creation should fail without idempotency key", enabled = false)
         public void testOrderCreationWithoutIdempotencyKey() {
-            log.info("=== Test: Missing Idempotency Key ===");
+            logStep("=== Test: Missing Idempotency Key ===");
 
             PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
                     .registerCustomer()
@@ -201,12 +201,12 @@ public class OrderCreationNegativeTest extends BaseTest {
                      userId, null, orderRequest, null);
 
             if (response.getStatusCode() >= 400) {
-                log.info("✓ Server requires idempotency key");
+                logStep("✓ Server requires idempotency key");
             } else {
-                log.info("✓ Server allows orders without idempotency key (no protection)");
+                logStep("✓ Server allows orders without idempotency key (no protection)");
             }
 
-            log.info("✅ Test PASSED: Idempotency key requirement verified");
+            logStep("✅ Test PASSED: Idempotency key requirement verified");
         }
 
         // ==========================================
@@ -215,7 +215,7 @@ public class OrderCreationNegativeTest extends BaseTest {
 
         @Test(description = "Order creation should fail when requesting more stock than available", enabled = false)
         public void testOrderCreationExceedsAvailableStock() {
-            log.info("=== Test: Insufficient Stock ===");
+            logStep("=== Test: Insufficient Stock ===");
 
             PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
                     .registerCustomer()
@@ -246,13 +246,13 @@ public class OrderCreationNegativeTest extends BaseTest {
             assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
                     "Should return 4xx error for insufficient stock");
 
-            log.info("✅ Test PASSED: Rejected order exceeding stock (requested: {}, available: {})",
+            logStep("✅ Test PASSED: Rejected order exceeding stock (requested: {}, available: {})",
                     excessiveQuantity, product.getStockQuantity());
         }
 
         @Test(description = "Order creation should fail for out-of-stock product", enabled = false)
         public void testOrderCreationForOutOfStockProduct() {
-            log.info("=== Test: Out of Stock Product ===");
+            logStep("=== Test: Out of Stock Product ===");
 
             PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
                     .registerCustomer()
@@ -273,7 +273,7 @@ public class OrderCreationNegativeTest extends BaseTest {
             assertTrue(response.getStatusCode() >= 400 && response.getStatusCode() < 500,
                     "Should return 4xx error for out of stock");
 
-            log.info("✅ Test PASSED: Rejected order for out-of-stock product");
+            logStep("✅ Test PASSED: Rejected order for out-of-stock product");
         }
 
         // ==========================================
@@ -282,7 +282,7 @@ public class OrderCreationNegativeTest extends BaseTest {
 
         @Test(description = "Order creation should fail for duplicate product IDs in same order", enabled = false)
         public void testOrderCreationWithDuplicateProducts() {
-            log.info("=== Test: Duplicate Products in Order ===");
+            logStep("=== Test: Duplicate Products in Order ===");
 
             PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
                     .registerCustomer()
@@ -310,12 +310,12 @@ public class OrderCreationNegativeTest extends BaseTest {
                     null);
 
             if (response.getStatusCode() >= 400) {
-                log.info("✓ Server rejected duplicate products");
+                logStep("✓ Server rejected duplicate products");
             } else {
-                log.info("✓ Server accepted and merged quantities");
+                logStep("✓ Server accepted and merged quantities");
             }
 
-            log.info("✅ Test PASSED: Duplicate product handling verified");
+            logStep("✅ Test PASSED: Duplicate product handling verified");
         }
 
         // ==========================================
@@ -324,7 +324,7 @@ public class OrderCreationNegativeTest extends BaseTest {
 
         @Test(description = "Concurrent requests with same idempotency key should create only one order", enabled = false)
         public void testConcurrentOrderCreationWithSameIdempotencyKey() throws InterruptedException {
-            log.info("=== Test: Concurrent Requests - Same Idempotency Key ===");
+            logStep("=== Test: Concurrent Requests - Same Idempotency Key ===");
 
             PurchaseResult purchase = PurchaseWorkflow.start(executor,authStrategy)
                     .registerCustomer()
@@ -357,7 +357,7 @@ public class OrderCreationNegativeTest extends BaseTest {
 
             assertEquals(orderIds.size(), 1, "All concurrent requests should return the same order ID");
 
-            log.info("✅ Test PASSED: {} concurrent requests created only 1 order", orders.size());
+            logStep("✅ Test PASSED: {} concurrent requests created only 1 order", orders.size());
         }
     }
 
