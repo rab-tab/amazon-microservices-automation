@@ -1,4 +1,4 @@
-package com.amazon.tests.apiGateway.routing;
+package com.amazon.tests.regression.apiGateway.routing;
 
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.BaseTest;

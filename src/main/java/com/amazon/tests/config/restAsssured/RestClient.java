@@ -128,6 +128,9 @@ public class RestClient {
                              Object body, Map<String, ?> queryParams) {
         return execute(method, endpoint, spec, body, queryParams, Map.of());
     }
+    public Response options(String endpoint, RequestSpecification spec) {
+        return execute("OPTIONS", endpoint, spec, null, Map.of());
+    }
 
     private Response execute(String method, String endpoint, RequestSpecification spec,
                              Object body, Map<String, ?> queryParams, Map<String, String> extraHeaders) {
@@ -145,6 +148,7 @@ public class RestClient {
             case "PUT"    -> request.when().put(endpoint);
             case "PATCH"  -> request.when().patch(endpoint);
             case "DELETE" -> request.when().delete(endpoint);
+            case "OPTIONS" -> request.when().options(endpoint);
             default -> throw new IllegalArgumentException("Unsupported HTTP method: " + method);
         };
 

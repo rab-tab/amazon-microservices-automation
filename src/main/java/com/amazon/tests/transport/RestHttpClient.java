@@ -32,6 +32,7 @@ public class RestHttpClient implements RequestExecutor {
             case PUT    -> restClient.put(request.getEndpoint(), spec, request.getPayload());
             case DELETE -> restClient.delete(request.getEndpoint(), spec, queryParams);
             case PATCH  -> restClient.patch(request.getEndpoint(), spec, request.getPayload());
+            case OPTIONS -> restClient.options(request.getEndpoint(), spec);
         };
 
         return ServiceResponse.builder()
@@ -47,6 +48,7 @@ public class RestHttpClient implements RequestExecutor {
             case PAYMENT -> restAssuredConfig.getPaymentServiceSpec(request.getToken());
             case PRODUCT -> restAssuredConfig.getProductServiceSpec(request.getToken());
             case USER    -> restAssuredConfig.getUserServiceSpec(request.getToken());
+            case GATEWAY -> restAssuredConfig.getGatewaySpec(request.getToken());
         };
     }
 

@@ -1,4 +1,4 @@
-package com.amazon.tests.apiGateway.observability;
+package com.amazon.tests.regression.apiGateway.observability;
 
 import com.amazon.tests.BaseTest;
 import io.qameta.allure.*;

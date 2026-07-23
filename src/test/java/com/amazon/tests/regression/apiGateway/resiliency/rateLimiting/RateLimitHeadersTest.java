@@ -1,4 +1,4 @@
-package com.amazon.tests.apiGateway.resiliency.rateLimiting;
+package com.amazon.tests.regression.apiGateway.resiliency.rateLimiting;
 
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.config.RateLimitConfig;

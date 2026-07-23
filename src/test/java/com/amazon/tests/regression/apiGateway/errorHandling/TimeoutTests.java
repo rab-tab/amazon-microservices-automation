@@ -1,4 +1,4 @@
-package com.amazon.tests.apiGateway.errorHandling;
+package com.amazon.tests.regression.apiGateway.errorHandling;
 
 import com.amazon.tests.BaseTest;
 import io.qameta.allure.*;

@@ -1,6 +1,7 @@
 package com.amazon.tests.config.restAsssured;
 
 import com.amazon.tests.config.TestConfig;
+import com.amazon.tests.transport.ServiceType;
 import io.qameta.allure.restassured.AllureRestAssured;
 import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.filter.log.LogDetail;
@@ -65,5 +66,14 @@ public class RestAssuredConfig {
         if (options.getPathParams() != null) builder.addPathParams(options.getPathParams());
         if (options.getBody() != null) builder.setBody(options.getBody());
         if (options.getCookies() != null) builder.addCookies(options.getCookies());
+    }
+    public RequestSpecification forService(ServiceType service, String token) {
+        return switch (service) {
+            case USER    -> token != null ? getUserServiceSpec(token) : getUserServiceSpec(token);
+            case PRODUCT -> token != null ? getProductServiceSpec(token) : getProductServiceSpec(token);
+            case ORDER   -> getOrderServiceSpec(token);
+            case PAYMENT -> getPaymentServiceSpec(token);
+            case GATEWAY -> buildSpec(config.baseUrl(), token);   // new
+        };
     }
 }

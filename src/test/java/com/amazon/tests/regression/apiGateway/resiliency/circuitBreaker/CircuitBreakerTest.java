@@ -1,4 +1,4 @@
-package com.amazon.tests.apiGateway.resiliency.circuitBreaker;
+package com.amazon.tests.regression.apiGateway.resiliency.circuitBreaker;
 
 import com.amazon.tests.BaseTest;
 import io.qameta.allure.*;

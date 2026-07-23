@@ -1,5 +1,5 @@
 package com.amazon.tests.transport;
 
 public enum ServiceType {
-    ORDER,PAYMENT,PRODUCT,USER;
+    ORDER,PAYMENT,PRODUCT,USER,GATEWAY;
 }

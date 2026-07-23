@@ -34,6 +34,9 @@ public class TestDataFactory {
                 .password(password)
                 .build();
     }
+    public static String newIdempotencyKey() {
+        return UUID.randomUUID().toString();
+    }
 
     public static ProductRequest createRandomProduct() {
         return ProductRequest.builder()
