@@ -1,197 +1,151 @@
 package com.amazon.tests.regression.kafka.orders.publishing.failures;
 
 import com.amazon.tests.BaseTest;
-import com.amazon.tests.dataseeding.builders.OrderBuilder;
-import com.amazon.tests.dataseeding.core.SeedingException;
-import com.amazon.tests.dataseeding.seeders.ProductSeeder;
-import com.amazon.tests.dataseeding.seeders.UserSeeder;
+import com.amazon.tests.auth.BearerAuthStrategy;
 import com.amazon.tests.models.TestModels;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import com.amazon.tests.transport.ServiceResponse;
+import com.amazon.tests.utils.apiClients.OrderApiClient;
+import com.amazon.tests.utils.testData.TestDataFactory;
+import com.amazon.tests.workflows.PurchaseResult;
+import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.qameta.allure.*;
 import io.qameta.allure.testng.Tag;
-import io.restassured.RestAssured;
-import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.clients.admin.NewTopic;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.KafkaContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
-import org.testng.annotations.BeforeMethod;
+import org.apache.kafka.clients.admin.*;
+import org.apache.kafka.common.config.ConfigResource;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Realistic Kafka Configuration Tests - Testcontainers
+ * Realistic Kafka Configuration Failure Tests
  *
- * Uses real Kafka container to test configuration-specific failures:
- * - Insufficient in-sync replicas (min.insync.replicas)
- * - Topic does not exist (auto.create.topics.enable=false)
- * - Producer quotas
+ * Runs against the LOCAL Kafka cluster the system under test is actually
+ * wired to. These tests mutate real broker/topic configuration (min.insync.replicas)
+ * and MUST NOT be run against shared staging/production — local/dev only.
  *
- * These require actual Kafka configuration changes, not network simulation.
+ * Each test restores the topic config it changed in @AfterMethod, but a
+ * crashed run could leave the topic misconfigured — check topic config
+ * before other test runs if this suite fails unexpectedly.
  *
- * Run frequency: Weekly, before releases
- * Execution time: ~2-3 minutes
- *
- * @tags realistic-chaos, kafka-config, slow-tests
+ * Run frequency: Weekly, before releases (not part of standard regression).
  */
 @Slf4j
 @Epic("Amazon Microservices")
 @Feature("Kafka - Configuration Failures (Realistic)")
-@Testcontainers
 @Tag("realistic-chaos")
 @Tag("slow-tests")
 public class ConfigurationFailures extends BaseTest {
 
-    @Container
-    static KafkaContainer kafka = new KafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.5.0")
-    ).withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false");  // Disable auto-create
+    private static final String ORDER_EVENTS_TOPIC = "order.events"; // must match the real topic name
 
-    private TestModels.UserResponse user;
-    private TestModels.ProductResponse product;
-    private String userToken;
+    private AdminClient adminClient;
 
-    @DynamicPropertySource
-    static void kafkaProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+    private AdminClient adminClient() {
+        if (adminClient == null) {
+            String bootstrapServers = System.getProperty("kafka.bootstrap.servers", "localhost:9092");
+            adminClient = AdminClient.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers));
+        }
+        return adminClient;
     }
 
-    @BeforeMethod
-    public void setup() throws SeedingException {
-        logStep("Setting up Kafka config tests");
+    @AfterMethod
+    public void restoreTopicConfig() throws Exception {
+        // Always restore min.insync.replicas to a sane default (1) after each test,
+        // regardless of pass/fail, so this doesn't poison other test runs.
+        ConfigResource resource = new ConfigResource(ConfigResource.Type.TOPIC, ORDER_EVENTS_TOPIC);
+        AlterConfigOp resetOp = new AlterConfigOp(
+                new org.apache.kafka.clients.admin.ConfigEntry("min.insync.replicas", "1"),
+                AlterConfigOp.OpType.SET);
 
-        user = UserSeeder.builder(context)
-                .count(1)
-                .build()
-                .seed()
-                .getFirst();
-
-        userToken = context.getCached("user_token_" + user.getId(), String.class);
-
-        product = ProductSeeder.builder(context)
-                .count(1)
-                .highStock()
-                .build()
-                .seed()
-                .getFirst();
-
-        waitForDataPropagation(1000);
+        try {
+            adminClient().incrementalAlterConfigs(Map.of(resource, List.of(resetOp))).all().get();
+            logStep("  ♻️  Restored min.insync.replicas=1 on " + ORDER_EVENTS_TOPIC);
+        } catch (Exception e) {
+            log.warn("Failed to restore topic config — check {} manually before next run", ORDER_EVENTS_TOPIC, e);
+        }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // KAFKA CONFIGURATION FAILURES
-    // ══════════════════════════════════════════════════════════════════════════
+    private PurchaseResult setupCustomerAndProduct() {
+        return PurchaseWorkflow.start(context.getExecutor(),authStrategy)
+                .registerCustomer()
+                .registerSeller()
+                .createProductWithStock(29.99, 500)
+                .execute();
+    }
+
+    // ══════════════════════════════════════════════════════════════
 
     @Test
-    //@DisplayName("REALISTIC: Insufficient in-sync replicas (min.insync.replicas > replicas)")
     @Story("Kafka Configuration")
     @Severity(SeverityLevel.CRITICAL)
-    public void test01_REALISTIC_InsufficientISR_AckFailure() throws ExecutionException, InterruptedException {
-        logStep("REALISTIC TEST: Insufficient in-sync replicas");
+    @Description("Order creation fails cleanly when the real order.events topic "
+            + "has min.insync.replicas set higher than available in-sync replicas")
+    public void test01_InsufficientISR_AckFailure() throws Exception {
+        logStep("REALISTIC TEST: Insufficient in-sync replicas on " + ORDER_EVENTS_TOPIC);
 
-        // ⭐ Create topic with min.insync.replicas=2 but only 1 broker
-        AdminClient admin = AdminClient.create(
-                Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
-                        kafka.getBootstrapServers())
-        );
+        ConfigResource resource = new ConfigResource(ConfigResource.Type.TOPIC, ORDER_EVENTS_TOPIC);
+        AlterConfigOp breakOp = new AlterConfigOp(
+                new org.apache.kafka.clients.admin.ConfigEntry("min.insync.replicas", "2"),
+                AlterConfigOp.OpType.SET);
 
-        NewTopic topic = new NewTopic("order.events.isr-test", 1, (short) 1)
-                .configs(Map.of("min.insync.replicas", "2"));  // Impossible!
+        adminClient().incrementalAlterConfigs(Map.of(resource, List.of(breakOp))).all().get();
+        logStep("  ⚙️  min.insync.replicas set to 2 on " + ORDER_EVENTS_TOPIC + " (local broker only has 1 replica)");
 
-        admin.createTopics(List.of(topic)).all().get();
+        PurchaseResult purchase = setupCustomerAndProduct();
+        String token = purchase.getCustomer().getAccessToken();
+        String userId = purchase.getCustomer().getUser().getId();
+        OrderApiClient orderApiClient = new OrderApiClient(new BearerAuthStrategy(token), context.getExecutor());
 
-        logStep("  ⚙️  Topic created with min.insync.replicas=2, but only 1 broker");
+        TestModels.CreateOrderRequest orderRequest =
+                TestDataFactory.defaultOrder(purchase.getProducts()).build();
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        ServiceResponse response = orderApiClient.createOrderWithFault(
+                userId, TestDataFactory.newIdempotencyKey(), orderRequest, null);
 
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
+        assertThat(response.getStatusCode()).as("Should fail due to insufficient ISR").isEqualTo(500);
+        assertThat(response.getBody()).containsAnyOf("insufficient", "in-sync", "replicas");
 
-        String requestBody = null;
-        try {
-            requestBody = objectMapper.writeValueAsString(orderRequest);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
-
-        // Producer configured with acks=all will fail
-        Response response = RestAssured
-                .given()
-                .baseUri(context.getConfig().baseUrl())
-                .header("Authorization", "Bearer " + userToken)
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-User-Id", user.getId().toString())
-                .contentType("application/json")
-                .body(requestBody)
-                .when()
-                .post("/api/orders");
-
-        assertThat(response.statusCode())
-                .as("Should fail due to insufficient ISR")
-                .isEqualTo(500);
-
-        assertThat(response.jsonPath().getString("message"))
-                .containsAnyOf("insufficient", "in-sync", "replicas");
-
-        logStep("✅ REALISTIC ISR test passed");
-        logStep("   Real Kafka configuration caused actual ISR failure");
-
-        admin.close();
+        logStep("✅ Real Kafka configuration caused actual ISR failure");
     }
 
     @Test
-   // @DisplayName("REALISTIC: Topic does not exist (auto-create disabled)")
     @Story("Kafka Configuration")
     @Severity(SeverityLevel.NORMAL)
-    public void test02_REALISTIC_TopicDoesNotExist() throws JsonProcessingException {
-        logStep("REALISTIC TEST: Topic does not exist");
+    @Description("Order creation fails cleanly when the order.events topic doesn't exist "
+            + "and auto-creation is disabled. Requires the topic to be deleted beforehand — "
+            + "destructive, local-only, and will break other concurrently-running tests "
+            + "that depend on this topic existing. Do not run alongside other suites.")
+    public void test02_TopicDoesNotExist() throws Exception {
+        logStep("REALISTIC TEST: Topic does not exist (destructive — local only)");
 
-        logStep("  ⚙️  auto.create.topics.enable=false in Kafka config");
+        adminClient().deleteTopics(Collections.singleton(ORDER_EVENTS_TOPIC)).all().get();
+        logStep("  🗑️  Deleted topic: " + ORDER_EVENTS_TOPIC);
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        PurchaseResult purchase = setupCustomerAndProduct();
+        String token = purchase.getCustomer().getAccessToken();
+        String userId = purchase.getCustomer().getUser().getId();
+        OrderApiClient orderApiClient = new OrderApiClient(new BearerAuthStrategy(token), context.getExecutor());
 
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
+        TestModels.CreateOrderRequest orderRequest =
+                TestDataFactory.defaultOrder(purchase.getProducts()).build();
 
-        String requestBody = objectMapper.writeValueAsString(orderRequest);
+        ServiceResponse response = orderApiClient.createOrderWithFault(
+                userId, TestDataFactory.newIdempotencyKey(), orderRequest, null);
 
-        // Attempt to send to non-existent topic
-        Response response = RestAssured
-                .given()
-                .baseUri(context.getConfig().baseUrl())
-                .header("Authorization", "Bearer " + userToken)
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-User-Id", user.getId().toString())
-                .contentType("application/json")
-                .body(requestBody)
-                .when()
-                .post("/api/orders");
+        assertThat(response.getStatusCode()).as("Should fail cleanly when topic doesn't exist").isEqualTo(500);
+        assertThat(response.getBody()).containsAnyOf("topic", "does not exist", "unknown");
 
-        // Might succeed if topic was already created by previous test
-        // or fail if topic doesn't exist
-        if (response.statusCode() == 500) {
-            assertThat(response.jsonPath().getString("message"))
-                    .containsAnyOf("topic", "does not exist", "unknown");
+        logStep("✅ Topic-not-found error surfaced correctly");
 
-            logStep("✅ Topic not found error as expected");
-        } else {
-            logStep("⚠️  Topic may have been auto-created by previous test");
-        }
+        // Recreate so subsequent tests/suites aren't broken.
+        NewTopic recreated = new NewTopic(ORDER_EVENTS_TOPIC, 1, (short) 1);
+        adminClient().createTopics(List.of(recreated)).all().get();
+        logStep("  ♻️  Recreated topic: " + ORDER_EVENTS_TOPIC);
     }
 }

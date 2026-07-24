@@ -107,7 +107,7 @@ public class OrderIdempotencyTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 2: Multi-Instance Race Condition with Retry — FAIL
+    // TEST 2: Multi-Instance Race Condition with Retry
     // ══════════════════════════════════════════════════════════════════════════
 
     @Test(priority = 2)
