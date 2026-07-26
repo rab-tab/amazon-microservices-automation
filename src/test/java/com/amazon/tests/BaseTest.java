@@ -51,10 +51,10 @@ public abstract class BaseTest {
     private long cpuStart;
     private OperatingSystemMXBean osBean;
     private static MetricsHttpServer metricsServer;
-    public RestClient restClient;
-    public RestAssuredConfig restAssuredConfig;
-    public RequestExecutor executor;
-    public AuthStrategy authStrategy;
+    public static RestClient restClient;
+    public static RestAssuredConfig restAssuredConfig;
+    public static RequestExecutor executor;
+    public static AuthStrategy authStrategy;
 
 
     private final MetricsManager metrics =
@@ -106,20 +106,20 @@ public abstract class BaseTest {
 
         // Initialize ExtentReportManager (creates report)
         ExtentReportManager.getInstance();
-
-         executor = new RestHttpClient(restClient, restAssuredConfig);
-         authStrategy = new NoAuthStrategy();  // registerCustomer/loginCustomer generate their own tokens later
-
-
-        // ✅ Initialize TestConfig for data seeding (Owner library)
+            // ✅ Initialize TestConfig FIRST — restAssuredConfig needs it
         String env = System.getProperty("env", "local");
         System.setProperty("env", env);
         testConfig = ConfigFactory.create(TestConfig.class);
-        if (metricsServer == null) {
 
+        // ✅ NOW build the actual objects, not leave them null
+        restClient = new RestClient();
+        restAssuredConfig = new RestAssuredConfig(testConfig);
+        executor = new RestHttpClient(restClient, restAssuredConfig);
+        authStrategy = new NoAuthStrategy();
+
+        if (metricsServer == null) {
             metricsServer =
                     new MetricsHttpServer();
-
             metricsServer.start();
         }
 

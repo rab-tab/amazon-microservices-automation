@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+
+<!--
+  Master Regression Suite
+  ========================
+  Composes the individual module-level TestNG suite files into a single
+  regression run, instead of re-listing every test class here directly.
+  This keeps each module's suite file as the single source of truth for
+  its own scope, and this file purely orchestrates them together.
+
+  IMPORTANT: update the file paths below to match your actual module
+  suite XML file names/locations — these are placeholder names based on
+  the module folders visible in your project (orderCreationFlow, payment,
+  productFlow, apiGateway, authentication, e2e, kafka). Paths are relative
+  to this file's location; adjust if your suite files live elsewhere
+  (e.g. under src/test/resources/suites/).
+-->
+<suite name="Regression Suite" verbose="1" parallel="none">
+
+    <listeners>
+        <listener class-name="com.amazon.tests.listeners.ExtentTestListener" />
+    </listeners>
+
+    <suite-files>
+        <!--<suite-file path="authentication-testng.xml" />
+        <suite-file path="apigateway-testng.xml" />
+        <suite-file path="kafka-testng.xml" />
+        <suite-file path="orderflow-testng.xml" />
+        <suite-file path="payment-testng.xml" />
+        <suite-file path="e2e-testng.xml" />-->
+        <suite-file path="testng-product-flow.xml" />
+    </suite-files>
+
+</suite>

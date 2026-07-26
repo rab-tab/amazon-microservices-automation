@@ -31,6 +31,9 @@ public class RestAssuredConfig {
     public RequestSpecification getUserServiceSpec(String token) {
         return buildSpec(config.userServiceUrl(), token);
     }
+    public RequestSpecification getUserServiceSpec() {
+        return getUserServiceSpec(null);  // or however your buildSpec/base() method handles a null token
+    }
 
     // ---- Generic / gateway fallback (for anything without a named service) ----
     public RequestSpecification getGatewaySpec(String token) {

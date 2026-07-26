@@ -1,13 +1,20 @@
 // ProductSeeder.java
 package com.amazon.tests.dataseeding.seeders;
 
-import com.amazon.tests.dataseeding.core.*;
 import com.amazon.tests.dataseeding.builders.ProductBuilder;
+import com.amazon.tests.dataseeding.core.BaseSeedingManager;
+import com.amazon.tests.dataseeding.core.SeedingContext;
 import com.amazon.tests.models.TestModels;
+import io.restassured.specification.RequestSpecification;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Seeder for Product entities
@@ -143,19 +150,15 @@ public class ProductSeeder extends BaseSeedingManager<ProductSeeder.ProductSeedR
     private TestModels.ProductResponse createProduct(TestModels.ProductRequest request) {
         log.debug("Creating product: {}", request.getName());
 
-        Map<String, String> headers = new HashMap<>();
-        if (sellerToken != null) {
-            headers.put("Authorization", "Bearer " + sellerToken);
-        }
+        RequestSpecification spec = context.getRestAssuredConfig().getProductServiceSpec(sellerToken);
 
         TestModels.ProductResponse product = context.getRestClient().post(
-                context.getConfig().baseUrl() + "/api/products",
+                "/api/products",
+                spec,
                 request,
-                TestModels.ProductResponse.class,
-                headers
+                TestModels.ProductResponse.class
         );
 
-        // Register cleanup
         context.registerCleanup(
                 "Product: " + product.getName(),
                 () -> deleteProduct(product.getId())
@@ -165,27 +168,22 @@ public class ProductSeeder extends BaseSeedingManager<ProductSeeder.ProductSeedR
         return product;
     }
 
-    @Override
-    protected void doCleanup() {
-        createdProducts.clear();
-    }
-
     private void deleteProduct(String productId) {
         try {
-            Map<String, String> headers = new HashMap<>();
-            if (sellerToken != null) {
-                headers.put("Authorization", "Bearer " + sellerToken);
-            }
-
-            context.getRestClient().delete(
-                    context.getConfig().baseUrl() + "/api/products/" + productId,
-                    headers
-            );
+            RequestSpecification spec = context.getRestAssuredConfig().getProductServiceSpec(sellerToken);
+            context.getRestClient().delete("/api/products/" + productId, spec);
             log.debug("Deleted product: {}", productId);
         } catch (Exception e) {
             log.warn("Failed to delete product: {}", productId, e);
         }
     }
+
+    @Override
+    protected void doCleanup() {
+        createdProducts.clear();
+    }
+
+
 
     // Builder
 

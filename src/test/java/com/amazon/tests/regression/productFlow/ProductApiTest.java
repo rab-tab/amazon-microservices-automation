@@ -27,12 +27,12 @@ public class ProductApiTest extends BaseTest {
     public void setup() {
         logStep("Setting up seller account for product tests");
 
-        PurchaseResult result = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
+        PurchaseResult result = PurchaseWorkflow.start(executor,authStrategy)
                 .registerSeller()
                 .execute();
 
         sellerAuth = result.getSellerAuth();
-        productApiClient = new ProductApiClient(context.getExecutor());
+        productApiClient = new ProductApiClient(executor);
         productRequest = TestDataFactory.createRandomProduct();
     }
 
@@ -123,7 +123,7 @@ public class ProductApiTest extends BaseTest {
         logStep("Stock updated successfully");
     }
 
-    @Test(priority = 10, dependsOnMethods = {"testUpdateProduct", "testUpdateProductStock"})
+    @Test(priority = 10, dependsOnMethods = { "testUpdateProductStock"})
     @Story("Delete Product")
     @Severity(SeverityLevel.NORMAL)
     @Description("Verify seller can delete their product")

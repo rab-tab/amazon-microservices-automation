@@ -122,15 +122,8 @@ public class OrderSeeder extends BaseSeedingManager<OrderSeeder.OrderSeedResult>
 
     private void deleteOrder(String orderId) {
         try {
-            Map<String, String> headers = new HashMap<>();
-            if (userToken != null) {
-                headers.put("Authorization", "Bearer " + userToken);
-            }
-
-            context.getRestClient().delete(
-                    context.getConfig().baseUrl() + "/api/orders/" + orderId,
-                    headers
-            );
+            RequestSpecification spec = context.getRestAssuredConfig().getOrderServiceSpec(userToken);
+            context.getRestClient().delete("/api/orders/" + orderId, spec);
             log.debug("Deleted order: {}", orderId);
         } catch (Exception e) {
             log.warn("Failed to delete order: {}", orderId, e);

@@ -3,7 +3,9 @@ package com.amazon.tests.regression.orderCreationFlow;
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.commonmodels.enums.ProductType;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
+import com.amazon.tests.utils.apiClients.PaymentApiClient;
 import com.amazon.tests.utils.apiClients.ProductApiClient;
+import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.amazon.tests.validators.OrderValidator;
 import com.amazon.tests.validators.ProductValidator;
 import com.amazon.tests.validators.PurchaseValidator;
@@ -26,9 +28,15 @@ import static org.testng.Assert.assertEquals;
  */
 @Slf4j
 public class OrderCreationFlowTest extends BaseTest {
-    PurchaseValidator purchaseValidator=new PurchaseValidator();
-    ProductValidator productValidator=new ProductValidator(new ProductApiClient(executor));
-    OrderValidator orderValidator=new OrderValidator(new OrderApiClient(authStrategy,executor));
+    KafkaTestConsumer kafkaConsumer = new KafkaTestConsumer("payment.result");
+    ProductApiClient productApiClient = new ProductApiClient(executor);
+    OrderApiClient orderApiClient = new OrderApiClient(authStrategy, executor);
+    PaymentApiClient paymentApiClient = new PaymentApiClient(kafkaConsumer, executor); // see note below
+
+    PurchaseValidator purchaseValidator = new PurchaseValidator(productApiClient, orderApiClient, paymentApiClient);
+    ProductValidator productValidator = new ProductValidator(productApiClient);
+    OrderValidator orderValidator = new OrderValidator(orderApiClient);
+
 
     // ==========================================
     // SCENARIO 1: Happy Path - Single User, Single Product, Single Order
@@ -37,7 +45,7 @@ public class OrderCreationFlowTest extends BaseTest {
     // ==========================================
 
     @Test(dataProvider = "orderFlowScenarios",
-            description = "Parameterized order creation flow across scenario variants")
+            description = "Parameterized order creation flow across scenario variants",priority = 1)
     public void testOrderCreationFlow(OrderFlowScenario scenario) {
 
         logStep("Executing: " + scenario.getDescription());
@@ -73,7 +81,7 @@ public class OrderCreationFlowTest extends BaseTest {
     // SCENARIO 3: Multiple Users, Multiple Orders
     // ==========================================
 
-    @Test(description = "Multiple users each placing their own orders")
+    @Test(description = "Multiple users each placing their own orders",priority = 2)
     public void testMultipleUsersOrdering() {
 
         logStep("Executing Multiple User Purchase Flows");

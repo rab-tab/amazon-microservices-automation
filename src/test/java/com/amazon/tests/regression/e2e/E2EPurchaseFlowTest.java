@@ -1,6 +1,10 @@
 package com.amazon.tests.regression.e2e;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.utils.apiClients.OrderApiClient;
+import com.amazon.tests.utils.apiClients.PaymentApiClient;
+import com.amazon.tests.utils.apiClients.ProductApiClient;
+import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.amazon.tests.validators.PurchaseValidator;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
@@ -12,7 +16,12 @@ import org.testng.annotations.Test;
 public class E2EPurchaseFlowTest extends BaseTest {
 
 
-    private final PurchaseValidator purchaseValidator=new PurchaseValidator();
+    KafkaTestConsumer kafkaConsumer = new KafkaTestConsumer("payment.result");
+    ProductApiClient productApiClient = new ProductApiClient(executor);
+    OrderApiClient orderApiClient = new OrderApiClient(authStrategy, executor);
+    PaymentApiClient paymentApiClient = new PaymentApiClient(kafkaConsumer, executor); // see note below
+
+    PurchaseValidator purchaseValidator = new PurchaseValidator(productApiClient, orderApiClient, paymentApiClient);
 
 
     @Test

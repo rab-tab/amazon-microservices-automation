@@ -1,11 +1,21 @@
 package com.amazon.tests.validators;
 
+import com.amazon.tests.utils.apiClients.OrderApiClient;
+import com.amazon.tests.utils.apiClients.PaymentApiClient;
+import com.amazon.tests.utils.apiClients.ProductApiClient;
 import com.amazon.tests.workflows.PurchaseResult;
 
 public class PurchaseValidator {
-    private final ProductValidator productValidator = new ProductValidator();
-    private final OrderValidator orderValidator = new OrderValidator();
-    private final PaymentValidator paymentValidator = new PaymentValidator();
+    private final ProductValidator productValidator;
+    private final OrderValidator orderValidator;
+    private final PaymentValidator paymentValidator;
+    public PurchaseValidator(ProductApiClient productApiClient,
+                             OrderApiClient orderApiClient,
+                             PaymentApiClient paymentApiClient) {
+        this.productValidator = new ProductValidator(productApiClient);
+        this.orderValidator = new OrderValidator(orderApiClient);
+        this.paymentValidator = new PaymentValidator(paymentApiClient);
+    }
 
     public void verifyPurchaseCompleted(PurchaseResult purchase) {
 

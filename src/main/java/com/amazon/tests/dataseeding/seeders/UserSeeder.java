@@ -200,16 +200,16 @@ public class UserSeeder extends BaseSeedingManager<UserSeeder.UserSeedResult> {
         createdUsers.clear();
     }
 
-    private void deleteUser(String userId,String accessToken) {
+    private void deleteUser(String userId, String accessToken) {
         try {
-            context.getRestClient().delete(
-                    context.getConfig().baseUrl() + "/api/users/" + userId,accessToken
-            );
+            RequestSpecification spec = context.getRestAssuredConfig().getUserServiceSpec(accessToken);
+            context.getRestClient().delete("/api/users/" + userId, spec);
             log.debug("Deleted user: {}", userId);
         } catch (Exception e) {
             log.warn("Failed to delete user: {}", userId, e);
         }
     }
+
 
     // Builder pattern
 

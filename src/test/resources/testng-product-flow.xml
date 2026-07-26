@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite name="Order Tests" verbose="1">
+    <listeners>
+        <!-- <listener class-name="com.amazon.tests.listeners.AllureTestListener"/>-->
+        <listener class-name="com.epam.reportportal.testng.ReportPortalTestNGListener"/>
+
+    </listeners>
+    <test name="Product Tests">
+        <classes>
+            <class name="com.amazon.tests.regression.productFlow.ProductApiTest"/>
+            <class name="com.amazon.tests.regression.productFlow.ProductApiNegativeTest"/>
+        </classes></test>
+
+</suite>

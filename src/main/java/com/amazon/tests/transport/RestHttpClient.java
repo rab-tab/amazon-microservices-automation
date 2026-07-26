@@ -20,18 +20,27 @@ public class RestHttpClient implements RequestExecutor {
         this.restAssuredConfig = restAssuredConfig;
     }
 
+
+
     @Override
     public ServiceResponse execute(ServiceRequest request) {
-        RequestSpecification spec = resolveSpec(request);  // delegates to existing per-service methods
+        RequestSpecification spec = resolveSpec(request);
 
+        Map<String, Object> pathParams = request.getAttribute(RequestAttributes.PATH_PARAMS, Map.class, Map.of());
         Map<String, Object> queryParams = request.getAttribute(RequestAttributes.QUERY_PARAMS, Map.class, Map.of());
 
+        if (!pathParams.isEmpty()) spec = spec.pathParams(pathParams);
+        if (!queryParams.isEmpty()) spec = spec.queryParams(queryParams);
+        if (request.getHeaders() != null && !request.getHeaders().isEmpty()) {
+            spec = spec.headers(request.getHeaders());
+        }
+
         Response response = switch (request.getMethod()) {
-            case GET    -> restClient.get(request.getEndpoint(), spec, queryParams);
-            case POST   -> restClient.post(request.getEndpoint(), spec, request.getPayload(), request.getHeaders());
-            case PUT    -> restClient.put(request.getEndpoint(), spec, request.getPayload());
-            case DELETE -> restClient.delete(request.getEndpoint(), spec, queryParams);
-            case PATCH  -> restClient.patch(request.getEndpoint(), spec, request.getPayload());
+            case GET     -> restClient.get(request.getEndpoint(), spec);
+            case POST    -> restClient.post(request.getEndpoint(), spec, request.getPayload());
+            case PUT     -> restClient.put(request.getEndpoint(), spec, request.getPayload());
+            case DELETE  -> restClient.delete(request.getEndpoint(), spec);
+            case PATCH   -> restClient.patch(request.getEndpoint(), spec, request.getPayload());
             case OPTIONS -> restClient.options(request.getEndpoint(), spec);
         };
 
