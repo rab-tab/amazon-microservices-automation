@@ -17,25 +17,22 @@ import java.util.List;
 public class PurchaseWorkflow {
     private List<TestModels.ProductResponse> products = new ArrayList<>();
 
+    private final PurchaseResult result = new PurchaseResult();
     private final AuthApiClient authApiClient;
     private final ProductApiClient productApiClient;
     private final OrderApiClient orderApiClient;
     private final PaymentApiClient paymentApiClient;
-    private static KafkaTestConsumer consumer = null;
-    private final PurchaseResult result = new PurchaseResult();
 
-    private PurchaseWorkflow(RequestExecutor executor, AuthStrategy authStrategy, KafkaTestConsumer consumer) {
+    private PurchaseWorkflow(RequestExecutor executor, AuthStrategy authStrategy) {
         this.authApiClient = new AuthApiClient(executor);
         this.productApiClient = new ProductApiClient(executor);
-        this.consumer = consumer;
         this.orderApiClient = new OrderApiClient(authStrategy, executor);
-        this.paymentApiClient = new PaymentApiClient(this.consumer, executor);
+        this.paymentApiClient = new PaymentApiClient(new KafkaTestConsumer("payment.result"), executor);
     }
 
     public static PurchaseWorkflow start(RequestExecutor executor, AuthStrategy authStrategy) {
-        return new PurchaseWorkflow(executor, authStrategy, consumer);
+        return new PurchaseWorkflow(executor, authStrategy);
     }
-
 
 
     public PurchaseWorkflow registerCustomer() {
@@ -92,7 +89,7 @@ public class PurchaseWorkflow {
 
     public PurchaseWorkflow createOrderWithScenario(String testScenario) {
         TestModels.OrderResponse order = orderApiClient.createOrderWithTestScenario(
-                result.getCustomerAuth().getUser().getId(),
+                result.getCustomer().getUser().getId(),
                 TestDataFactory.newIdempotencyKey(),
                 result.getProducts(),
                 testScenario);
@@ -113,7 +110,7 @@ public class PurchaseWorkflow {
     }
     public PurchaseWorkflow createOrder() {
 
-        String userId = result.getCustomerAuth().getUser().getId();
+        String userId = result.getCustomer().getUser().getId();
         String idempotencyKey = java.util.UUID.randomUUID().toString();   // or however you generate these
 
         TestModels.OrderResponse order = orderApiClient.createOrder(
@@ -126,8 +123,8 @@ public class PurchaseWorkflow {
 
         orderApiClient.cancelOrder(
                 result.getOrder().getId(),
-                result.getCustomerAuth().getAccessToken(),
-                result.getCustomerAuth().getUser().getId());
+                result.getCustomer().getAccessToken(),
+                result.getCustomer().getUser().getId());
 
         return this;
     }

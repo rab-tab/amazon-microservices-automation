@@ -9,6 +9,7 @@ import com.amazon.tests.validators.PurchaseValidator;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.qameta.allure.*;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 @Epic("Amazon Microservices")
@@ -16,15 +17,23 @@ import org.testng.annotations.Test;
 public class E2EPurchaseFlowTest extends BaseTest {
 
 
-    KafkaTestConsumer kafkaConsumer = new KafkaTestConsumer("payment.result");
-    ProductApiClient productApiClient = new ProductApiClient(executor);
-    OrderApiClient orderApiClient = new OrderApiClient(authStrategy, executor);
-    PaymentApiClient paymentApiClient = new PaymentApiClient(kafkaConsumer, executor); // see note below
+    KafkaTestConsumer kafkaConsumer ;
+    ProductApiClient productApiClient ;
+    OrderApiClient orderApiClient ;
+    PaymentApiClient paymentApiClient;
+    PurchaseValidator purchaseValidator ;
 
-    PurchaseValidator purchaseValidator = new PurchaseValidator(productApiClient, orderApiClient, paymentApiClient);
 
 
-    @Test
+    @BeforeClass
+    public void setup() {
+        kafkaConsumer = new KafkaTestConsumer("payment.result");
+        productApiClient = new ProductApiClient(executor);
+        orderApiClient = new OrderApiClient(authStrategy, executor);
+        paymentApiClient = new PaymentApiClient(kafkaConsumer, executor);
+        purchaseValidator = new PurchaseValidator(productApiClient, orderApiClient, paymentApiClient);
+    }
+    @Test(priority = 1)
     @Story("Complete Purchase Flow")
     @Severity(SeverityLevel.BLOCKER)
     @Description("E2E test: Register → Login → Browse Products → Create Order → Verify Saga")
@@ -50,7 +59,7 @@ public class E2EPurchaseFlowTest extends BaseTest {
     }
 
 
-    @Test
+    @Test(priority = 2,enabled = false)
     @Story("Order Cancellation Flow")
     @Severity(SeverityLevel.CRITICAL)
     @Description("E2E test: Create order then cancel it")

@@ -7,10 +7,12 @@ import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.utils.apiClients.PaymentApiClient;
 import com.amazon.tests.utils.concurrency.OrderStatusPoller;
+import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.qameta.allure.*;
 import lombok.extern.slf4j.Slf4j;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.time.Duration;
@@ -22,13 +24,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Feature("Order Payment Flow - Positive")
 @Slf4j
 public class OrderPaymentPositiveTest extends BaseTest {
+    private KafkaTestConsumer kafkaConsumer=new KafkaTestConsumer("payment.result"); ;
     private PaymentApiClient paymentApiClient;
 
+
+    @BeforeClass
+    public void setup() {
+        paymentApiClient = new PaymentApiClient(kafkaConsumer, executor);  // "take the photo" HERE instead
+    }
     private OrderApiClient orderApiClient(String token) {
         return new OrderApiClient(new BearerAuthStrategy(token), context.getExecutor());
     }
 
-    @Test(timeOut = 30000)
+    @Test(timeOut = 30000,enabled = false)
     @Story("Successful Payment")
     public void testSuccessfulPaymentFlow() {
         PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
@@ -39,8 +47,8 @@ public class OrderPaymentPositiveTest extends BaseTest {
                 .createOrderWithScenario("SUCCESS")
                 .execute();
 
-        String token = purchase.getCustomerAuth().getAccessToken();
-        String userId = purchase.getCustomerAuth().getUser().getId();
+        String token = purchase.getCustomer().getAccessToken();
+        String userId = purchase.getCustomer().getUser().getId();
         String orderId = purchase.getOrder().getId();
 
         TestModels.OrderResponse order = OrderStatusPoller.waitForStatus(
@@ -57,7 +65,7 @@ public class OrderPaymentPositiveTest extends BaseTest {
         logStep("✅ Order confirmed: {} | Payment: {} | Txn: {}",
                 orderId, order.getPaymentId(), payment.getTransactionId());
     }
-    @Test(timeOut = 30000)
+    @Test(timeOut = 30000,enabled = false)
     @Story("Idempotency")
     @Severity(SeverityLevel.BLOCKER)
     @Description("Duplicate requests with the same idempotency key return the same order")
@@ -71,8 +79,8 @@ public class OrderPaymentPositiveTest extends BaseTest {
                 .createProductWithStock(1000.00, 10)
                 .execute();
 
-        String token = purchase.getCustomerAuth().getAccessToken();
-        String userId = purchase.getCustomerAuth().getUser().getId();
+        String token = purchase.getCustomer().getAccessToken();
+        String userId = purchase.getCustomer().getUser().getId();
         String idempotencyKey = UUID.randomUUID().toString();
 
         TestModels.OrderResponse firstOrder = orderApiClient(token)

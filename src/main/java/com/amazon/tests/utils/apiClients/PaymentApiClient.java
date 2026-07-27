@@ -1,17 +1,12 @@
 package com.amazon.tests.utils.apiClients;
 
-import com.amazon.tests.config.ConfigManager;
 import com.amazon.tests.models.TestModels;
-import com.amazon.tests.transport.RequestExecutor;
+import com.amazon.tests.transport.*;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.fasterxml.jackson.databind.JsonNode;
-import io.restassured.builder.RequestSpecBuilder;
-import io.restassured.http.ContentType;
-import io.restassured.response.Response;
 
+import java.util.Map;
 import java.util.Optional;
-
-import static io.restassured.RestAssured.given;
 
 public class PaymentApiClient {
     private final KafkaTestConsumer consumer;
@@ -27,20 +22,20 @@ public class PaymentApiClient {
      */
 
     public TestModels.PaymentResponse getPayment(String orderId) {
+        ServiceRequest request = ServiceRequest.builder()
+                .method(HttpMethod.GET)
+                .endpoint("/api/v1/payments/order/{orderId}")
+                .attribute(RequestAttributes.PATH_PARAMS, Map.of("orderId", orderId))
+                .targetService(ServiceType.PAYMENT)
+                .build();
 
-        Response response = given()
-                .spec(new RequestSpecBuilder()
-                        .setBaseUri(ConfigManager.getInstance().getPaymentServiceUrl())
-                        .setContentType(ContentType.JSON)
-                        .build())
-                .pathParam("orderId", orderId)
-                .when()
-                .get("/api/v1/payments/order/{orderId}")
-                .then()
-                .statusCode(200)
-                .extract()
-                .response();
-
+        ServiceResponse response = executor.execute(request);
+        if (!response.isSuccess()) {
+            throw new IllegalStateException(
+                    "Failed to fetch payment for order " + orderId
+                            + ", status=" + response.getStatusCode()
+                            + ", body=" + response.getBody());
+        }
         return response.as(TestModels.PaymentResponse.class);
     }
 

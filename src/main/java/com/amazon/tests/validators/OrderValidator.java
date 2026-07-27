@@ -25,8 +25,8 @@ public class OrderValidator {
 
     private TestModels.OrderResponse getOrder(PurchaseResult purchase) {
         return orderApiClient.getOrder(
-                purchase.getCustomerAuth().getAccessToken(),
-                purchase.getCustomerAuth().getUser().getId(),
+                purchase.getCustomer().getAccessToken(),
+                purchase.getCustomer().getUser().getId(),
                 purchase.getOrder().getId());
     }
 
@@ -152,7 +152,7 @@ public class OrderValidator {
     public void verifyOrderBelongsToUser(PurchaseResult purchase) {
 
         assertThat(getOrder(purchase).getUserId())
-                .isEqualTo(purchase.getCustomerAuth().getUser().getId());
+                .isEqualTo(purchase.getCustomer().getUser().getId());
     }
 
     public void verifyProduct(PurchaseResult purchase) {
