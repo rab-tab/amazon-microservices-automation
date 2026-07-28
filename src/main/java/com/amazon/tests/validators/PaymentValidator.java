@@ -61,7 +61,7 @@ public class PaymentValidator {
      */
     public void verifyOrder(PurchaseResult purchase) {
 
-        assertThat(getPayment(purchase).getOrderId())
+        assertThat(getPayment(purchase).getOrderId().toString())
                 .isEqualTo(purchase.getOrder().getId());
     }
 
@@ -70,8 +70,8 @@ public class PaymentValidator {
      */
     public void verifyUser(PurchaseResult purchase) {
 
-        assertThat(getPayment(purchase).getUserId())
-                .isEqualTo(purchase.getCustomerAuth().getUser().getId());
+        assertThat(getPayment(purchase).getUserId().toString())
+                .isEqualTo(purchase.getCustomer().getUser().getId());
     }
 
     /**

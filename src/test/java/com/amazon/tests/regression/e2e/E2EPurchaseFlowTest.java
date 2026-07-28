@@ -59,7 +59,7 @@ public class E2EPurchaseFlowTest extends BaseTest {
     }
 
 
-    @Test(priority = 2,enabled = false)
+    @Test(priority = 2)
     @Story("Order Cancellation Flow")
     @Severity(SeverityLevel.CRITICAL)
     @Description("E2E test: Create order then cancel it")
@@ -79,6 +79,4 @@ public class E2EPurchaseFlowTest extends BaseTest {
 
         logStep("✅ Order Cancellation Flow completed successfully!");
     }
-
-
 }

@@ -12,6 +12,7 @@ import com.amazon.tests.validators.PurchaseValidator;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
 import lombok.extern.slf4j.Slf4j;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -28,14 +29,25 @@ import static org.testng.Assert.assertEquals;
  */
 @Slf4j
 public class OrderCreationFlowTest extends BaseTest {
-    KafkaTestConsumer kafkaConsumer = new KafkaTestConsumer("payment.result");
-    ProductApiClient productApiClient = new ProductApiClient(executor);
-    OrderApiClient orderApiClient = new OrderApiClient(authStrategy, executor);
-    PaymentApiClient paymentApiClient = new PaymentApiClient(kafkaConsumer, executor); // see note below
+    private KafkaTestConsumer kafkaConsumer;
+    private ProductApiClient productApiClient;
+    private OrderApiClient orderApiClient;
+    private PaymentApiClient paymentApiClient;
+    private PurchaseValidator purchaseValidator;
+    private ProductValidator productValidator;
+    private OrderValidator orderValidator;
 
-    PurchaseValidator purchaseValidator = new PurchaseValidator(productApiClient, orderApiClient, paymentApiClient);
-    ProductValidator productValidator = new ProductValidator(productApiClient);
-    OrderValidator orderValidator = new OrderValidator(orderApiClient);
+    @BeforeClass
+    public void setup() {
+        kafkaConsumer = new KafkaTestConsumer("payment.result");
+        productApiClient = new ProductApiClient(executor);
+        orderApiClient = new OrderApiClient(authStrategy, executor);
+        paymentApiClient = new PaymentApiClient(kafkaConsumer, executor);
+
+        purchaseValidator = new PurchaseValidator(productApiClient, orderApiClient, paymentApiClient);
+        productValidator = new ProductValidator(productApiClient);
+        orderValidator = new OrderValidator(orderApiClient);
+    }
 
 
     // ==========================================

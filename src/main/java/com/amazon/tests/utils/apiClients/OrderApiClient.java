@@ -104,8 +104,8 @@ public class OrderApiClient {
 
     public void cancelOrder(String token, String userId, String orderId) {
         ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.PATCH)
-                .endpoint("/api/v1/orders/{id}/cancel")
+                .method(HttpMethod.DELETE)
+                .endpoint("/api/v1/orders/{id}")
                 .attribute(RequestAttributes.PATH_PARAMS, Map.of("id", orderId))
                 .token(token)
                 .headers(Map.of("X-User-Id", userId))

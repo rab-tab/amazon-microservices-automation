@@ -122,9 +122,9 @@ public class PurchaseWorkflow {
     public PurchaseWorkflow cancelOrder() {
 
         orderApiClient.cancelOrder(
-                result.getOrder().getId(),
-                result.getCustomer().getAccessToken(),
-                result.getCustomer().getUser().getId());
+                result.getCustomer().getAccessToken(),      // token
+                result.getCustomer().getUser().getId(),      // userId
+                result.getOrder().getId());
 
         return this;
     }

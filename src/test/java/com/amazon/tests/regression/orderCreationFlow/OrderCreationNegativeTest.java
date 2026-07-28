@@ -12,13 +12,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import static org.testng.Assert.*;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 /**
  * Negative Test Cases for Order Creation
@@ -50,56 +52,70 @@ public class OrderCreationNegativeTest extends BaseTest {
         // VALIDATION TESTS - Missing/Invalid Fields (data-driven)
         // ==========================================
 
-        @DataProvider(name = "invalidOrderPayloads")
-        public Object[][] invalidOrderPayloads() {
-            return new Object[][] {
-                    { "Empty items list", (OrderRequestFactory) (products) ->
-                            TestModels.CreateOrderRequest.builder()
-                                    .items(List.of())
-                                    .shippingAddress("123 Test St")
-                                    .build() },
-                    { "Invalid product ID", (OrderRequestFactory) (products) ->
-                            TestModels.CreateOrderRequest.builder()
-                                    .items(List.of(TestModels.OrderItemRequest.builder()
-                                            .productId("FAKE-PRODUCT-" + UUID.randomUUID())
-                                            .quantity(1)
-                                            .build()))
-                                    .shippingAddress("123 Test St")
-                                    .build() },
-                    { "Zero quantity", (OrderRequestFactory) (products) ->
-                            TestModels.CreateOrderRequest.builder()
-                                    .items(List.of(TestModels.OrderItemRequest.builder()
-                                            .productId(products.get(0).getId())
-                                            .quantity(0)
-                                            .build()))
-                                    .shippingAddress("123 Test St")
-                                    .build() },
-                    { "Negative quantity", (OrderRequestFactory) (products) ->
-                            TestModels.CreateOrderRequest.builder()
-                                    .items(List.of(TestModels.OrderItemRequest.builder()
-                                            .productId(products.get(0).getId())
-                                            .quantity(-5)
-                                            .build()))
-                                    .shippingAddress("123 Test St")
-                                    .build() },
-                    { "Missing shipping address", (OrderRequestFactory) (products) ->
-                            TestModels.CreateOrderRequest.builder()
-                                    .items(List.of(TestModels.OrderItemRequest.builder()
-                                            .productId(products.get(0).getId())
-                                            .quantity(1)
-                                            .build()))
-                                    .build() },
-                    { "Extremely large quantity", (OrderRequestFactory) (products) ->
-                            TestModels.CreateOrderRequest.builder()
-                                    .items(List.of(TestModels.OrderItemRequest.builder()
-                                            .productId(products.get(0).getId())
-                                            .quantity(Integer.MAX_VALUE)
-                                            .build()))
-                                    .shippingAddress("123 Test St")
-                                    .build() }
-            };
-        }
+    @DataProvider(name = "invalidOrderPayloads")
+    public Object[][] invalidOrderPayloads() {
+        return new Object[][] {
+                { "Empty items list", (OrderRequestFactory) (products) ->
+                        TestModels.CreateOrderRequest.builder()
+                                .items(List.of())
+                                .shippingAddress("123 Test St")
+                                .build() },
 
+                { "Invalid product ID", (OrderRequestFactory) (products) ->
+                        TestModels.CreateOrderRequest.builder()
+                                .items(List.of(TestModels.OrderItemRequest.builder()
+                                        .productId("FAKE-PRODUCT-" + UUID.randomUUID())
+                                        .productName("Test Product")
+                                        .unitPrice(BigDecimal.valueOf(10.0))
+                                        .quantity(1)
+                                        .build()))
+                                .shippingAddress("123 Test St")
+                                .build() },
+                { "Zero quantity", (OrderRequestFactory) (products) ->
+                        TestModels.CreateOrderRequest.builder()
+                                .items(List.of(TestModels.OrderItemRequest.builder()
+                                        .productId(products.get(0).getId())
+                                        .productName(products.get(0).getName())
+                                        .unitPrice(products.get(0).getPrice())
+                                        .quantity(0)   // ← only this is deliberately invalid
+                                        .build()))
+                                .shippingAddress("123 Test St")
+                                .build() },
+
+               { "Negative quantity", (OrderRequestFactory) (products) ->
+                        TestModels.CreateOrderRequest.builder()
+                                .items(List.of(TestModels.OrderItemRequest.builder()
+                                        .productId(products.get(0).getId())
+                                        .productName(products.get(0).getName())
+                                        .unitPrice(products.get(0).getPrice())
+                                        .quantity(-5)   // ← only this is deliberately invalid
+                                        .build()))
+                                .shippingAddress("123 Test St")
+                                .build() },
+
+                { "Missing shipping address", (OrderRequestFactory) (products) ->
+                        TestModels.CreateOrderRequest.builder()
+                                .items(List.of(TestModels.OrderItemRequest.builder()
+                                        .productId(products.get(0).getId())
+                                        .productName(products.get(0).getName())
+                                        .unitPrice(products.get(0).getPrice())
+                                        .quantity(1)
+                                        .build()))
+                                // shippingAddress deliberately omitted
+                                .build() },
+
+                { "Extremely large quantity", (OrderRequestFactory) (products) ->
+                        TestModels.CreateOrderRequest.builder()
+                                .items(List.of(TestModels.OrderItemRequest.builder()
+                                        .productId(products.get(0).getId())
+                                        .productName(products.get(0).getName())
+                                        .unitPrice(products.get(0).getPrice())
+                                        .quantity(Integer.MAX_VALUE)   // ← only this is deliberately invalid
+                                        .build()))
+                                .shippingAddress("123 Test St")
+                                .build() }
+        };
+    }
         public interface OrderRequestFactory {
             TestModels.CreateOrderRequest build(List<TestModels.ProductResponse> products);
         }
@@ -116,8 +132,8 @@ public class OrderCreationNegativeTest extends BaseTest {
                     .createProductWithStock(29.99, 500)
                     .execute();
 
-            String token = purchase.getCustomerAuth().getAccessToken();
-            String userId = purchase.getCustomerAuth().getUser().getId();
+            String token = purchase.getCustomer().getAccessToken();
+            String userId = purchase.getCustomer().getUser().getId();
 
             TestModels.CreateOrderRequest invalidRequest = factory.build(purchase.getProducts());
 
@@ -154,7 +170,7 @@ public class OrderCreationNegativeTest extends BaseTest {
             logStep("✅ Test PASSED: Rejected unauthenticated request");
         }
 
-        @Test(description = "Order creation should fail for inactive/deleted user", enabled = false)
+        @Test(description = "Order creation should fail for inactive/deleted user",enabled = false)
         public void testOrderCreationForInactiveUser() {
             logStep("=== Test: Inactive User ===");
 
@@ -167,8 +183,8 @@ public class OrderCreationNegativeTest extends BaseTest {
 
             // Deactivation step would go here once supported by AuthApiClient/UserApiClient
 
-            String token = purchase.getCustomerAuth().getAccessToken();
-            String userId = purchase.getCustomerAuth().getUser().getId();
+            String token = purchase.getCustomer().getAccessToken();
+            String userId = purchase.getCustomer().getUser().getId();
             TestModels.CreateOrderRequest orderRequest =
                     TestDataFactory.defaultOrder(purchase.getProducts()).build();
 
@@ -192,8 +208,8 @@ public class OrderCreationNegativeTest extends BaseTest {
                     .createProductWithStock(29.99, 500)
                     .execute();
 
-            String token = purchase.getCustomerAuth().getAccessToken();
-            String userId = purchase.getCustomerAuth().getUser().getId();
+            String token = purchase.getCustomer().getAccessToken();
+            String userId = purchase.getCustomer().getUser().getId();
             TestModels.CreateOrderRequest orderRequest =
                     TestDataFactory.defaultOrder(purchase.getProducts()).build();
 
@@ -238,7 +254,7 @@ public class OrderCreationNegativeTest extends BaseTest {
                     .build();
 
             ServiceResponse response = orderApiClient().createOrderWithFault(
-                    purchase.getCustomerAuth().getUser().getId(),
+                    purchase.getCustomer().getUser().getId(),
                     UUID.randomUUID().toString(),
                     excessiveRequest,
                     null);
@@ -265,7 +281,7 @@ public class OrderCreationNegativeTest extends BaseTest {
                     TestDataFactory.defaultOrder(purchase.getProducts()).build();
 
             ServiceResponse response = orderApiClient().createOrderWithFault(
-                    purchase.getCustomerAuth().getUser().getId(),
+                    purchase.getCustomer().getUser().getId(),
                     UUID.randomUUID().toString(),
                     orderRequest,
                     null);
@@ -304,7 +320,7 @@ public class OrderCreationNegativeTest extends BaseTest {
                     .build();
 
             ServiceResponse response = orderApiClient().createOrderWithFault(
-                    purchase.getCustomerAuth().getUser().getId(),
+                    purchase.getCustomer().getUser().getId(),
                     UUID.randomUUID().toString(),
                     duplicateRequest,
                     null);
@@ -333,8 +349,8 @@ public class OrderCreationNegativeTest extends BaseTest {
                     .createProductWithStock(29.99, 500)
                     .execute();
 
-            String token = purchase.getCustomerAuth().getAccessToken();
-            String userId = purchase.getCustomerAuth().getUser().getId();
+            String token = purchase.getCustomer().getAccessToken();
+            String userId = purchase.getCustomer().getUser().getId();
             String sharedIdempotencyKey = UUID.randomUUID().toString();
 
             TestModels.CreateOrderRequest orderRequest =

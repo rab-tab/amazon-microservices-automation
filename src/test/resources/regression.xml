@@ -28,8 +28,9 @@
         <suite-file path="kafka-testng.xml" />
         <suite-file path="orderflow-testng.xml" />
         <suite-file path="testng-product-flow.xml" />
-        <suite-file path="payment-testng.xml" />-->
-        <suite-file path="e2e-testng.xml" />
+        <suite-file path="payment-testng.xml" />
+        <suite-file path="e2e-testng.xml" />-->
+        <suite-file path="orderflow-testng.xml" />
     </suite-files>
 
 </suite>
