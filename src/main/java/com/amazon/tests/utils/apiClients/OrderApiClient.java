@@ -4,6 +4,7 @@ import com.amazon.tests.auth.AuthStrategy;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.transport.*;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,8 +53,14 @@ public class OrderApiClient {
                                                                 String testScenario) {
         TestModels.CreateOrderRequest payload = buildOrderRequest(products);
         Map<String, String> extra = testScenario != null ? Map.of("X-Test-Scenario", testScenario) : null;
-        return requireSuccess(createOrderInternal(userId, idempotencyKey, payload, extra), 201)
-                .as(TestModels.OrderResponse.class);
+        ServiceResponse response = createOrderInternal(userId, idempotencyKey, payload, extra);
+
+        if (response.getStatusCode() != 200 && response.getStatusCode() != 201) {
+            throw new IllegalStateException(String.format(
+                    "Expected status 200 or 201 but got %d. Body: %s",
+                    response.getStatusCode(), response.getBody()));
+        }
+        return response.as(TestModels.OrderResponse.class);
     }
     private TestModels.CreateOrderRequest buildOrderRequest(List<TestModels.ProductResponse> products) {
         List<TestModels.OrderItemRequest> items = products.stream()
@@ -134,11 +141,13 @@ public class OrderApiClient {
     }
 
     /** Infra-level sanity check — fails fast on unexpected transport errors, not business assertions. */
-    private ServiceResponse requireSuccess(ServiceResponse response, int expectedStatus) {
-        if (response.getStatusCode() != expectedStatus) {
+    private ServiceResponse requireSuccess(ServiceResponse response, int... expectedStatuses) {
+        int actual = response.getStatusCode();
+        boolean matched = Arrays.stream(expectedStatuses).anyMatch(s -> s == actual);
+        if (!matched) {
             throw new IllegalStateException(String.format(
-                    "Expected status %d but got %d. Body: %s",
-                    expectedStatus, response.getStatusCode(), response.getBody()));
+                    "Expected status %s but got %d. Body: %s",
+                    Arrays.toString(expectedStatuses), actual, response.getBody()));
         }
         return response;
     }

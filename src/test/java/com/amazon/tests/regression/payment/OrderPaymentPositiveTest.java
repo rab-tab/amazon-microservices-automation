@@ -36,7 +36,7 @@ public class OrderPaymentPositiveTest extends BaseTest {
         return new OrderApiClient(new BearerAuthStrategy(token), context.getExecutor());
     }
 
-    @Test(timeOut = 30000,enabled = false)
+    @Test(timeOut = 30000)
     @Story("Successful Payment")
     public void testSuccessfulPaymentFlow() {
         PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
@@ -65,7 +65,7 @@ public class OrderPaymentPositiveTest extends BaseTest {
         logStep("✅ Order confirmed: {} | Payment: {} | Txn: {}",
                 orderId, order.getPaymentId(), payment.getTransactionId());
     }
-    @Test(timeOut = 30000,enabled = false)
+    @Test(timeOut = 30000)
     @Story("Idempotency")
     @Severity(SeverityLevel.BLOCKER)
     @Description("Duplicate requests with the same idempotency key return the same order")

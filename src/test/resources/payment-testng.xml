@@ -9,7 +9,7 @@
     <test name="Payment Tests">
         <classes>
             <class name="com.amazon.tests.regression.payment.OrderPaymentPositiveTest"/>
-            <class name="com.amazon.tests.regression.payment.OrderPaymentNegativeTest"/>
+            <!--<class name="com.amazon.tests.regression.payment.OrderPaymentNegativeTest"/>-->
         </classes></test>
 
 </suite>

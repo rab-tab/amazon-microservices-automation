@@ -85,7 +85,7 @@ public class OrderPaymentNegativeTest extends BaseTest {
                                 .expectedFraudScore(95)
                                 .build()
                 },
-               /* {
+                {
                         PaymentFailureScenario.builder()
                                 .description("Card expired")
                                 .testScenarioHeader("CARD_EXPIRED")
@@ -104,7 +104,7 @@ public class OrderPaymentNegativeTest extends BaseTest {
                                 .containsMatch(true)
                                 .expectedRetryable(true)
                                 .build()
-                }*/
+                }
         };
     }
 
@@ -161,7 +161,7 @@ public class OrderPaymentNegativeTest extends BaseTest {
     // Timeout — distinct shape (stays PENDING, no poll-to-terminal-state)
     // ══════════════════════════════════════════════════════════════
 
-    @Test(timeOut = 30000,enabled = false)
+    @Test(timeOut = 30000)
     @Story("Payment Timeout")
     @Severity(SeverityLevel.NORMAL)
     @Description("Verify order remains PENDING when payment times out")
