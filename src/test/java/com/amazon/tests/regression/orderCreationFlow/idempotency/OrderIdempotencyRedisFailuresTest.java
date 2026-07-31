@@ -95,7 +95,7 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
         log.warn("║  If the service is NOT pointed at the proxy above, every test in    ║");
         log.warn("║  this class will pass or fail for the WRONG REASON — the injected   ║");
         log.warn("║  network chaos will have zero effect on the real request path.      ║");
-        log.warn("╚══════════════════════════════════════════════════════════════════╝");
+        log.warn("╚══════════════════════════════════════════d════════════════════════╝");
     }
 
     @AfterSuite
@@ -221,7 +221,7 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
         logStep("REALISTIC TEST: Duplicate requests still dedup correctly via DB when Redis is down");
 
         try {
-            redisProxy.toxics().bandwidth("cut_connection", ToxicDirection.DOWNSTREAM, 0);
+            redisProxy.toxics().resetPeer("cut_connection", ToxicDirection.DOWNSTREAM, 0);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -251,7 +251,7 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
         String idempotencyKey = TestDataFactory.newIdempotencyKey();
         String userId = purchase.getCustomer().getUser().getId();
 
-        redisProxy.toxics().bandwidth("cut_connection", ToxicDirection.DOWNSTREAM, 0);
+        redisProxy.toxics().resetPeer("cut_connection", ToxicDirection.DOWNSTREAM, 0);
         logStep("  ✂️  Redis connection CUT");
 
         TestModels.OrderResponse order = orderApiClient.createOrder(userId, idempotencyKey, purchase.getProducts());
