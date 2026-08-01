@@ -67,7 +67,7 @@ pipeline {
 
     environment {
         AWS_REGION     = "us-east-1"                 // must match the dev pipeline's region
-        AWS_ACCOUNT_ID = "123456789012"               // ⚠️ replace with your actual account ID
+        AWS_ACCOUNT_ID = "978185568053"               // ⚠️ replace with your actual account ID
         REGISTRY      = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         PROJECT       = "amazon"  // images = <ECR_REGISTRY>/amazon-<service>:<tag>
         IMAGE_TAG     = "${params.IMAGE_TAG}"
