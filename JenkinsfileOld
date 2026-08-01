@@ -66,10 +66,8 @@ pipeline {
     }
 
     environment {
-        AWS_REGION     = "us-east-1"                 // must match the dev pipeline's region
-        AWS_ACCOUNT_ID = "123456789012"               // ⚠️ replace with your actual account ID
-        REGISTRY      = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        PROJECT       = "amazon"  // images = <ECR_REGISTRY>/amazon-<service>:<tag>
+        REGISTRY      = "rabtab"
+        PROJECT       = "amazon"  // images = rabtab/amazon-<service>:<tag>
         IMAGE_TAG     = "${params.IMAGE_TAG}"
         COMPOSE_FILE  = "../amazon-microservices/docker/ci/docker-compose.local.yml"
         MAVEN_OPTS    = "-Xmx256m -XX:+UseG1GC"
@@ -82,26 +80,6 @@ pipeline {
     }
 
     stages {
-
-        // ── Stage 0: ECR Login ─────────────────────────────────────
-        // Must run before Context — that stage does the docker pulls, and ECR
-        // (unlike Docker Hub) requires an authenticated session for every pull,
-        // not just pushes. Uses the same jenkins-ecr IAM user/credential as the
-        // dev pipeline. Token is valid 12h, so one login per run is enough.
-        stage('ECR Login') {
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-ecr-creds'
-                ]]) {
-                    sh """
-                        aws ecr get-login-password --region ${AWS_REGION} | \
-                          docker login --username AWS --password-stdin ${REGISTRY}
-                    """
-                }
-                echo "✅ Authenticated to ECR: ${REGISTRY}"
-            }
-        }
 
         // ── Stage 1: Print Context ────────────────────────────────
         // Always know exactly what you're testing and why.
@@ -121,7 +99,7 @@ Skip E2E:     ${params.SKIP_E2E}
 
                 // ── Resolve per-service image tags ───────────────────
                 // For each service, try to pull IMAGE_TAG first.
-                // If it doesn't exist in ECR (service wasn't changed
+                // If it doesn't exist on Docker Hub (service wasn't changed
                 // in this commit), fall back to :latest.
                 // This means QA always runs with the best available image:
                 //   - Changed services  → tested at exact commit SHA
@@ -158,7 +136,7 @@ Skip E2E:     ${params.SKIP_E2E}
                                     resolvedTags[s] = 'latest'
                                     echo "⏩ ${s}: tag ${IMAGE_TAG} not found — using :latest"
                                 } else {
-                                    error("❌ ${s}: neither :${IMAGE_TAG} nor :latest found in ECR. Run a full build first.")
+                                    error("❌ ${s}: neither :${IMAGE_TAG} nor :latest found on Docker Hub. Run a full build first.")
                                 }
                             }
                         }
