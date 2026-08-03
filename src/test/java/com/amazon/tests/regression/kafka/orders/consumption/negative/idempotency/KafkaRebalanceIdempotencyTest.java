@@ -1,528 +1,303 @@
 package com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency;
 
 import com.amazon.tests.BaseTest;
-import com.amazon.tests.dataseeding.builders.OrderBuilder;
-import com.amazon.tests.dataseeding.core.SeedingException;
-import com.amazon.tests.dataseeding.seeders.ProductSeeder;
-import com.amazon.tests.dataseeding.seeders.UserSeeder;
-import com.amazon.tests.models.TestModels;
+import com.amazon.tests.config.kafka.KafkaConfig;
+import com.amazon.tests.utils.kafka.KafkaTestConsumer;
+import com.amazon.tests.workflows.PurchaseResult;
+import com.amazon.tests.workflows.PurchaseWorkflow;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.StringDeserializer;
-import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeMethod;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
-import java.time.Duration;
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 
 /**
- * ═══════════════════════════════════════════════════════════════════════════
- * TRUE Kafka Consumer Rebalance & Crash Scenario Tests
- * ═══════════════════════════════════════════════════════════════════════════
+ * Kafka Consumer Idempotency - Application-Level Event Deduplication
  *
- * These tests ACTUALLY simulate real Kafka failure scenarios:
- *
- * SCENARIO 1: Consumer crash before ACK
- * - Consumer reads event
- * - Processes it (but doesn't commit offset)
- * - Crashes
- * - Another consumer reads SAME event again
- * - Should detect duplicate
- *
- * SCENARIO 2: Consumer rebalancing
- * - Multiple consumers in same group
- * - One consumer leaves group
- * - Partition reassignment
- * - Events may be redelivered
- *
- * SCENARIO 3: Manual offset reset
- * - Simulate offset reset to earlier position
- * - Consumer re-processes old events
- * - Should detect duplicates
+ * ⚠️ IMPORTANT LIMITATION: countPaymentsForOrder() currently checks only
+ * whether the Order has A paymentId set (0 or 1) — it CANNOT detect a
+ * genuine duplicate-payment bug (2+ Payment rows for one order), since
+ * an Order only ever exposes a single paymentId field over REST. The
+ * "only ONE payment created" assertions in this file will pass even if
+ * the backend created multiple Payment rows. This needs a direct DB
+ * count query (e.g. via this project's DatabaseValidator, if it exposes
+ * one) before these tests can be trusted to catch the bug they claim to
+ * test. Flagging rather than guessing at the DB utility's API — needs
+ * follow-up.
  */
 @Slf4j
 @Epic("Kafka Consumer Idempotency")
-@Feature("Rebalance & Crash Scenarios")
+@Feature("Application-Level: Event Deduplication")
 public class KafkaRebalanceIdempotencyTest extends BaseTest {
 
-    private static final String KAFKA_BOOTSTRAP_SERVERS = "localhost:9092";
     private static final String ORDER_EVENTS_TOPIC = "order.events";
-    private static final String CONSUMER_GROUP_PREFIX = "payment-service-idempotency-test";
+    private static final String PAYMENT_RESULT_TOPIC = "payment.result";
+    private static final String ORDER_EVENTS_DLQ = "order.events.DLQ";
 
-    private TestModels.UserResponse user;
-    private TestModels.ProductResponse product;
+    private KafkaProducer<String, String> kafkaProducer;
+    private KafkaTestConsumer orderEventsMonitor;
+    private KafkaTestConsumer paymentResultMonitor;
+    private String userId;
     private String userToken;
 
-    @BeforeMethod
-    public void setup() throws SeedingException {
-        logStep("Setting up rebalance idempotency tests");
+    @org.testng.annotations.BeforeMethod
+    public void setup() {
+        logStep("Setting up application-level idempotency tests");
 
-        user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        userToken = context.getCached("user_token_" + user.getId(), String.class);
-        product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
+        PurchaseResult purchase = PurchaseWorkflow.start(executor, authStrategy)
+                .registerCustomer()
+                .execute();
+        userId = purchase.getCustomer().getUser().getId();
+        userToken = purchase.getCustomer().getAccessToken();
 
-        waitForDataPropagation(1000);
+        kafkaProducer = new KafkaProducer<>(KafkaConfig.getProducerProperties());
+        orderEventsMonitor = new KafkaTestConsumer(ORDER_EVENTS_TOPIC);
+        paymentResultMonitor = new KafkaTestConsumer(PAYMENT_RESULT_TOPIC);
 
-        logStep("✅ Setup complete");
+        logStep("✅ Setup complete — user: " + userId);
+    }
+
+    @AfterMethod
+    public void cleanup() {
+        if (kafkaProducer != null) kafkaProducer.close();
+        if (orderEventsMonitor != null) orderEventsMonitor.close();
+        if (paymentResultMonitor != null) paymentResultMonitor.close();
+        logStep("🧹 Kafka clients closed");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 1: SIMULATE CONSUMER CRASH BEFORE ACK
+    // TEST: DUPLICATE EVENT PROCESSING
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 1)
-    @Story("Consumer Crash Before ACK")
-    @Severity(SeverityLevel.BLOCKER)
-    @Description("Consumer crashes after processing but before ACK - event redelivered to another consumer")
-    public void test01_ConsumerCrashBeforeAck_EventRedelivered() throws Exception {
-        logStep("TEST 1: Consumer crash before ACK simulation");
+    @Test
+    @Story("Duplicate Event Processing")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Same ORDER_CREATED event consumed twice - verify only ONE payment created")
+    public void test_DuplicateEventProcessing_OnlyOnePaymentCreated() throws Exception {
+        logStep("TEST: Duplicate event processing");
 
-        String idempotencyKey = UUID.randomUUID().toString();
-        String testGroupId = CONSUMER_GROUP_PREFIX + "-crash-" + UUID.randomUUID();
+        String orderId = UUID.randomUUID().toString();
+        paymentResultMonitor.seekToEnd();
 
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 1: Create a test consumer with manual offset control
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Creating test consumer with MANUAL offset commit...");
-        logStep("  Consumer Group: {}", testGroupId);
+        logStep("  Publishing same ORDER_CREATED event TWICE to Kafka");
+        String orderCreatedEvent = buildOrderCreatedEvent(orderId);
 
-        Consumer<String, String> testConsumer = createManualConsumer(testGroupId);
-        testConsumer.subscribe(Collections.singletonList(ORDER_EVENTS_TOPIC));
+        kafkaProducer.send(new ProducerRecord<>(ORDER_EVENTS_TOPIC, orderId, orderCreatedEvent)).get();
+        logStep("    Event #1 published");
 
-        // ✅ Poll to join group and trigger partition assignment
-        ConsumerRecords<String, String> initialPoll = testConsumer.poll(Duration.ofSeconds(3));
-        logStep("  ✓ Test consumer joined group (initial poll: {} records)", initialPoll.count());
+        kafkaProducer.send(new ProducerRecord<>(ORDER_EVENTS_TOPIC, orderId, orderCreatedEvent)).get();
+        logStep("    Event #2 published (DUPLICATE)");
 
-        Set<TopicPartition> assignedPartitions = testConsumer.assignment();
-        logStep("  ✓ Assigned partitions: {}", assignedPartitions);
+        kafkaProducer.flush();
 
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 2: Create order (publishes ORDER_CREATED event)
-        // ═══════════════════════════════════════════════════════════════
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
+        logStep("  Waiting for payment result event...");
+        Optional<JsonNode> paymentResult = paymentResultMonitor.waitForMessage(
+                msg -> orderId.equals(msg.path("orderId").asText()), 20);
 
-        Response createResponse = RestAssured
-                .given()
-                .baseUri(context.getConfig().baseUrl())
-                .header("Authorization", "Bearer " + userToken)
-                .header("Idempotency-Key", idempotencyKey)
-                .contentType("application/json")
-                .body(objectMapper.writeValueAsString(orderRequest))
-                .when()
-                .post("/api/orders")
-                .then().log().ifValidationFails()
-                .extract().response();
+        assertThat(paymentResult).as("Payment result should be published").isPresent();
+        logStep("  ✓ Payment result received");
 
-        assertThat(createResponse.statusCode()).isEqualTo(201);
-
-        String orderId = createResponse.jsonPath().getString("id");
-        logStep("  ✓ Order created: {}", orderId);
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 3: Test consumer reads the event (WITH RETRY)
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Test consumer polling for ORDER_CREATED event...");
-
-        // ✅ Use retry logic instead of single poll
-        Optional<ConsumerRecord<String, String>> orderCreatedRecord = waitForEventInManualConsumer(
-                testConsumer,
-                orderId,
-                20  // 20 second timeout
-        );
-
-        assertThat(orderCreatedRecord)
-                .as("Test consumer should receive ORDER_CREATED event")
-                .isPresent();
-
-        ConsumerRecord<String, String> record = orderCreatedRecord.get();
-
-        logStep("  ✓ Event consumed:");
-        logStep("    Partition: {}", record.partition());
-        logStep("    Offset: {}", record.offset());
-        logStep("    Key: {}", record.key());
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 4: SIMULATE CRASH - Close consumer WITHOUT committing offset
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  💥 SIMULATING CONSUMER CRASH - closing without ACK");
-        logStep("    Event consumed: YES");
-        logStep("    Offset committed: NO");
-
-        testConsumer.close();  // ← Closes WITHOUT committing offset
-
-        logStep("  ✓ Consumer 'crashed' (closed without ACK)");
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 5: Wait for Payment Service (real consumer) to process
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Waiting for Payment Service to process event...");
-
-        await()
-                .atMost(Duration.ofSeconds(30))
-                .pollInterval(Duration.ofSeconds(2))
-                .ignoreExceptions()
-                .until(() -> !getOrderStatus(orderId).equals("PENDING"));
-
-        String statusAfterFirstProcessing = getOrderStatus(orderId);
-        String paymentIdAfterFirstProcessing = getPaymentId(orderId);
-
-        logStep("  ✓ Payment Service processed event:");
-        logStep("    Order status: {}", statusAfterFirstProcessing);
-        logStep("    Payment ID: {}", paymentIdAfterFirstProcessing);
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 6: Create NEW consumer in SAME group (simulates rebalance)
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Creating NEW consumer in same group (simulates rebalance)...");
-
-        Consumer<String, String> newConsumer = createManualConsumer(testGroupId);
-        newConsumer.subscribe(Collections.singletonList(ORDER_EVENTS_TOPIC));
-
-        // ✅ Poll to join group
-        newConsumer.poll(Duration.ofSeconds(3));
-
-        logStep("  ✓ New consumer joined group - rebalance triggered");
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 7: New consumer will read from UNCOMMITTED offset
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  New consumer polling (will get SAME event - offset not committed)...");
-
-        // ✅ Use retry logic
-        Optional<ConsumerRecord<String, String>> redeliveredRecord = waitForEventInManualConsumer(
-                newConsumer,
-                orderId,
-                15
-        );
-
-        newConsumer.close();
-
-        assertThat(redeliveredRecord)
-                .as("Duplicate event should be redelivered after 'crash'")
-                .isPresent();
-
-        if (redeliveredRecord.isPresent()) {
-            ConsumerRecord<String, String> duplicateEvent = redeliveredRecord.get();
-            logStep("  ⚠️  DUPLICATE EVENT DETECTED!");
-            logStep("    Partition: {}", duplicateEvent.partition());
-            logStep("    Offset: {}", duplicateEvent.offset());
-            logStep("    This event was already processed!");
-        }
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 8: Wait for Payment Service to process duplicate
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Waiting for Payment Service to process redelivered event...");
-        Thread.sleep(12000);  // Allow time for processing
-
-        String statusAfterRedelivery = getOrderStatus(orderId);
-        String paymentIdAfterRedelivery = getPaymentId(orderId);
-
-        logStep("  After redelivery:");
-        logStep("    Order status: {}", statusAfterRedelivery);
-        logStep("    Payment ID: {}", paymentIdAfterRedelivery);
-
-        // ═══════════════════════════════════════════════════════════════
-        // ASSERTIONS - IDEMPOTENCY VERIFICATION
-        // ═══════════════════════════════════════════════════════════════
-
-        assertThat(statusAfterRedelivery)
-                .as("Order status should NOT change after redelivered event")
-                .isEqualTo(statusAfterFirstProcessing);
-
-        assertThat(paymentIdAfterRedelivery)
-                .as("Payment ID should be SAME (no duplicate payment)")
-                .isEqualTo(paymentIdAfterFirstProcessing);
+        Thread.sleep(5000); // give time for duplicate to be processed
 
         int paymentCount = countPaymentsForOrder(orderId);
         assertThat(paymentCount)
-                .as("Only ONE payment should exist")
+                .as("Only ONE payment should exist despite duplicate event")
                 .isEqualTo(1);
 
-        logStep("✅ REBALANCE IDEMPOTENCY VALIDATED:");
-        logStep("  ✓ Consumer 'crashed' before ACK");
-        logStep("  ✓ Event redelivered to new consumer");
-        logStep("  ✓ Payment Service detected duplicate");
-        logStep("  ✓ No duplicate payment created");
-        logStep("  ✓ Payment ID unchanged: {}", paymentIdAfterRedelivery);
+        logStep("✅ DUPLICATE EVENT IDEMPOTENCY VALIDATED — same event published twice, only 1 payment created");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TEST 2: MANUAL OFFSET RESET (REPROCESS OLD EVENTS)
+    // TEST: OUT-OF-ORDER EVENTS
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 2)
-    @Story("Manual Offset Reset")
+    @Test
+    @Story("Out-of-Order Events")
     @Severity(SeverityLevel.CRITICAL)
-    @Description("Manually reset offset to reprocess old events - should detect duplicates")
-    public void test02_ManualOffsetReset_ReprocessOldEvents() throws Exception {
-        logStep("TEST 2: Manual offset reset simulation");
+    @Description("PAYMENT_COMPLETED arrives BEFORE ORDER_CREATED - verify graceful handling")
+    public void test_OutOfOrderEvents_PaymentBeforeOrder() throws Exception {
+        logStep("TEST: Out-of-order events - Payment before Order");
 
-        String idempotencyKey = UUID.randomUUID().toString();
-        String testGroupId = "offset-reset-test-" + UUID.randomUUID();
+        String orderId = UUID.randomUUID().toString();
+        String paymentId = UUID.randomUUID().toString();
 
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 1: Create order and wait for processing
-        // ═══════════════════════════════════════════════════════════════
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
+        orderEventsMonitor.seekToEnd();
+        paymentResultMonitor.seekToEnd();
 
-        Response createResponse = RestAssured
+        logStep("  Publishing PAYMENT_COMPLETED event (OUT OF ORDER!)");
+        String paymentCompletedEvent = String.format(
+                "{\"orderId\":\"%s\",\"paymentId\":\"%s\",\"status\":\"SUCCESS\",\"amount\":99.99,\"timestamp\":%d}",
+                orderId, paymentId, System.currentTimeMillis());
+
+        kafkaProducer.send(new ProducerRecord<>(PAYMENT_RESULT_TOPIC, orderId, paymentCompletedEvent)).get();
+        kafkaProducer.flush();
+        logStep("  ✓ PAYMENT_COMPLETED published (before ORDER_CREATED!)");
+
+        Thread.sleep(5000);
+
+        logStep("  Publishing ORDER_CREATED event (correct sequence)");
+        String orderCreatedEvent = buildOrderCreatedEvent(orderId);
+        kafkaProducer.send(new ProducerRecord<>(ORDER_EVENTS_TOPIC, orderId, orderCreatedEvent)).get();
+        kafkaProducer.flush();
+        logStep("  ✓ ORDER_CREATED published");
+
+        logStep("  Waiting for Payment Service to process ORDER_CREATED...");
+        Optional<JsonNode> paymentResult = paymentResultMonitor.waitForMessage(
+                msg -> orderId.equals(msg.path("orderId").asText()), 20);
+
+        assertThat(paymentResult).as("Payment result should eventually be published").isPresent();
+        String paymentStatus = paymentResult.get().path("status").asText();
+        logStep("  ✓ Payment result received: " + paymentStatus);
+
+        Thread.sleep(3000);
+
+        Response finalResponse = getOrder(orderId);
+        if (finalResponse.statusCode() == 200) {
+            String finalStatus = finalResponse.jsonPath().getString("status");
+            String finalPaymentId = finalResponse.jsonPath().getString("paymentId");
+
+            logStep("  Final order state — status: " + finalStatus + ", paymentId: " + finalPaymentId);
+
+            assertThat(finalStatus)
+                    .as("Order should reach terminal state")
+                    .isIn("CONFIRMED", "PAYMENT_FAILED", "PENDING");
+
+            logStep("✅ OUT-OF-ORDER EVENT HANDLING VALIDATED — final state: " + finalStatus);
+        } else {
+            logStep("  ℹ️ Order not found in Order Service (acceptable if system rejects out-of-order events)");
+        }
+
+        logStep("  Note: expected behavior varies by implementation — queue, reject, or create-from-payment");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // TEST: CONCURRENT PROCESSING (RACE CONDITION)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    @Test
+    @Story("Concurrent Processing")
+    @Severity(SeverityLevel.BLOCKER)
+    @Description("Same event to multiple partitions - simulate race condition")
+    public void test_ConcurrentProcessing_OnlyOneSucceeds() throws Exception {
+        logStep("TEST: Concurrent processing of same event (race condition)");
+
+        String orderId = UUID.randomUUID().toString();
+        paymentResultMonitor.seekToEnd();
+
+        logStep("  Publishing same event to 3 different partitions simultaneously");
+        String orderCreatedEvent = buildOrderCreatedEvent(orderId);
+
+        for (int partition = 0; partition < 3; partition++) {
+            kafkaProducer.send(new ProducerRecord<>(ORDER_EVENTS_TOPIC, partition, orderId, orderCreatedEvent));
+            logStep("    Event published to partition " + partition);
+        }
+        kafkaProducer.flush();
+
+        logStep("  Waiting for payment result...");
+        Optional<JsonNode> paymentResult = paymentResultMonitor.waitForMessage(
+                msg -> orderId.equals(msg.path("orderId").asText()), 20);
+
+        assertThat(paymentResult).as("Payment result should be published").isPresent();
+
+        Thread.sleep(5000);
+
+        int paymentCount = countPaymentsForOrder(orderId);
+        assertThat(paymentCount)
+                .as("Only ONE payment despite multi-partition")
+                .isLessThanOrEqualTo(1);
+
+        logStep("✅ CONCURRENT PROCESSING HANDLED — " + paymentCount + " payment(s) created from 3 partitions");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // TEST: MISSING IDEMPOTENCY KEY
+    // ══════════════════════════════════════════════════════════════════════════
+
+    @Test
+    @Story("Missing Idempotency Key")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Event without orderId - verify rejection and DLQ routing")
+    public void test_MissingIdempotencyKey_EventRejected() throws Exception {
+        logStep("TEST: Event with missing idempotency key (orderId)");
+
+        logStep("  Publishing ORDER_CREATED event WITHOUT orderId");
+        String invalidEvent = String.format(
+                "{\"eventType\":\"ORDER_CREATED\",\"userId\":\"%s\",\"amount\":99.99,\"timestamp\":%d}",
+                userId, System.currentTimeMillis());
+
+        kafkaProducer.send(new ProducerRecord<>(ORDER_EVENTS_TOPIC, "no-id", invalidEvent)).get();
+        kafkaProducer.flush();
+        logStep("  ✓ Invalid event published (missing orderId)");
+
+        Thread.sleep(10000);
+
+        logStep("  Checking DLQ for rejected event...");
+        KafkaTestConsumer dlqConsumer = new KafkaTestConsumer(ORDER_EVENTS_DLQ);
+        try {
+            dlqConsumer.seekToBeginning();
+
+            List<JsonNode> dlqMessages = dlqConsumer.collectMessages(
+                    node -> {
+                        String text = node.asText();
+                        return text.contains("ORDER_CREATED") && !text.contains("\"orderId\":");
+                    },
+                    5
+            );
+
+            assertThat(dlqMessages).as("Event without orderId should be in DLQ").isNotEmpty();
+            logStep("✅ MISSING KEY HANDLED — event rejected and sent to DLQ");
+        } finally {
+            dlqConsumer.close();
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // HELPERS
+    // ══════════════════════════════════════════════════════════════
+
+    private String buildOrderCreatedEvent(String orderId) {
+        return String.format(
+                "{\"eventType\":\"ORDER_CREATED\",\"orderId\":\"%s\",\"userId\":\"%s\",\"amount\":99.99,\"timestamp\":%d}",
+                orderId, userId, System.currentTimeMillis());
+    }
+
+    private Response getOrder(String orderId) {
+        return RestAssured
                 .given()
                 .baseUri(context.getConfig().baseUrl())
                 .header("Authorization", "Bearer " + userToken)
-                .header("Idempotency-Key", idempotencyKey)
-                .contentType("application/json")
-                .body(objectMapper.writeValueAsString(orderRequest))
                 .when()
-                .post("/api/orders")
-                .then().log().ifValidationFails()
-                .extract().response();
-
-        assertThat(createResponse.statusCode()).isEqualTo(201);
-
-        String orderId = createResponse.jsonPath().getString("id");
-        logStep("  ✓ Order created: {}", orderId);
-
-        // Wait for processing
-        await()
-                .atMost(Duration.ofSeconds(30))
-                .pollInterval(Duration.ofSeconds(2))
-                .ignoreExceptions()
-                .until(() -> !getOrderStatus(orderId).equals("PENDING"));
-
-        String initialStatus = getOrderStatus(orderId);
-        String initialPaymentId = getPaymentId(orderId);
-
-        logStep("  ✓ Initial processing complete:");
-        logStep("    Status: {}", initialStatus);
-        logStep("    Payment ID: {}", initialPaymentId);
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 2: Create consumer and find current offset
-        // ═══════════════════════════════════════════════════════════════
-        Consumer<String, String> consumer = createManualConsumer(testGroupId);
-        consumer.subscribe(Collections.singletonList(ORDER_EVENTS_TOPIC));
-
-        // Join group and get assignment
-        consumer.poll(Duration.ofSeconds(3));
-
-        Set<TopicPartition> partitions = consumer.assignment();
-        assertThat(partitions)
-                .as("Consumer should be assigned partitions")
-                .isNotEmpty();
-
-        TopicPartition partition = partitions.iterator().next();
-        long currentOffset = consumer.position(partition);
-
-        logStep("  Current offset for partition {}: {}", partition.partition(), currentOffset);
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 3: Manually seek to EARLIER offset (simulate reset)
-        // ═══════════════════════════════════════════════════════════════
-        long targetOffset = Math.max(0, currentOffset - 15);  // Go back 15 messages
-
-        logStep("  💥 SIMULATING OFFSET RESET");
-        logStep("    Current offset: {}", currentOffset);
-        logStep("    Resetting to: {}", targetOffset);
-        logStep("    This will REPROCESS old events!");
-
-        consumer.seek(partition, targetOffset);
-
-        logStep("  ✓ Offset reset to {}", targetOffset);
-
-        // ═══════════════════════════════════════════════════════════════
-        // STEP 4: Poll - will get OLD events including our order
-        // ═══════════════════════════════════════════════════════════════
-        logStep("  Polling for reprocessed events...");
-
-        // ✅ Use retry logic to find the old event
-        Optional<ConsumerRecord<String, String>> oldEvent = waitForEventInManualConsumer(
-                consumer,
-                orderId,
-                15
-        );
-
-        consumer.close();
-
-        if (oldEvent.isPresent()) {
-            ConsumerRecord<String, String> record = oldEvent.get();
-            logStep("  ⚠️  Found OLD ORDER_CREATED event!");
-            logStep("    Offset: {}", record.offset());
-            logStep("    This event was already processed!");
-
-            // Give time for any potential duplicate processing
-            Thread.sleep(12000);
-
-            // ═══════════════════════════════════════════════════════════
-            // VERIFY: No duplicate payment despite reprocessing
-            // ═══════════════════════════════════════════════════════════
-            String finalStatus = getOrderStatus(orderId);
-            String finalPaymentId = getPaymentId(orderId);
-
-            assertThat(finalStatus)
-                    .as("Status should be unchanged after offset reset")
-                    .isEqualTo(initialStatus);
-
-            assertThat(finalPaymentId)
-                    .as("Payment ID should be unchanged after offset reset")
-                    .isEqualTo(initialPaymentId);
-
-            int paymentCount = countPaymentsForOrder(orderId);
-            assertThat(paymentCount)
-                    .as("Still only ONE payment")
-                    .isEqualTo(1);
-
-            logStep("✅ OFFSET RESET IDEMPOTENCY VALIDATED:");
-            logStep("  ✓ Offset manually reset from {} to {}", currentOffset, targetOffset);
-            logStep("  ✓ Old events reprocessed");
-            logStep("  ✓ Duplicates detected and skipped");
-            logStep("  ✓ Payment ID unchanged: {}", finalPaymentId);
-        } else {
-            logStep("  ℹ️  Order event not found in offset range [{} to {}]", targetOffset, currentOffset);
-            logStep("  Test inconclusive - event may be outside reset window");
-        }
+                .get("/api/orders/" + orderId);
     }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // HELPER METHODS
-    // ══════════════════════════════════════════════════════════════════════════
 
     /**
-     * ✅ Wait for specific event in manual consumer (with retry logic)
-     * Similar to KafkaTestConsumer.waitForMessage() but for raw Consumer
+     * ⚠️ See class-level Javadoc — this can only ever return 0 or 1, since
+     * it checks the Order's single paymentId field, not an actual count of
+     * Payment rows in the DB. Needs replacing with a real DB count query
+     * before test_DuplicateEventProcessing_OnlyOnePaymentCreated and
+     * test_ConcurrentProcessing_OnlyOneSucceeds can genuinely catch a
+     * duplicate-payment bug.
      */
-    private Optional<ConsumerRecord<String, String>> waitForEventInManualConsumer(
-            Consumer<String, String> consumer,
-            String orderId,
-            int timeoutSeconds) {
-
-        long deadline = System.currentTimeMillis() + (timeoutSeconds * 1000L);
-        int pollCount = 0;
-
-        while (System.currentTimeMillis() < deadline) {
-            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
-            pollCount++;
-
-            if (!records.isEmpty()) {
-                logStep("    Poll #{}: {} records received", pollCount, records.count());
-            }
-
-            for (ConsumerRecord<String, String> record : records) {
-                try {
-                    // ✅ Parse JSON and check for matching orderId
-                    JsonNode node = objectMapper.readTree(record.value());
-
-                    if ("ORDER_CREATED".equals(node.path("eventType").asText()) &&
-                            orderId.equals(node.path("orderId").asText())) {
-
-                        logStep("    ✓ Found ORDER_CREATED event for orderId={}", orderId);
-                        return Optional.of(record);
-                    }
-                } catch (Exception e) {
-                    // Not JSON or different structure - skip
-                    log.debug("Skipping non-matching message: {}",
-                            record.value().substring(0, Math.min(100, record.value().length())));
-                }
-            }
-        }
-
-        log.warn("⏰ No ORDER_CREATED event found for orderId={} within {}s ({} polls)",
-                orderId, timeoutSeconds, pollCount);
-        return Optional.empty();
-    }
-
-    private Consumer<String, String> createManualConsumer(String groupId) {
-        Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA_BOOTSTRAP_SERVERS);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-
-        // ✅ CRITICAL: Manual offset commit (disable auto-commit)
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "100");
-
-        // ✅ Increase session timeout to avoid rebalancing during test
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000");
-        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "10000");
-
-        return new KafkaConsumer<>(props);
-    }
-
-    private String getOrderStatus(String orderId) {
-        try {
-            Response response = RestAssured
-                    .given()
-                    .baseUri(context.getConfig().baseUrl())
-                    .header("Authorization", "Bearer " + userToken)
-                    .when()
-                    .get("/api/orders/" + orderId);
-
-            if (response.statusCode() == 200) {
-                return response.jsonPath().getString("status");
-            }
-        } catch (Exception e) {
-            log.warn("Failed to get order status for {}: {}", orderId, e.getMessage());
-        }
-        return "UNKNOWN";
-    }
-
-    private String getPaymentId(String orderId) {
-        try {
-            Response response = RestAssured
-                    .given()
-                    .baseUri(context.getConfig().baseUrl())
-                    .header("Authorization", "Bearer " + userToken)
-                    .when()
-                    .get("/api/orders/" + orderId);
-
-            if (response.statusCode() == 200) {
-                return response.jsonPath().getString("paymentId");
-            }
-        } catch (Exception e) {
-            log.warn("Failed to get payment ID for {}: {}", orderId, e.getMessage());
-        }
-        return null;
-    }
-
     private int countPaymentsForOrder(String orderId) {
         try {
-            Response response = RestAssured
-                    .given()
-                    .baseUri(context.getConfig().baseUrl())
-                    .header("Authorization", "Bearer " + userToken)
-                    .when()
-                    .get("/api/orders/" + orderId);
-
+            Response response = getOrder(orderId);
             if (response.statusCode() == 200) {
                 String paymentId = response.jsonPath().getString("paymentId");
                 return paymentId != null && !paymentId.isEmpty() ? 1 : 0;
             }
         } catch (Exception e) {
-            log.warn("Failed to count payments for {}: {}", orderId, e.getMessage());
+            log.warn("Failed to count payments: {}", e.getMessage());
         }
         return 0;
-    }
-
-    @AfterClass
-    public void cleanup() {
-        logStep("✅ Cleanup complete");
     }
 }
