@@ -410,11 +410,11 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                             post { always { collectTestResults() } }
                         }
             }*/
-            stage('E2E Tests') {
+            stage('Regression Tests') {
                             when {
                              not { expression { params.SKIP_E2E } }
                             }
-                            steps { runTestSuite('testng-e2e.xml', 'End-to-End Tests') }
+                            steps { runTestSuite('regression.xml', 'Regression Suite') }
                             post { always { collectTestResults() } }
                        }
         }
