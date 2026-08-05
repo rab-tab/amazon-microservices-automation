@@ -21,7 +21,7 @@
 // ════════════════════════════════════════════════════════════════
 
 pipeline {
-    agent any
+    agent { label 'qa-agent' }
     tools {
         allure 'Allure-2.40.0'
     }
