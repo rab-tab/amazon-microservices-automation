@@ -473,65 +473,63 @@ api-gateway:          ${env.TAG_API_GATEWAY}
             }
         }
 
-        // ── Stage 11: Allure Report ───────────────────────────────
-        // Always run this — even if tests failed.
-        // A failing test is only useful if you can see WHY it failed.
-        stage('Generate Report') {
-            steps {
-                allure([
-                    includeProperties: true,
-                    reportBuildPolicy: 'ALWAYS',
-                    results: [[path: 'target/allure-results']]
-                ])
-                echo "📊 Allure report: http://localhost:8090/job/automation-tests/${BUILD_NUMBER}/allure"
-            }
-        }
+
     }
 
     // ── Post actions ─────────────────────────────────────────────
     // post {} runs AFTER all stages, in ALL cases (success/failure/aborted)
-    post {
+   post {
+           // always {} runs no matter what — dump logs FIRST, then clean up
+           always {
+               script {
+                   // Dump service logs before tearing down — essential for debugging failures
+                   echo "=== Service logs ==="
+                   ['test-user-service','test-product-service','test-order-service',
+                    'test-payment-service','test-notification-service','test-api-gateway'].each { container ->
+                       echo "--- ${container} ---"
+                       sh "docker logs ${container} --tail 50 2>&1 || echo '(${container} not running)'"
+                   }
 
-        // always {} runs no matter what — dump logs FIRST, then clean up
-        always {
-            script {
-                // Dump service logs before tearing down — essential for debugging failures
-                echo "=== Service logs ==="
-                ['test-user-service','test-product-service','test-order-service',
-                 'test-payment-service','test-notification-service','test-api-gateway'].each { container ->
-                    echo "--- ${container} ---"
-                    sh "docker logs ${container} --tail 50 2>&1 || echo '(${container} not running)'"
-                }
+                   // Now tear down — always, to avoid port conflicts on next build
+                   sh """
+                       export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
+                       export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
+                       export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
+                       export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
+                       export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
+                       export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
+                       docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
+                       docker rm -f test-kafka || true
+                       docker container prune -f --filter "label=project=amazon-local" 2>/dev/null || true
+                       echo "✅ Containers stopped and cleaned up"
+                   """
 
-                // Now tear down — always, to avoid port conflicts on next build
-                sh """
-                    export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
-                    export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
-                    export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
-                    export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
-                    export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
-                    export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
-                    docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
-                    docker rm -f test-kafka || true
-                    docker container prune -f --filter "label=project=amazon-local" 2>/dev/null || true
-                    echo "✅ Containers stopped and cleaned up"
-                """
+                   // Collect final JUnit results for Jenkins trend charts
+                   junit allowEmptyResults: true,
+                         testResults: '**/target/surefire-reports/TEST-*.xml'
 
-                // Collect final JUnit results for Jenkins trend charts
-                junit allowEmptyResults: true,
-                      testResults: '**/target/surefire-reports/TEST-*.xml'
+                   // ── Allure Report ─────────────────────────────────────
+                   // Always run this — even if tests failed. Moved here (into
+                   // post{always{}}) so a test failure no longer skips report
+                   // generation the way a normal sequential stage would.
+                   allure([
+                       includeProperties: true,
+                       reportBuildPolicy: 'ALWAYS',
+                       results: [[path: 'target/allure-results']]
+                   ])
+                   echo "📊 Allure report: http://localhost:8090/job/automation-tests/${BUILD_NUMBER}/allure"
 
-                // Archive thread/heap diagnostics from the periodic sampler in
-                // runTestSuite(), plus any OOM-triggered heap dump from the
-                // -XX:+HeapDumpOnOutOfMemoryError flag in pom.xml. cleanWs() below
-                // wipes the workspace, so without this archive step these are lost
-                // the moment the build finishes.
-                archiveArtifacts artifacts: 'target/diagnostics/**',
-                                  allowEmptyArchive: true,
-                                  fingerprint: false
-            }
-        }
-
+                   // Archive thread/heap diagnostics from the periodic sampler in
+                   // runTestSuite(), plus any OOM-triggered heap dump from the
+                   // -XX:+HeapDumpOnOutOfMemoryError flag in pom.xml, PLUS the
+                   // Extent report HTML — cleanWs() below wipes the workspace,
+                   // so without this archive step these are lost the moment
+                   // the build finishes.
+                   archiveArtifacts artifacts: 'target/diagnostics/**, target/extent-reports/**, target/allure-results/**',
+                                     allowEmptyArchive: true,
+                                     fingerprint: false
+               }
+           }
         success {
             echo """
 ╔══════════════════════════════════════════════════════╗
