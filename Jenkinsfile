@@ -181,6 +181,17 @@ Skip E2E:     ${params.SKIP_E2E}
         // stage) at the correct full ECR image name, then a single
         // `kubectl apply -k .` applies everything in dependency-safe
         // order in one shot, replacing the old sed-placeholder hack.
+        //
+        // NOTE: `kubectl kustomize edit ...` is NOT valid — kubectl's
+        // built-in kustomize support only BUILDS (renders) a
+        // kustomization; it has no "edit" subcommand. "kustomize edit
+        // set image" only exists in the separate, standalone kustomize
+        // CLI binary, which isn't installed on this agent. Instead we
+        // append an images: block directly via a heredoc — kubectl's
+        // built-in kustomize DOES correctly honor this block once it's
+        // present, we just can't use "edit" to write it. Safe to append
+        // fresh every run since checkout starts clean each time (no
+        // risk of duplicate blocks accumulating across runs).
         stage('Deploy to Kubernetes') {
             steps {
                 dir('../amazon-microservices/k8s') {
@@ -190,13 +201,21 @@ Skip E2E:     ${params.SKIP_E2E}
                         kubectl delete pod --all -n ${NAMESPACE} --ignore-not-found --grace-period=0 --force 2>/dev/null || true
 
                         echo "Setting resolved image tags via kustomize..."
-                        kubectl kustomize edit set image \
-                          ${REGISTRY}/amazon-user-service:\${TAG_USER_SERVICE} \
-                          ${REGISTRY}/amazon-product-service:\${TAG_PRODUCT_SERVICE} \
-                          ${REGISTRY}/amazon-order-service:\${TAG_ORDER_SERVICE} \
-                          ${REGISTRY}/amazon-payment-service:\${TAG_PAYMENT_SERVICE} \
-                          ${REGISTRY}/amazon-notification-service:\${TAG_NOTIFICATION_SERVICE} \
-                          ${REGISTRY}/amazon-api-gateway:\${TAG_API_GATEWAY}
+                        cat >> kustomization.yaml << EOF
+images:
+  - name: ${REGISTRY}/amazon-user-service
+    newTag: "\${TAG_USER_SERVICE}"
+  - name: ${REGISTRY}/amazon-product-service
+    newTag: "\${TAG_PRODUCT_SERVICE}"
+  - name: ${REGISTRY}/amazon-order-service
+    newTag: "\${TAG_ORDER_SERVICE}"
+  - name: ${REGISTRY}/amazon-payment-service
+    newTag: "\${TAG_PAYMENT_SERVICE}"
+  - name: ${REGISTRY}/amazon-notification-service
+    newTag: "\${TAG_NOTIFICATION_SERVICE}"
+  - name: ${REGISTRY}/amazon-api-gateway
+    newTag: "\${TAG_API_GATEWAY}"
+EOF
 
                         echo "Applying full manifest set via kustomize..."
                         kubectl apply -k .
