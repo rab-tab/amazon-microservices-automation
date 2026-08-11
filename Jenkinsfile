@@ -201,6 +201,7 @@ Skip E2E:     ${params.SKIP_E2E}
                         kubectl delete pod --all -n ${NAMESPACE} --ignore-not-found --grace-period=0 --force 2>/dev/null || true
 
                         echo "Setting resolved image tags via kustomize..."
+                        echo "" >> kustomization.yaml
                         cat >> kustomization.yaml << EOF
 images:
   - name: ${REGISTRY}/amazon-user-service
