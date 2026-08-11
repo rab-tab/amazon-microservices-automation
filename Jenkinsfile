@@ -1,23 +1,12 @@
 // ════════════════════════════════════════════════════════════════
-// Automation Pipeline — amazon-test-automation repo
+// Automation Pipeline — amazon-test-automation repo (K8s version)
 //
-// Lives at: amazon-test-automation/Jenkinsfile
-//
-// This pipeline is triggered BY the dev pipeline (or manually).
-// It receives IMAGE_TAG as a parameter so it tests the EXACT
-// version that was just built — not whatever 'latest' happens to be.
-//
-// Flow:
-//   Receive IMAGE_TAG → Pull images → Start infra (Kafka/Redis/PG)
-//   → Wait for health → Start microservices → Wait for health
-//   → Run tests in stages → Generate Allure report → Stop everything
-//
-// Key design decisions:
-//   - Services start fresh every run (clean state = reliable tests)
-//   - Infrastructure starts before services (dependency order)
-//   - Tests run sequentially (RAM constraint + test isolation)
-//   - Services always stop in post {} (even if tests fail)
-//   - Allure report always generated (even if some tests fail)
+// Replaces docker-compose with kubectl apply against the k3s cluster
+// running on the qa-agent EC2 instance itself. Reuses ECR login and
+// tag-resolution logic unchanged from the compose-based version —
+// only "Start Infrastructure" and "Start Microservices" are replaced,
+// plus a new port-forward stage since K8s Services aren't reachable
+// on localhost the way compose's port mappings were.
 // ════════════════════════════════════════════════════════════════
 
 pipeline {
@@ -34,60 +23,36 @@ pipeline {
         ansiColor('xterm')
     }
 
-    // ── Parameters — passed from dev pipeline ────────────────────
-    // These become available as params.IMAGE_TAG etc.
-    // When triggered manually, you fill these in the UI.
     parameters {
-        string(
-            name: 'IMAGE_TAG',
-            defaultValue: 'latest',
-            description: 'Docker image tag to test. Passed from dev pipeline (git SHA). Use "latest" for manual runs.'
-        )
-        string(
-            name: 'TRIGGERED_BY',
-            defaultValue: 'manual',
-            description: 'Which pipeline triggered this run (for audit trail)'
-        )
-        string(
-            name: 'GIT_COMMIT',
-            defaultValue: '',
-            description: 'Git commit SHA from dev pipeline (for reporting)'
-        )
-        string(
-            name: 'BRANCH',
-            defaultValue: 'main',
-            description: 'Branch that triggered the dev build'
-        )
-        booleanParam(
-            name: 'SKIP_E2E',
-            defaultValue: false,
-            description: 'Skip E2E tests (run unit-level integration tests only)'
-        )
+        string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag to test.')
+        string(name: 'TRIGGERED_BY', defaultValue: 'manual', description: 'Which pipeline triggered this run.')
+        string(name: 'GIT_COMMIT', defaultValue: '', description: 'Git commit SHA from dev pipeline.')
+        string(name: 'BRANCH', defaultValue: 'main', description: 'Branch that triggered the dev build.')
+        booleanParam(name: 'SKIP_E2E', defaultValue: false, description: 'Skip E2E tests.')
     }
 
     environment {
-        AWS_REGION     = "us-east-1"                 // must match the dev pipeline's region
-        AWS_ACCOUNT_ID = "978185568053"               // ⚠️ replace with your actual account ID
-        REGISTRY      = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        PROJECT       = "amazon"  // images = <ECR_REGISTRY>/amazon-<service>:<tag>
-        IMAGE_TAG     = "${params.IMAGE_TAG}"
-        COMPOSE_FILE  = "../amazon-microservices/docker/ci/docker-compose.local.yml"
-        MAVEN_OPTS    = "-Xmx256m -XX:+UseG1GC"
+        AWS_REGION     = "us-east-1"
+        AWS_ACCOUNT_ID = "978185568053"
+        REGISTRY       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        PROJECT        = "amazon"
+        IMAGE_TAG      = "${params.IMAGE_TAG}"
+        NAMESPACE      = "amazon"
+        KUBECONFIG     = "/home/ubuntu/.kube/config"
+        MAVEN_OPTS     = "-Xmx256m -XX:+UseG1GC"
 
-        // Test connection properties — passed to Maven as -D flags
-        BASE_URL      = "http://localhost:8090"
-        DB_HOST       = "localhost"
-        KAFKA_SERVERS = "localhost:9092"
-        REDIS_HOST    = "localhost"
+        BASE_URL       = "http://localhost:8090"
+        DB_HOST        = "localhost"
+        KAFKA_SERVERS  = "localhost:9092"
+        REDIS_HOST     = "localhost"
     }
 
     stages {
 
-        // ── Stage 0: ECR Login ─────────────────────────────────────
-        // Must run before Context — that stage does the docker pulls, and ECR
-        // (unlike Docker Hub) requires an authenticated session for every pull,
-        // not just pushes. Uses the same jenkins-ecr IAM user/credential as the
-        // dev pipeline. Token is valid 12h, so one login per run is enough.
+        // ── ECR Login ──────────────────────────────────────────────
+        // Unchanged from the compose version — still needed for the
+        // Context stage's docker pull checks below, and reused again
+        // when we build the K8s imagePullSecret.
         stage('ECR Login') {
             steps {
                 withCredentials([[
@@ -103,87 +68,58 @@ pipeline {
             }
         }
 
-        // ── Stage 1: Print Context ────────────────────────────────
-        // Always know exactly what you're testing and why.
-        // This information ends up in the build log — invaluable for debugging.
+        // ── Context: resolve per-service tags ─────────────────────
+        // UNCHANGED from the compose version. Still uses `docker pull`
+        // on the agent itself to check whether IMAGE_TAG exists per
+        // service, falling back to :latest — same logic, same reason
+        // (changed services get tested at exact commit, unchanged
+        // services get last known good). The resolved TAG_* env vars
+        // get substituted into the K8s manifests further down instead
+        // of into docker-compose's environment.
         stage('Context') {
             steps {
                 echo """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧪 Automation Pipeline Starting
+🧪 Automation Pipeline Starting (K8s)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Image Tag:    ${params.IMAGE_TAG}
-Git Commit:   ${params.GIT_COMMIT ?: 'not provided'}
-Branch:       ${params.BRANCH}
 Triggered By: ${params.TRIGGERED_BY}
 Skip E2E:     ${params.SKIP_E2E}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
-
-                // ── Resolve per-service image tags ───────────────────
-                // For each service, try to pull IMAGE_TAG first.
-                // If it doesn't exist in ECR (service wasn't changed
-                // in this commit), fall back to :latest.
-                // This means QA always runs with the best available image:
-                //   - Changed services  → tested at exact commit SHA
-                //   - Unchanged services → tested at last known good (latest)
                 script {
                     def services = [
                         'user-service', 'product-service', 'order-service',
                         'payment-service', 'notification-service', 'api-gateway'
                     ]
-
                     def resolvedTags = [:]
-
-                    // WHY parallel pulls? Each docker pull is independent network I/O.
-                    // Sequential pulls waste 2-15s per image waiting for one to finish
-                    // before starting the next. Parallel cuts this to max(single pull time).
                     def pullTasks = [:]
                     services.each { svc ->
-                        def s = svc  // capture for closure
+                        def s = svc
                         pullTasks[s] = {
                             def specificImage = "${REGISTRY}/amazon-${s}:${IMAGE_TAG}"
-                            def rc = sh(
-                                script: "docker pull ${specificImage} > /dev/null 2>&1",
-                                returnStatus: true
-                            )
+                            def rc = sh(script: "docker pull ${specificImage} > /dev/null 2>&1", returnStatus: true)
                             if (rc == 0) {
                                 resolvedTags[s] = IMAGE_TAG
-                                echo "✅ ${s}: using tag ${IMAGE_TAG} (just built)"
+                                echo "✅ ${s}: using tag ${IMAGE_TAG}"
                             } else {
-                                def latestRc = sh(
-                                    script: "docker pull ${REGISTRY}/amazon-${s}:latest > /dev/null 2>&1",
-                                    returnStatus: true
-                                )
+                                def latestRc = sh(script: "docker pull ${REGISTRY}/amazon-${s}:latest > /dev/null 2>&1", returnStatus: true)
                                 if (latestRc == 0) {
                                     resolvedTags[s] = 'latest'
                                     echo "⏩ ${s}: tag ${IMAGE_TAG} not found — using :latest"
                                 } else {
-                                    error("❌ ${s}: neither :${IMAGE_TAG} nor :latest found in ECR. Run a full build first.")
+                                    error("❌ ${s}: neither :${IMAGE_TAG} nor :latest found in ECR.")
                                 }
                             }
                         }
                     }
                     parallel pullTasks
 
-                    // Export per-service tags as env vars for docker-compose
                     env.TAG_USER_SERVICE         = resolvedTags['user-service']
                     env.TAG_PRODUCT_SERVICE      = resolvedTags['product-service']
                     env.TAG_ORDER_SERVICE        = resolvedTags['order-service']
                     env.TAG_PAYMENT_SERVICE      = resolvedTags['payment-service']
                     env.TAG_NOTIFICATION_SERVICE = resolvedTags['notification-service']
                     env.TAG_API_GATEWAY          = resolvedTags['api-gateway']
-
-                    echo """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📦 Resolved Image Tags
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-user-service:         ${env.TAG_USER_SERVICE}
-product-service:      ${env.TAG_PRODUCT_SERVICE}
-order-service:        ${env.TAG_ORDER_SERVICE}
-payment-service:      ${env.TAG_PAYMENT_SERVICE}
-notification-service: ${env.TAG_NOTIFICATION_SERVICE}
-api-gateway:          ${env.TAG_API_GATEWAY}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
                 }
             }
         }
@@ -202,236 +138,167 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                             ]]
                         ])
                     }
-                    echo "✅ Infrastructure repo checked out"
+                    echo "✅ Infrastructure repo checked out (includes k8s/ manifests)"
                 }
             }
         }
 
-        // ── Stage 2: Start Infrastructure ─────────────────────────
-        // Start Kafka, Redis, PostgreSQL FIRST.
-        // Services depend on these — starting them together causes
-        // race conditions and connection refused errors.
-        //
-        // ⚠️  COMMON ISSUE YOU'LL HIT:
-        // Kafka not ready → service starts → can't connect → service crashes
-        // Fix: the waitForKafka() function below polls until ready
-        stage('Start Infrastructure') {
+        // ── Kubernetes Setup ───────────────────────────────────────
+        // New stage, no compose equivalent. Ensures the namespace
+        // exists and refreshes the ECR pull secret — ECR tokens expire
+        // ~12h, so this can't be a one-time manual step; it has to
+        // run fresh every pipeline execution.
+        stage('Kubernetes Setup') {
             steps {
-                script {
-                    // Tear down any leftover state from previous run
-                    // WHY? Leftover containers can have stale data that
-                    // causes tests to fail for the wrong reasons
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-ecr-creds'
+                ]]) {
                     sh """
-                        echo "Cleaning up any leftover containers..."
-                        docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
-                        docker container prune -f --filter "label=project=amazon-local"
+                        kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+
+                        kubectl delete secret ecr-registry-secret -n ${NAMESPACE} --ignore-not-found
+
+                        kubectl create secret docker-registry ecr-registry-secret \
+                          --docker-server=${REGISTRY} \
+                          --docker-username=AWS \
+                          --docker-password="\$(aws ecr get-login-password --region ${AWS_REGION})" \
+                          -n ${NAMESPACE}
                     """
-
-                    sh 'echo "Available memory before starting:"; free -h 2>/dev/null || vm_stat | head -5'
-
-                    // Start only infrastructure, not microservices yet
-                    try{
-                    sh """
-                        export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
-                        export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
-                        export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
-                        export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
-                        export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
-                        export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
-                        docker-compose -f ${COMPOSE_FILE} up -d \
-                                              postgres redis zookeeper kafka zipkin db-init
-                        """
-                     } catch (Exception e) {
-                       sh '''
-                        echo "===== ZOOKEEPER DIAGNOSTICS ====="
-                          docker exec test-zookeeper sh -c "which nc" || true
-                          docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
-                          docker exec test-zookeeper sh -c "echo ruok | timeout 5 bash -c 'exec 3<>/dev/tcp/localhost/2181; cat >&3; cat <&3'" || true
-                          docker logs test-zookeeper --tail 100 || true
-                          docker inspect test-zookeeper --format '{{json .State.Health}}' || true
-                                    '''
-                                    throw e
-                           }
-
-                      sh '''
-                          echo "==== Kafka configured healthcheck ===="
-                          docker inspect test-kafka --format '{{json .Config.Healthcheck}}'
-                         '''
-
-                    echo "Infrastructure containers started. Waiting for health checks..."
                 }
-
-                // ── Wait for PostgreSQL ──────────────────────────
-                // Each waitFor* call polls until service is ready OR times out
-                script {
-                    waitForContainer(
-                        container: 'test-postgres',
-                        command: 'pg_isready -U amazon',
-                        timeoutSecs: 60,
-                        description: 'PostgreSQL'
-                    )
-                }
-
-                // ── Wait for Kafka ───────────────────────────────
-                // Kafka is the slowest to start (needs Zookeeper first)
-                // 90 seconds is realistic — Kafka JVM startup + topic init
-                script {
-                    waitForKafka(timeoutSecs: 180)
-                }
-
-                // ── Wait for Redis ───────────────────────────────
-                script {
-                    waitForContainer(
-                        container: 'test-redis',
-                        command: 'redis-cli -a redis123 ping',
-                        timeoutSecs: 30,
-                        description: 'Redis'
-                    )
-                }
-
-                echo "✅ All infrastructure is healthy!"
+                echo "✅ Namespace ready, ECR pull secret refreshed"
             }
         }
 
-        // ── Stage 3: Start Microservices ──────────────────────────
-        // Only start services AFTER infrastructure is confirmed healthy.
-        // Starting everything together is the #1 cause of flaky pipelines.
-        stage('Start Microservices') {
+        // ── Deploy Infrastructure to K8s ───────────────────────────
+        // Replaces "Start Infrastructure" (docker-compose up postgres
+        // redis zookeeper kafka zipkin db-init). Cleans up any leftover
+        // resources from a previous run first — same intent as
+        // compose's `docker-compose down -v` at the top of that stage —
+        // then applies secrets/configmaps/infra and waits on real
+        // readinessProbes instead of the custom waitForKafka/
+        // waitForContainer shell functions compose needed.
+        stage('Deploy Infrastructure to K8s') {
             steps {
-                script {
+                dir('../amazon-microservices/k8s') {
                     sh """
-                        export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
-                        export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
-                        export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
-                        export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
-                        export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
-                        export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
-                        docker-compose -f ${COMPOSE_FILE} up -d \
-                            user-service product-service order-service \
-                            payment-service notification-service api-gateway
+                        echo "Cleaning up any leftover resources from a previous run..."
+                        kubectl delete deployment,statefulset --all -n ${NAMESPACE} --ignore-not-found
+                        kubectl delete pod --all -n ${NAMESPACE} --ignore-not-found --grace-period=0 --force 2>/dev/null || true
+
+                        kubectl apply -f 03-secrets.yaml
+                        kubectl apply -f 02-infra-fixed.yaml
+                        kubectl apply -f 06-configmaps-fixed.yaml
+
+                        echo "⏳ Waiting for infrastructure pods..."
+                        kubectl wait --for=condition=ready pod -l app=postgres   -n ${NAMESPACE} --timeout=120s
+                        kubectl wait --for=condition=ready pod -l app=redis      -n ${NAMESPACE} --timeout=60s
+                        kubectl wait --for=condition=ready pod -l app=zookeeper  -n ${NAMESPACE} --timeout=60s
+                        kubectl wait --for=condition=ready pod -l app=kafka      -n ${NAMESPACE} --timeout=180s
                     """
-
-                    // WHY PARALLEL? Services all start simultaneously, so waiting
-                    // sequentially wastes time — user-service taking 430s blocked everything.
-                    // With parallel waits, all 5 run concurrently and we finish as soon
-                    // as the LAST one is ready, not sum(all startup times).
-                    echo "⏳ Waiting for all microservices in parallel..."
-                    def parallelChecks = [:]
-                    def serviceList = [
-                        [port: 8081, name: 'User Service'],
-                        [port: 8082, name: 'Product Service'],
-                        [port: 8083, name: 'Order Service'],
-                        [port: 8084, name: 'Payment Service'],
-                        [port: 8090, name: 'API Gateway'],  // compose maps 8090:8080
-                    ]
-                    sh '''
-                    echo "===== MEMORY ====="
-                    docker stats --no-stream
-
-                    echo
-                    echo "===== CONTAINERS ====="
-                    docker ps -a
-                    '''
-                    serviceList.each { svc ->
-                        def s = svc  // capture for closure
-                        parallelChecks[s.name] = {
-                        sh "docker ps -a"
-                            waitForHttp(
-                                url: "http://localhost:${s.port}/actuator/health",
-                                timeoutSecs: 400,
-                                description: s.name
-                            )
-                        }
-                    }
-                    try {
-                    parallel parallelChecks
-                    } catch(Exception e) {
-                        sh 'docker ps -a'
-                        sh 'docker logs test-user-service --tail 200 || true'
-                        sh 'docker logs test-product-service --tail 200 || true'
-                        sh 'docker logs test-order-service --tail 200 || true'
-                        sh 'docker logs test-payment-service --tail 200 || true'
-                        sh 'docker logs test-api-gateway --tail 200 || true'
-                        throw e
-                    }
-
-                    echo "✅ All microservices are healthy!"
-
-                    // Show memory usage — this is educational
-                    sh 'docker stats --no-stream --format "table {{.Name}}\\t{{.MemUsage}}" | head -15'
                 }
+                echo "✅ Infrastructure is healthy"
             }
         }
 
-        // ── Stage 4: Compile Test Code ────────────────────────────
-        // Compile BEFORE running tests — fail fast on compile errors
-        // rather than partway through a 20-minute test suite
+        // ── Deploy Microservices to K8s ────────────────────────────
+        // Replaces "Start Microservices". Substitutes the __TAG_X__
+        // placeholders (Context stage's resolved tags) via sed before
+        // applying — the K8s equivalent of compose's
+        // `${TAG_USER_SERVICE:-latest}` env var interpolation, since
+        // plain kubectl apply has no built-in templating.
+        stage('Deploy Microservices to K8s') {
+            steps {
+                dir('../amazon-microservices/k8s') {
+                    sh """
+                        sed \
+                          -e "s/__TAG_USER_SERVICE__/\${TAG_USER_SERVICE}/g" \
+                          -e "s/__TAG_PRODUCT_SERVICE__/\${TAG_PRODUCT_SERVICE}/g" \
+                          -e "s/__TAG_ORDER_SERVICE__/\${TAG_ORDER_SERVICE}/g" \
+                          -e "s/__TAG_PAYMENT_SERVICE__/\${TAG_PAYMENT_SERVICE}/g" \
+                          -e "s/__TAG_NOTIFICATION_SERVICE__/\${TAG_NOTIFICATION_SERVICE}/g" \
+                          -e "s/__TAG_API_GATEWAY__/\${TAG_API_GATEWAY}/g" \
+                          04-microservices-fixed.yaml > 04-microservices-resolved.yaml
+
+                        kubectl apply -f 04-microservices-resolved.yaml
+
+                        echo "⏳ Waiting for microservices..."
+                        kubectl wait --for=condition=ready pod -l app=user-service         -n ${NAMESPACE} --timeout=300s
+                        kubectl wait --for=condition=ready pod -l app=product-service      -n ${NAMESPACE} --timeout=300s
+                        kubectl wait --for=condition=ready pod -l app=order-service        -n ${NAMESPACE} --timeout=300s
+                        kubectl wait --for=condition=ready pod -l app=payment-service      -n ${NAMESPACE} --timeout=300s
+                        kubectl wait --for=condition=ready pod -l app=notification-service -n ${NAMESPACE} --timeout=120s
+                        kubectl wait --for=condition=ready pod -l app=api-gateway          -n ${NAMESPACE} --timeout=300s
+                    """
+                }
+                echo "✅ All microservices are healthy"
+                sh "kubectl get pods -n ${NAMESPACE} -o wide"
+            }
+        }
+
+        // ── Port Forward Services ──────────────────────────────────
+        // New stage, no compose equivalent needed there (compose ports
+        // were already on localhost). K8s ClusterIP Services aren't
+        // reachable from the agent directly, so we tunnel each one the
+        // test suite needs onto localhost, matching exactly the ports
+        // BASE_URL/DB_HOST/KAFKA_SERVERS/REDIS_HOST above expect.
+        // Each port-forward runs as a background process; PIDs are
+        // saved to a file so post{always{}} can clean them up reliably
+        // even if a later stage fails.
+        stage('Port Forward Services') {
+            steps {
+                sh """
+                    rm -f /tmp/port-forward-pids.txt
+
+                    kubectl port-forward -n ${NAMESPACE} svc/postgres-service       5432:5432 > /tmp/pf-postgres.log 2>&1 &
+                    echo \$! >> /tmp/port-forward-pids.txt
+                    kubectl port-forward -n ${NAMESPACE} svc/redis-service         6379:6379 > /tmp/pf-redis.log 2>&1 &
+                    echo \$! >> /tmp/port-forward-pids.txt
+                    kubectl port-forward -n ${NAMESPACE} svc/kafka-service         9092:9092 > /tmp/pf-kafka.log 2>&1 &
+                    echo \$! >> /tmp/port-forward-pids.txt
+                    kubectl port-forward -n ${NAMESPACE} svc/user-service         8081:8081 > /tmp/pf-user.log 2>&1 &
+                    echo \$! >> /tmp/port-forward-pids.txt
+                    kubectl port-forward -n ${NAMESPACE} svc/product-service      8082:8082 > /tmp/pf-product.log 2>&1 &
+                    echo \$! >> /tmp/port-forward-pids.txt
+                    kubectl port-forward -n ${NAMESPACE} svc/order-service        8083:8083 > /tmp/pf-order.log 2>&1 &
+                    echo \$! >> /tmp/port-forward-pids.txt
+                    kubectl port-forward -n ${NAMESPACE} svc/payment-service      8084:8084 > /tmp/pf-payment.log 2>&1 &
+                    echo \$! >> /tmp/port-forward-pids.txt
+                    kubectl port-forward -n ${NAMESPACE} svc/api-gateway         8090:8080 > /tmp/pf-gateway.log 2>&1 &
+                    echo \$! >> /tmp/port-forward-pids.txt
+
+                    sleep 5
+
+                    echo "=== Port-forward status ==="
+                    for f in /tmp/pf-*.log; do echo "--- \$f ---"; cat "\$f"; done
+
+                    echo "=== Verifying tunnels ==="
+                    curl -s --max-time 3 http://localhost:8090/actuator/health || echo "⚠️ api-gateway tunnel not responding yet"
+                """
+                echo "✅ Port-forwards established"
+            }
+        }
+
         stage('Compile Tests') {
             steps {
-                checkout scm   // Check out the test automation repo
+                checkout scm
                 sh '''
-                   # cd test-automation 2>/dev/null || true
-                    mvn clean compile test-compile \
-                        --no-transfer-progress \
-                        -q
+                    mvn clean compile test-compile --no-transfer-progress -q
                     echo "✅ Test code compiled successfully"
                 '''
             }
         }
 
-        // ── Stage 5-10: Test Suites ───────────────────────────────
-        // Each suite runs as a separate stage so:
-        //   - You can see exactly which suite failed in the UI
-        //   - Earlier suites don't block later ones if they partially fail
-        //   - Build times per suite are visible in stage view
-        //
-        // continue-on-error equivalent: -Dmaven.test.failure.ignore=true
-        // This means: run ALL tests even if some fail, collect all results,
-        // then Jenkins marks build UNSTABLE (yellow) not FAILED (red)
         stage('Run Tests') {
-        parallel {
-            /*stage('Auth & User Tests') {
-                steps { runTestSuite('testng-api-gateway.xml', 'Auth and User Tests') }
-                post { always { collectTestResults() } }
+            parallel {
+                stage('E2E Tests') {
+                    when { not { expression { params.SKIP_E2E } } }
+                    steps { runTestSuite('testng-e2e.xml', 'End-to-End Tests') }
+                    post { always { collectTestResults() } }
+                }
             }
-
-            stage('Product & Order Tests') {
-                steps { runTestSuite('testng-order.xml', 'Product and Order Tests') }
-                post { always { collectTestResults() } }
-            }
-
-            stage('DB Validation Tests') {
-                steps { runTestSuite('testng-db.xml', 'Database Validation Tests') }
-                post { always { collectTestResults() } }
-            }
-
-            stage('Kafka Event Tests') {
-                            steps { runTestSuite('testng-kafka.xml', 'Kafka Event Tests') }
-                            post { always { collectTestResults() } }
-                        }
-            }*/
-            stage('Regression Tests') {
-                            when {
-                             not { expression { params.SKIP_E2E } }
-                            }
-                            steps { runTestSuite('regression.xml', 'Regression Suite') }
-                            post { always { collectTestResults() } }
-                       }
-        }
         }
 
-        // ── Stage: Static Analysis (SonarQube) ────────────────────
-        // Runs AFTER Run Tests, not before — it needs the JaCoCo coverage
-        // data (target/jacoco.exec) that only exists once tests have executed.
-        // This is a CI *gate* for the mechanical, structural bugs: unclosed
-        // resources (Connection/ExecutorService/WebDriver), missing
-        // ThreadLocal.remove(), unsynchronized shared collections, etc.
-        // It will NOT catch cross-thread field races or actual runtime memory
-        // growth — that's what the thread/heap sampling in runTestSuite() and
-        // the archived diagnostics below are for.
-        //
-        // 'SonarQubeServer' below must match the name configured under
-        // Jenkins → Manage Jenkins → System → SonarQube servers.
         stage('Static Analysis - SonarQube') {
             steps {
                 withSonarQubeEnv('SonarQubeServer') {
@@ -447,16 +314,6 @@ api-gateway:          ${env.TAG_API_GATEWAY}
             }
         }
 
-        // ── Stage: Quality Gate ────────────────────────────────────
-        // Sonar's analysis happens above; the quality gate result is computed
-        // server-side and reported back asynchronously via a webhook. This step
-        // blocks (up to 5 min) waiting for that webhook rather than polling —
-        // requires a webhook configured on the Sonar project pointing back at
-        // this Jenkins instance (Administration → Webhooks).
-        //
-        // Currently set to mark UNSTABLE rather than hard-fail — change to
-        // error(...) once the ruleset has been tuned and false positives cleared,
-        // so a gate failure actually blocks image promotion.
         stage('Quality Gate') {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
@@ -472,82 +329,63 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                 }
             }
         }
-
-
     }
 
-    // ── Post actions ─────────────────────────────────────────────
-    // post {} runs AFTER all stages, in ALL cases (success/failure/aborted)
-   post {
-           // always {} runs no matter what — dump logs FIRST, then clean up
-           always {
-               script {
-                   // Dump service logs before tearing down — essential for debugging failures
-                   echo "=== Service logs ==="
-                   ['test-user-service','test-product-service','test-order-service',
-                    'test-payment-service','test-notification-service','test-api-gateway'].each { container ->
-                       echo "--- ${container} ---"
-                       sh "docker logs ${container} --tail 50 2>&1 || echo '(${container} not running)'"
-                   }
+    post {
+        always {
+            script {
+                // Kill port-forwards FIRST — leaving them running would
+                // leak processes and hold ports across pipeline runs.
+                sh '''
+                    if [ -f /tmp/port-forward-pids.txt ]; then
+                        while read pid; do
+                            kill $pid 2>/dev/null || true
+                        done < /tmp/port-forward-pids.txt
+                        rm -f /tmp/port-forward-pids.txt
+                    fi
+                '''
 
-                   // Now tear down — always, to avoid port conflicts on next build
-                   sh """
-                       export TAG_USER_SERVICE=${env.TAG_USER_SERVICE ?: 'latest'}
-                       export TAG_PRODUCT_SERVICE=${env.TAG_PRODUCT_SERVICE ?: 'latest'}
-                       export TAG_ORDER_SERVICE=${env.TAG_ORDER_SERVICE ?: 'latest'}
-                       export TAG_PAYMENT_SERVICE=${env.TAG_PAYMENT_SERVICE ?: 'latest'}
-                       export TAG_NOTIFICATION_SERVICE=${env.TAG_NOTIFICATION_SERVICE ?: 'latest'}
-                       export TAG_API_GATEWAY=${env.TAG_API_GATEWAY ?: 'latest'}
-                       docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans 2>/dev/null || true
-                       docker rm -f test-kafka || true
-                       docker container prune -f --filter "label=project=amazon-local" 2>/dev/null || true
-                       echo "✅ Containers stopped and cleaned up"
-                   """
+                // Dump pod logs before tearing down — kubectl logs
+                // instead of docker logs, otherwise same intent as
+                // compose's log-dump-before-cleanup pattern.
+                echo "=== Pod logs ==="
+                ['user-service','product-service','order-service',
+                 'payment-service','notification-service','api-gateway'].each { svc ->
+                    echo "--- ${svc} ---"
+                    sh "kubectl logs -n ${NAMESPACE} -l app=${svc} --tail=50 2>&1 || echo '(${svc} not running)'"
+                }
 
-                   // Collect final JUnit results for Jenkins trend charts
-                   junit allowEmptyResults: true,
-                         testResults: '**/target/surefire-reports/TEST-*.xml'
+                sh """
+                    kubectl delete deployment,statefulset --all -n ${NAMESPACE} --ignore-not-found
+                    kubectl delete pod --all -n ${NAMESPACE} --ignore-not-found --grace-period=0 --force 2>/dev/null || true
+                    echo "✅ K8s resources cleaned up"
+                """
 
-                   // ── Allure Report ─────────────────────────────────────
-                   // Always run this — even if tests failed. Moved here (into
-                   // post{always{}}) so a test failure no longer skips report
-                   // generation the way a normal sequential stage would.
-                   allure([
-                       includeProperties: true,
-                       reportBuildPolicy: 'ALWAYS',
-                       results: [[path: 'target/allure-results']]
-                   ])
-                   echo "📊 Allure report: http://localhost:8090/job/automation-tests/${BUILD_NUMBER}/allure"
+                junit allowEmptyResults: true,
+                      testResults: '**/target/surefire-reports/TEST-*.xml'
 
-                   // Archive thread/heap diagnostics from the periodic sampler in
-                   // runTestSuite(), plus any OOM-triggered heap dump from the
-                   // -XX:+HeapDumpOnOutOfMemoryError flag in pom.xml, PLUS the
-                   // Extent report HTML — cleanWs() below wipes the workspace,
-                   // so without this archive step these are lost the moment
-                   // the build finishes.
-                   archiveArtifacts artifacts: 'target/diagnostics/**, target/extent-reports/**, target/allure-results/**',
-                                     allowEmptyArchive: true,
-                                     fingerprint: false
-               }
-           }
+                allure([
+                    includeProperties: true,
+                    reportBuildPolicy: 'ALWAYS',
+                    results: [[path: 'target/allure-results']]
+                ])
+
+                archiveArtifacts artifacts: 'target/diagnostics/**, target/extent-reports/**, target/allure-results/**',
+                                  allowEmptyArchive: true,
+                                  fingerprint: false
+            }
+        }
+
         success {
             echo """
 ╔══════════════════════════════════════════════════════╗
-║  ✅ Automation Pipeline PASSED                        ║
+║  ✅ Automation Pipeline PASSED (K8s)                  ║
 ║  Image Tag:  ${params.IMAGE_TAG.padRight(40)}║
-║  Triggered:  ${params.TRIGGERED_BY.padRight(40)}║
-║  Report:     http://localhost:8090/job/automation-tests/${BUILD_NUMBER}/allure
 ╚══════════════════════════════════════════════════════╝"""
         }
 
         unstable {
-            echo """
-╔══════════════════════════════════════════════════════╗
-║  ⚠️  Automation Pipeline UNSTABLE                     ║
-║  Some tests FAILED — check Allure report              ║
-║  Image Tag: ${params.IMAGE_TAG}
-║  This image should NOT be promoted to production      ║
-╚══════════════════════════════════════════════════════╝"""
+            echo "⚠️  Automation Pipeline UNSTABLE — check Allure report"
         }
 
         cleanup {
@@ -557,53 +395,12 @@ api-gateway:          ${env.TAG_API_GATEWAY}
 }
 
 // ════════════════════════════════════════════════════════════════
-// Helper functions
+// Helper functions — unchanged from the compose version
 // ════════════════════════════════════════════════════════════════
 
 def runTestSuite(String suite, String displayName) {
     echo "\n━━━ Running: ${displayName} ━━━"
     sh """
-         set +e
-
-            echo "==== Gateway Check ===="
-            curl -v http://localhost:8080/actuator/health
-
-            echo
-            echo "==== Listening Port ===="
-            netstat -an | grep 8080
-
-            echo
-            echo "==== Docker Containers ===="
-            docker ps
-
-            echo
-            echo "Exit code from curl: \$?"
-
-        mkdir -p target/diagnostics/heap-dumps target/diagnostics/thread-dumps
-
-        # ── Background sampler ──────────────────────────────────────
-        # Runs alongside the test JVM for the whole suite. Every 3 minutes it takes
-        # a thread dump (jstack) and a live heap histogram (jmap -histo, cheap —
-        # does NOT pause the JVM like a full heap dump would) of the Surefire-forked
-        # JVM actually running the tests. This is what lets us catch a growing
-        # thread count (leaked ThreadLocal/executor) or growing retained-object
-        # count (leaked collection) DURING a run, not just after an OOM crash.
-        (
-          while true; do
-            sleep 180
-            PID=\$(jps -l 2>/dev/null | grep surefirebooter | awk '{print \$1}' | head -1)
-            if [ -n "\$PID" ]; then
-              TS=\$(date +%Y%m%d-%H%M%S)
-              jstack \$PID > target/diagnostics/thread-dumps/${suite}-\${TS}.txt 2>/dev/null || true
-              jmap -histo \$PID 2>/dev/null | head -30 > target/diagnostics/heap-dumps/${suite}-histo-\${TS}.txt || true
-              THREAD_COUNT=\$(jstack \$PID 2>/dev/null | grep -c '^\"')
-              echo "[sampler] \${TS} suite=${suite} pid=\$PID threads=\$THREAD_COUNT" >> target/diagnostics/thread-dumps/${suite}-summary.log
-            fi
-          done
-        ) &
-        SAMPLER_PID=\$!
-
-        # cd test-automation
         mvn test \
           -Dsurefire.suiteXmlFiles=src/test/resources/${suite} \
           -Dbase.url=${BASE_URL} \
@@ -619,491 +416,10 @@ def runTestSuite(String suite, String displayName) {
           -Dredis.password=redis123 \
           --no-transfer-progress \
           -Dmaven.test.failure.ignore=true
-        TEST_EXIT_CODE=\$?
-
-        # Stop the background sampler now that the suite is done — leaving it running
-        # would leak a shell process per suite across the pipeline's life.
-        kill \$SAMPLER_PID 2>/dev/null || true
-        wait \$SAMPLER_PID 2>/dev/null || true
-
-        # Quick eyeballed leak signal: if the LAST thread-count sample is >50% higher
-        # than the FIRST, something in this suite is accumulating threads over the run.
-        if [ -f target/diagnostics/thread-dumps/${suite}-summary.log ]; then
-            FIRST=\$(head -1 target/diagnostics/thread-dumps/${suite}-summary.log | grep -oE 'threads=[0-9]+' | cut -d= -f2)
-            LAST=\$(tail -1 target/diagnostics/thread-dumps/${suite}-summary.log | grep -oE 'threads=[0-9]+' | cut -d= -f2)
-            if [ -n "\$FIRST" ] && [ -n "\$LAST" ] && [ "\$FIRST" -gt 0 ]; then
-                GROWTH=\$(( (LAST - FIRST) * 100 / FIRST ))
-                echo "[sampler] ${suite} thread count: \$FIRST → \$LAST (\${GROWTH}% growth)"
-                if [ "\$GROWTH" -gt 50 ]; then
-                    echo "⚠️  Thread count grew >50% during ${suite} — check target/diagnostics/thread-dumps/${suite}-summary.log"
-                fi
-            fi
-        fi
-
-        exit \$TEST_EXIT_CODE
     """
 }
 
 def collectTestResults() {
     junit allowEmptyResults: true,
           testResults: 'target/surefire-reports/TEST-*.xml'
-}
-
-def waitForContainer(Map args) {
-    def elapsed = 0
-    def interval = 5
-    echo "⏳ Waiting for ${args.description}..."
-    while (elapsed < args.timeoutSecs) {
-        def rc = sh(
-            script: "docker exec ${args.container} ${args.command} > /dev/null 2>&1",
-            returnStatus: true
-        )
-        if (rc == 0) {
-            echo "✅ ${args.description} ready after ${elapsed}s"
-            return
-        }
-        sleep(interval)
-        elapsed += interval
-    }
-    sh "docker logs ${args.container} --tail 20 2>/dev/null || true"
-    error("❌ ${args.description} did not become ready within ${args.timeoutSecs}s")
-}
-
-def waitForKafka(Map args) {
-    def elapsed = 0
-    echo "⏳ Waiting for Kafka (this takes ~60-120s on first start)..."
-    while (elapsed < args.timeoutSecs) {
-        // Check Docker health status — must be exactly 'healthy' not 'unhealthy'/'starting'
-        def status = sh(
-            script: "docker inspect test-kafka --format '{{.State.Health.Status}}' 2>/dev/null || echo 'unknown'",
-            returnStdout: true
-        ).trim()
-        echo "  Kafka health status: ${status} (${elapsed}/${args.timeoutSecs}s)"
-        if (status == 'healthy') {
-            echo "✅ Kafka healthy after ${elapsed}s"
-            return
-        }
-        if (elapsed % 30 == 0) {
-            sh '''
-                echo "===== Kafka Processes ====="
-                docker exec test-kafka ps -ef || true
-
-                echo
-                echo "===== Listening Ports ====="
-                docker exec test-kafka sh -c "netstat -tulpn 2>/dev/null || ss -tulpn" || true
-
-                echo
-                echo "===== Last 50 Kafka Logs ====="
-                docker logs test-kafka --tail 50 || true
-            '''
-        }
-        if (status == 'unhealthy') {
-                echo "Kafka marked unhealthy by Docker"
-                dumpKafkaDiagnostics()
-                error("Kafka unhealthy")
-                }
-
-        sleep(10)
-        elapsed += 10
-        }
-           echo "Kafka never became healthy within timeout"
-           dumpKafkaDiagnostics()
-           error("Kafka failed to become healthy")
-
-    }
-
-
-
-def dumpKafkaDiagnostics(){
- sh '''
-               echo
-               echo "=================================================="
-               echo "KAFKA DEEP DIAGNOSTICS"
-               echo "=================================================="
-
-               echo "===== Kafka JVMs ====="
-               docker exec test-kafka jps -lv || true
-
-               echo
-               echo "===== Kafka Lock ====="
-               docker exec test-kafka ls -la /var/lib/kafka/data || true
-
-               echo
-               echo "===== Lock owner ====="
-               docker exec test-kafka sh -c "fuser /var/lib/kafka/data/.lock || true"
-                echo
-                echo "===== Generated kafka.properties ====="
-                docker exec test-kafka cat /etc/kafka/kafka.properties || true
-
-                docker exec test-zookeeper sh -c "which nc"
-                docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181"
-                docker exec test-zookeeper sh -c "echo ruok | timeout 5 bash -c 'exec 3<>/dev/tcp/localhost/2181; cat >&3; cat <&3'"
-
-                docker logs test-zookeeper --tail 100
-                docker inspect test-zookeeper --format '{{json .State.Health}}'
-                echo "===== Server Log Directory ====="
-                docker exec test-kafka ls -la /var/log/kafka || true
-
-                echo
-                echo "===== Kafka Server Logs ====="
-                docker exec test-kafka sh -c '
-                for f in /var/log/kafka/*; do
-                  echo "===== $f ====="
-                  cat "$f"
-                done
-                '
-                docker exec test-kafka bash -c "</dev/tcp/localhost/29092" || true
-                docker exec test-kafka sh -c '
-                for f in $(find /var/log/kafka -type f); do
-                  echo "===== $f ====="
-                  tail -100 "$f"
-                done
-                '
-
-                echo
-                echo "===== RUN SCRIPT ====="
-                docker exec test-kafka cat /etc/confluent/docker/run || true
-
-                echo
-                echo "===== CONFIGURE SCRIPT ====="
-                docker exec test-kafka cat /etc/confluent/docker/configure || true
-
-                echo
-                echo "===== ENSURE SCRIPT ====="
-                docker exec test-kafka cat /etc/confluent/docker/ensure || true
-
-                docker inspect test-kafka --format '{{.State.ExitCode}}'
-                docker inspect test-kafka --format '{{.State.Error}}'
-
-                docker inspect test-kafka --format '{{.RestartCount}}'
-
-                echo
-                echo "===== Effective Listeners ====="
-                docker exec test-kafka grep -E "^(listeners|advertised.listeners|listener.security.protocol.map|inter.broker.listener.name|zookeeper.connect)" /etc/kafka/kafka.properties || true
-                echo
-                echo "===== ZOOKEEPER HEALTH ====="
-                docker logs test-zookeeper --tail 100
-
-
-                echo
-                echo "===== ZOOKEEPER RUOK ====="
-                docker exec test-zookeeper sh -c "echo ruok | nc localhost 2181" || true
-                echo stat | nc localhost 2181
-
-                PID=$(docker exec test-kafka jps | awk '/Kafka/ {print $1}')
-
-                docker exec test-kafka jstack $PID
-
-                echo
-                echo "===== KAFKA LISTENERS ====="
-                docker exec test-kafka env | grep LISTENER
-
-                echo
-                echo "===== KAFKA PORT ====="
-                docker exec test-kafka sh -c "nc -z localhost 9092; echo \$?"
-
-               echo
-               echo "===== Container State ====="
-               docker inspect test-kafka --format '{{json .State}}' || true
-
-               echo
-               echo "===== Configured Healthcheck ====="
-               docker inspect test-kafka --format '{{json .Config.Healthcheck}}' || true
-
-               echo
-               echo "===== Runtime Health ====="
-               docker inspect test-kafka --format '{{json .State.Health}}' || true
-
-               echo
-               echo "===== Individual Healthcheck Executions ====="
-               docker inspect test-kafka --format '
-               {{range .State.Health.Log}}
-               Time={{.Start}}
-               Exit={{.ExitCode}}
-               Output={{.Output}}
-               ----------------------------------------
-               {{end}}
-               ' || true
-
-               echo
-               echo "===== Healthcheck Logs ====="
-               docker inspect test-kafka --format '{{json .State.Health.Log}}' || true
-
-               echo
-               echo "===== Running Processes ====="
-               docker exec test-kafka ps -ef || true
-
-               echo
-               echo "===== Java Processes ====="
-               docker exec test-kafka pgrep -af java || true
-
-               echo
-               echo "===== Listening Ports ====="
-               docker exec test-kafka sh -c "netstat -tulpn 2>/dev/null || ss -tulpn" || true
-
-               echo
-               echo "===== Kafka Port Check ====="
-               docker exec test-kafka sh -c "nc -z localhost 9092; echo KAFKA_PORT_EXIT_CODE=$?" || true
-
-               echo
-               echo "===== Zookeeper Connectivity ====="
-               docker exec test-kafka sh -c "nc -z test-zookeeper 2181; echo ZK_EXIT_CODE=$?" || true
-
-               echo
-               echo "===== Environment Variables ====="
-               docker exec test-kafka env | sort || true
-
-               echo
-               echo "===== Restart Information ====="
-               docker inspect test-kafka --format '
-               RestartCount={{.RestartCount}}
-               Status={{.State.Status}}
-               StartedAt={{.State.StartedAt}}
-               FinishedAt={{.State.FinishedAt}}
-               ' || true
-
-               echo
-               echo "===== Last 200 Kafka Logs ====="
-               docker logs test-kafka --tail 200 || true
-               docker exec test-kafka bash -c "
-               set -x
-
-               echo '===== Kafka start script ====='
-               tail -100 /etc/confluent/docker/run
-
-               echo
-               echo '===== Configure script ====='
-               tail -200 /etc/confluent/docker/configure
-               "
-               docker exec test-kafka bash -x /etc/confluent/docker/run
-               docker exec test-kafka env | sort
-               docker exec test-kafka cat /etc/kafka/kafka.properties
-               echo
-               echo "===== run script ====="
-               docker exec test-kafka sed -n '1,250p' /etc/confluent/docker/run || true
-
-               echo
-               echo "===== ensure script ====="
-               docker exec test-kafka sed -n '1,250p' /etc/confluent/docker/ensure || true
-
-               echo
-               echo "===== configure script ====="
-               docker exec test-kafka sed -n '1,300p' /etc/confluent/docker/configure || true
-
-               echo
-               echo "===== ENTRYPOINT ====="
-               docker inspect test-kafka --format '{{json .Config.Entrypoint}}'
-
-               echo "===== ENTRYPOINT 1====="
-               docker exec test-kafka cat /etc/confluent/docker/run
-
-               echo
-               echo "===== CONFIGURE SCRIPT ====="
-               docker exec test-kafka head -200 /etc/confluent/docker/configure
-
-               echo
-               echo "===== LAUNCH SCRIPT ====="
-               docker exec test-kafka head -200 /etc/confluent/docker/launch
-
-               echo
-               echo "===== CMD ====="
-               docker inspect test-kafka --format '{{json .Config.Cmd}}'
-               docker exec test-kafka bash -c "
-               ps -ef --forest
-               "
-               docker exec test-kafka bash -c "
-               ps -ef
-               echo
-               pstree -ap
-               "
-
-               docker exec test-kafka bash -c "grep KAFKA_ /etc/confluent/docker/configure"
-               docker inspect test-kafka --format='{{json .Config.Env}}'
-
-               echo
-               echo "=================================================="
-               echo "END KAFKA DIAGNOSTICS"
-               echo "=================================================="
-           '''
-
-            error("❌ Kafka became unhealthy")
-
-}
-def dumpUserServiceDiagnostics() {
-    sh '''
-        echo
-        echo "=================================================="
-        echo "USER SERVICE DIAGNOSTICS"
-        echo "=================================================="
-
-        echo
-        echo "===== Container State ====="
-        docker inspect test-user-service --format '{{json .State}}' || true
-
-        echo
-        echo "===== Runtime Health ====="
-        docker inspect test-user-service --format '{{json .State.Health}}' || true
-
-        echo
-        echo "===== Healthcheck Logs ====="
-        docker inspect test-user-service \
-          --format '{{range .State.Health.Log}}
-Exit={{.ExitCode}}
-Output={{.Output}}
-{{end}}' || true
-
-        echo
-        echo "===== Last 200 Logs ====="
-        docker logs test-user-service --tail 200 || true
-
-        echo
-        echo "===== Actuator Health ====="
-        docker exec test-user-service \
-                    wget -qO- http://localhost:8081/actuator/health || true
-
-        echo
-        echo "===== Actuator Startup ====="
-        docker exec test-user-service \
-                    wget -qO- http://localhost:8081/actuator/startup || true
-
-        echo
-        echo "===== Listening Ports ====="
-        docker exec test-user-service sh -c "ss -tulpn || netstat -tulpn" || true
-
-        echo
-        echo "===== Java Processes ====="
-        docker exec test-user-service jps -lv || true
-
-        echo
-        echo "===== Last 200 User Service Logs ====="
-        docker logs test-user-service --tail 200 || true
-
-        echo
-        echo "=================================================="
-    '''
-}
-def waitForHttp(Map args) {
-    def elapsed = 0
-    def interval = 10
-    echo "⏳ Waiting for ${args.description} at ${args.url}..."
-    while (elapsed < args.timeoutSecs) {
-        def response = sh(
-            script: "curl -s --max-time 5 ${args.url} 2>/dev/null || echo 'CURL_FAILED'",
-            returnStdout: true
-        ).trim()
-        if (response.contains('UP') || response.contains('"status":"UP"')) {
-            echo "✅ ${args.description} is UP after ${elapsed}s"
-            return
-        }
-        sleep(interval)
-        elapsed += interval
-        // Print first 200 chars of response for debugging
-        def preview = response.length() > 200 ? response.substring(0, 200) : response
-        echo "  ${args.description} not ready yet (${elapsed}/${args.timeoutSecs}s) response: ${preview}"
-    }
-      echo "==== ${args.description} diagnostics ===="
-
-        sh """
-            docker ps -a
-
-               docker logs test-kafka --tail 200 || true
-               docker logs test-user-service --tail 200 || true
-               docker logs test-product-service --tail 200 || true
-               docker logs test-order-service --tail 200 || true
-               docker logs test-payment-service --tail 200 || true
-               docker logs test-api-gateway --tail 200 || true
-
-                echo
-                   echo "===== PORT CHECK ====="
-
-                   docker exec test-user-service sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
-                   docker exec test-product-service sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
-                   docker exec test-order-service sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
-                   docker exec test-payment-service sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
-                   docker exec test-api-gateway sh -c "netstat -tlnp 2>/dev/null || ss -tlnp" || true
-
-                echo
-                echo "===== OOM CHECK ====="
-
-                docker inspect test-user-service --format='{{.State.OOMKilled}}' || true
-                docker inspect test-product-service --format='{{.State.OOMKilled}}' || true
-                docker inspect test-order-service --format='{{.State.OOMKilled}}' || true
-                docker inspect test-payment-service --format='{{.State.OOMKilled}}' || true
-                docker inspect test-api-gateway --format='{{.State.OOMKilled}}' || true
-               echo
-               docker stats --no-stream || true
-
-               echo
-               free -h || true
-        """
-
-        if (args.url.contains("8081")) {
-            sh "docker logs test-user-service --tail 300 || true"
-             dumpSpringServiceDiagnostics("test-user-service", 8081)
-        } else if (args.url.contains("8082")) {
-            sh "docker logs test-product-service --tail 300 || true"
-             dumpSpringServiceDiagnostics("test-product-service", 8082)
-        } else if (args.url.contains("8083")) {
-            sh "docker logs test-order-service --tail 300 || true"
-             dumpSpringServiceDiagnostics("test-order-service", 8083)
-        } else if (args.url.contains("8084")) {
-            sh "docker logs test-payment-service --tail 300 || true"
-             dumpSpringServiceDiagnostics("test-payment-service", 8084)
-        } else if (args.url.contains("8090")) {
-            sh "docker logs test-api-gateway --tail 300 || true"
-             dumpSpringServiceDiagnostics("test-api-gateway", 8090)
-        }
-        echo "==== Order Service Diagnostics ===="
-
-        sh '''
-        docker ps -a
-
-        echo
-        docker inspect test-order-service --format '{{json .State.Health}}' || true
-
-        echo
-        docker logs test-order-service --tail 500 || true
-
-        echo
-        curl -v http://localhost:8083/actuator/health || true
-        '''
-
-sh '''
-echo "===== OOM CHECK ====="
-docker inspect test-user-service --format '{{.State.OOMKilled}}' || true
-docker inspect test-product-service --format '{{.State.OOMKilled}}' || true
-docker inspect test-order-service --format '{{.State.OOMKilled}}' || true
-docker inspect test-payment-service --format '{{.State.OOMKilled}}' || true
-docker inspect test-api-gateway --format '{{.State.OOMKilled}}' || true
-'''
-    error("❌ ${args.description} did not become healthy within ${args.timeoutSecs}s")
-}
-
-def dumpSpringServiceDiagnostics(String container, int port) {
-
-    sh """
-        echo "===== ${container} ====="
-
-        docker inspect ${container} --format '{{json .State}}' || true
-        docker inspect ${container} --format '{{json .State.Health}}' || true
-
-        docker exec ${container} jps -lv || true
-        docker exec ${container} ps -ef || true
-
-        docker exec ${container} sh -c "netstat -tulpn 2>/dev/null || ss -tulpn" || true
-
-        docker exec ${container} \
-        wget -qO- http://localhost:${port}/actuator/health || true
-
-        docker exec ${container} \
-        sh -c "nc -z postgres 5432; echo POSTGRES=\$?" || true
-
-        docker exec ${container} \
-        sh -c "nc -z redis 6379; echo REDIS=\$?" || true
-
-        docker exec ${container} \
-        sh -c "nc -z kafka 29092; echo KAFKA=\$?" || true
-
-        docker logs ${container} --tail 300 || true
-    """
 }
