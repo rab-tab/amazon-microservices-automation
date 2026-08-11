@@ -172,13 +172,16 @@ Skip E2E:     ${params.SKIP_E2E}
 
         // ── Deploy Infrastructure to K8s ───────────────────────────
         // Replaces "Start Infrastructure" (docker-compose up postgres
-        // redis zookeeper kafka zipkin db-init). Cleans up any leftover
-        // resources from a previous run first — same intent as
-        // compose's `docker-compose down -v` at the top of that stage —
-        // then applies secrets/configmaps/infra and waits on real
-        // readinessProbes instead of the custom waitForKafka/
-        // waitForContainer shell functions compose needed.
-        stage('Deploy Infrastructure to K8s') {
+        // ── Deploy to Kubernetes (Kustomize) ───────────────────────
+        // Replaces both "Start Infrastructure" and "Start Microservices"
+        // from the compose version. The repo's k8s/ folder already had
+        // a kustomization.yaml (Kustomize) tying together 8 resource
+        // files across subfolders — we use kustomize's own `edit set
+        // image` to inject each service's resolved tag (from Context
+        // stage) at the correct full ECR image name, then a single
+        // `kubectl apply -k .` applies everything in dependency-safe
+        // order in one shot, replacing the old sed-placeholder hack.
+        stage('Deploy to Kubernetes') {
             steps {
                 dir('../amazon-microservices/k8s') {
                     sh """
@@ -186,41 +189,23 @@ Skip E2E:     ${params.SKIP_E2E}
                         kubectl delete deployment,statefulset --all -n ${NAMESPACE} --ignore-not-found
                         kubectl delete pod --all -n ${NAMESPACE} --ignore-not-found --grace-period=0 --force 2>/dev/null || true
 
-                        kubectl apply -f 03-secrets.yaml
-                        kubectl apply -f 02-infra-fixed.yaml
-                        kubectl apply -f 06-configmaps-fixed.yaml
+                        echo "Setting resolved image tags via kustomize..."
+                        kubectl kustomize edit set image \
+                          ${REGISTRY}/amazon-user-service:\${TAG_USER_SERVICE} \
+                          ${REGISTRY}/amazon-product-service:\${TAG_PRODUCT_SERVICE} \
+                          ${REGISTRY}/amazon-order-service:\${TAG_ORDER_SERVICE} \
+                          ${REGISTRY}/amazon-payment-service:\${TAG_PAYMENT_SERVICE} \
+                          ${REGISTRY}/amazon-notification-service:\${TAG_NOTIFICATION_SERVICE} \
+                          ${REGISTRY}/amazon-api-gateway:\${TAG_API_GATEWAY}
+
+                        echo "Applying full manifest set via kustomize..."
+                        kubectl apply -k .
 
                         echo "⏳ Waiting for infrastructure pods..."
                         kubectl wait --for=condition=ready pod -l app=postgres   -n ${NAMESPACE} --timeout=120s
                         kubectl wait --for=condition=ready pod -l app=redis      -n ${NAMESPACE} --timeout=60s
                         kubectl wait --for=condition=ready pod -l app=zookeeper  -n ${NAMESPACE} --timeout=60s
                         kubectl wait --for=condition=ready pod -l app=kafka      -n ${NAMESPACE} --timeout=180s
-                    """
-                }
-                echo "✅ Infrastructure is healthy"
-            }
-        }
-
-        // ── Deploy Microservices to K8s ────────────────────────────
-        // Replaces "Start Microservices". Substitutes the __TAG_X__
-        // placeholders (Context stage's resolved tags) via sed before
-        // applying — the K8s equivalent of compose's
-        // `${TAG_USER_SERVICE:-latest}` env var interpolation, since
-        // plain kubectl apply has no built-in templating.
-        stage('Deploy Microservices to K8s') {
-            steps {
-                dir('../amazon-microservices/k8s') {
-                    sh """
-                        sed \
-                          -e "s/__TAG_USER_SERVICE__/\${TAG_USER_SERVICE}/g" \
-                          -e "s/__TAG_PRODUCT_SERVICE__/\${TAG_PRODUCT_SERVICE}/g" \
-                          -e "s/__TAG_ORDER_SERVICE__/\${TAG_ORDER_SERVICE}/g" \
-                          -e "s/__TAG_PAYMENT_SERVICE__/\${TAG_PAYMENT_SERVICE}/g" \
-                          -e "s/__TAG_NOTIFICATION_SERVICE__/\${TAG_NOTIFICATION_SERVICE}/g" \
-                          -e "s/__TAG_API_GATEWAY__/\${TAG_API_GATEWAY}/g" \
-                          04-microservices-fixed.yaml > 04-microservices-resolved.yaml
-
-                        kubectl apply -f 04-microservices-resolved.yaml
 
                         echo "⏳ Waiting for microservices..."
                         kubectl wait --for=condition=ready pod -l app=user-service         -n ${NAMESPACE} --timeout=300s
@@ -231,7 +216,7 @@ Skip E2E:     ${params.SKIP_E2E}
                         kubectl wait --for=condition=ready pod -l app=api-gateway          -n ${NAMESPACE} --timeout=300s
                     """
                 }
-                echo "✅ All microservices are healthy"
+                echo "✅ Infrastructure and microservices are healthy"
                 sh "kubectl get pods -n ${NAMESPACE} -o wide"
             }
         }
