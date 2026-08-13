@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════
-# Multi-stage Dockerfile for API Automation Tests
+# Multi-stage Dockerfile for API Automation Tests — sharding-aware
 # ══════════════════════════════════════════════════════════════════════
 
 # ──────────────────────────────────────────────────────────────────────
@@ -15,102 +15,72 @@ COPY pom.xml .
 # Download dependencies (cached layer if pom.xml unchanged)
 RUN mvn dependency:go-offline -B
 
-# Copy source code
+# Copy source code — this pulls in ShardingInterceptor.java (under
+# src/test/java/com/amazon/automation/sharding/) and the ServiceLoader
+# registration file (src/test/resources/META-INF/services/
+# org.testng.ITestNGListener) automatically, since both live under src/.
 COPY src ./src
 
 # Compile tests (but don't run them yet)
 RUN mvn test-compile -DskipTests
 
 # ──────────────────────────────────────────────────────────────────────
-# Stage 2: Runtime Stage (Lean image for execution)
+# Stage 2: Runtime Stage
 # ──────────────────────────────────────────────────────────────────────
+# Still needs the full Maven+JDK toolchain (unlike the app services'
+# runtime image, which only needs a JRE to run a pre-built jar) — this
+# image runs `mvn test` directly, it doesn't just execute a jar.
 FROM maven:3.9-eclipse-temurin-21-alpine
 
-# ── CHANGED: added python3 + py3-pip for XML result merging ──────────
-# curl      → health checks (unchanged)
-# python3   → runs merge_results.py in Aggregate Results stage
-# py3-pip   → installs lxml for TestNG XML parsing
-RUN apk add --no-cache curl python3 py3-pip \
-    && pip3 install lxml --break-system-packages \
-    && rm -rf /root/.cache/pip
+RUN apk add --no-cache curl \
+    && rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
-# Copy Maven dependencies from builder stage
+# Bring forward the resolved dependency cache from the builder stage —
+# means `mvn test` at container-start time doesn't re-download anything,
+# it's all already sitting in /root/.m2 from the image build itself.
 COPY --from=builder /root/.m2 /root/.m2
-
-# Copy compiled code and source
 COPY --from=builder /app/pom.xml ./pom.xml
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/target ./target
 
-# Create directories for test results
-RUN mkdir -p /app/test-results/allure-results \
-             /app/test-results/surefire-reports \
-             /app/logs
+RUN mkdir -p /app/target/allure-results /app/target/surefire-reports
 
-# ── CHANGED: added parallel runner env vars ──────────────────────────
-# GATEWAY_URL, TEST_ENV, ALLURE_RESULTS_DIR → unchanged
-# CHUNK_INDEX   → which chunk this runner owns (0-based)
-# TOTAL_CHUNKS  → total parallel runners in this build
-#                 defaults to 1 so single-runner mode works without changes
-ENV GATEWAY_URL=http://api-gateway:8080
-ENV TEST_ENV=docker
-ENV ALLURE_RESULTS_DIR=/app/test-results/allure-results
-ENV CHUNK_INDEX=0
-ENV TOTAL_CHUNKS=1
-ENV SUITE_FILE=testng-api-gateway.xml,testng-kafka.xml,testng-order.xml
+# ── Service endpoints — in-cluster K8s DNS names, not localhost ──────
+# Job pods run directly inside the "amazon" namespace, alongside the
+# actual microservices — they reach them the same way any other pod
+# does, via each Service's DNS name. No port-forwarding needed here,
+# unlike the Jenkins-agent-driven "Port Forward Services" stage.
+ENV BASE_URL=http://api-gateway:8080
+ENV DB_HOST=postgres-service
+ENV KAFKA_SERVERS=kafka-service:29092
+ENV REDIS_HOST=redis-service
 
-# Health check (optional - validates Maven is working)
+# TOTAL_SHARDS defaults to 1 here so this image also works standalone
+# (`docker run`, or a non-sharded Job) — ShardingInterceptor only
+# activates sharding when JOB_COMPLETION_INDEX is ALSO present, which
+# only Kubernetes sets, and only on Indexed Jobs. Running this image
+# any other way (plain `docker run`, a regular non-Indexed pod) safely
+# runs the full suite with TOTAL_SHARDS=1 having no effect.
+ENV TOTAL_SHARDS=1
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD mvn --version || exit 1
 
-# ── CHANGED: CMD uses CHUNK_INDEX to pick the right suite file ────────
-# When TOTAL_CHUNKS=1 (default), testng-runner-0.xml = full suite → same as before
-# When TOTAL_CHUNKS>1, Jenkins writes testng-runner-N.xml per runner
-#   and mounts it at /app/testng-runner-${CHUNK_INDEX}.xml
-# Shell form (not exec form) is required here so ${CHUNK_INDEX} is expanded
+# Shell form (not exec form) so $TOTAL_SHARDS and $JOB_COMPLETION_INDEX
+# actually get expanded by the shell at container start — exec form
+# would pass them through literally, unexpanded.
 CMD mvn test \
-    #-Dsurefire.suiteXmlFiles=testng-runner-${CHUNK_INDEX}.xml \
-    -Dsurefire.suiteXmlFiles=${SUITE_FILE}
+    -Dsurefire.suiteXmlFiles=src/test/resources/regression.xml \
     -Dsurefire.reportsDirectory=target/surefire-reports \
+    -Dbase.url=${BASE_URL} \
+    -Ddb.host=${DB_HOST} \
+    -Ddb.port=5432 \
+    -Ddb.username=amazon \
+    -Ddb.password=amazon123 \
+    -Dkafka.bootstrap.servers=${KAFKA_SERVERS} \
+    -Dredis.host=${REDIS_HOST} \
+    -Dredis.password=redis123 \
     --no-transfer-progress \
-    -Dmaven.test.failure.ignore=true
-
-# ──────────────────────────────────────────────────────────────────────
-# Usage Examples:
-# ──────────────────────────────────────────────────────────────────────
-# Build:
-#   docker build -t automation-tests:latest .
-#
-# Run all tests (unchanged — TOTAL_CHUNKS=1 default, needs testng-runner-0.xml):
-#   docker run --rm \
-#     --network host \
-#     -e GATEWAY_URL=http://localhost:8090 \
-#     -v $(pwd)/testng-runner-0.xml:/app/testng-runner-0.xml:ro \
-#     -v $(pwd)/target/surefire-reports:/app/target/surefire-reports \
-#     automation-tests:latest
-#
-# Run as parallel runner N of M (Jenkins does this automatically):
-#   docker run --rm \
-#     --network host \
-#     -e CHUNK_INDEX=1 \
-#     -e TOTAL_CHUNKS=3 \
-#     -e GATEWAY_URL=http://localhost:8090 \
-#     -v $(pwd)/testng-runner-1.xml:/app/testng-runner-1.xml:ro \
-#     -v $(pwd)/target/surefire-runner-1:/app/target/surefire-reports \
-#     automation-tests:latest
-#
-# Run specific test (override CMD — unchanged):
-#   docker run --rm \
-#     --network host \
-#     -e GATEWAY_URL=http://localhost:8090 \
-#     automation-tests:latest \
-#     mvn test -Dtest=EndToEndIdempotencyTest
-#
-# Run with volume mount for reports (unchanged pattern):
-#   docker run --rm \
-#     --network host \
-#     -v $(pwd)/test-results:/app/test-results \
-#     automation-tests:latest
-# ──────────────────────────────────────────────────────────────────────
+    -Dmaven.test.failure.ignore=false

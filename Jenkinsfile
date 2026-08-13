@@ -296,7 +296,7 @@ EOF
 
         stage('Run Tests') {
             parallel {
-                stage('E2E Tests') {
+                stage('Regression Tests') {
                     when { not { expression { params.SKIP_E2E } } }
                     steps { runTestSuite('regression.xml', 'REgression suite') }
                     post { always { collectTestResults() } }
