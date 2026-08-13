@@ -298,7 +298,7 @@ EOF
             parallel {
                 stage('E2E Tests') {
                     when { not { expression { params.SKIP_E2E } } }
-                    steps { runTestSuite('testng-e2e.xml', 'End-to-End Tests') }
+                    steps { runTestSuite('regression.xml', 'REgression suite') }
                     post { always { collectTestResults() } }
                 }
             }

@@ -26,11 +26,11 @@
         <!--<suite-file path="authentication-testng.xml" />
         <suite-file path="apigateway-testng.xml" />
         <suite-file path="kafka-testng.xml" />
-        <suite-file path="orderflow-testng.xml" />
+        <suite-file path="testng-orderflow.xml" />
         <suite-file path="testng-product-flow.xml" />
-        <suite-file path="payment-testng.xml" />
+        <suite-file path="testng-payment.xml" />
         <suite-file path="testng-e2e.xml" />-->
-        <suite-file path="orderflow-testng.xml" />
+        <suite-file path="testng-orderflow.xml" />
     </suite-files>
 
 </suite>
