@@ -6,8 +6,8 @@ import com.amazon.tests.auth.NoAuthStrategy;
 import com.amazon.tests.config.ConfigManager;
 import com.amazon.tests.config.TestConfig;
 import com.amazon.tests.config.extentReports.ExtentReportManager;
-import com.amazon.tests.config.restAsssured.RestClient;
 import com.amazon.tests.config.restAsssured.RestAssuredConfig;
+import com.amazon.tests.config.restAsssured.RestClient;
 import com.amazon.tests.dataseeding.cleanup.CleanupManager;
 import com.amazon.tests.dataseeding.core.SeedingContext;
 import com.amazon.tests.transport.RequestExecutor;
@@ -18,7 +18,6 @@ import com.amazon.tests.utils.metrics.MetricsPushService;
 import com.amazon.tests.utils.metrics.MetricsReporter;
 import com.amazon.tests.utils.retry.RetryHandler;
 import com.amazon.tests.utils.validators.DatabaseValidator;
-import com.epam.reportportal.testng.ReportPortalTestNGListener;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.sun.management.OperatingSystemMXBean;
@@ -27,7 +26,10 @@ import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
 import org.aeonbits.owner.ConfigFactory;
-import org.testng.annotations.*;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.AfterSuite;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.BeforeSuite;
 
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -41,7 +43,7 @@ import java.util.function.Supplier;
  * - Data seeding framework (SeedingContext + CleanupManager)
  */
 @Slf4j
-@Listeners(ReportPortalTestNGListener.class)
+//@Listeners(ReportPortalTestNGListener.class)
 public abstract class BaseTest {
 
     protected long testStartTime;
