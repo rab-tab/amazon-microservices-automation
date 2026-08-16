@@ -14,15 +14,16 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Epic("Amazon Microservices")
-@Feature("Monitoring & Observability")
 public class Observability extends BaseTest {
 
     private RawApiClient client;
 
     @BeforeClass
     public void setup() {
-        client = new RawApiClient(context.getExecutor());
+        // Use the static executor field (set in @BeforeSuite) — NOT
+        // context.getExecutor(), since `context` is only populated in
+        // @BeforeMethod, which runs AFTER @BeforeClass and would NPE here.
+        client = new RawApiClient(executor);
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -90,6 +91,38 @@ public class Observability extends BaseTest {
         }
     }
 
+    @Test(priority = 4)
+    @Story("Actuator - Sensitive Endpoint Protection")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify sensitive actuator endpoints (env, heapdump, threaddump) are not publicly exposed")
+    public void test04_SensitiveActuatorEndpointsAreProtected() {
+        for (String endpoint : List.of("/actuator/env", "/actuator/heapdump", "/actuator/threaddump")) {
+            ServiceResponse response = client.get(ServiceType.GATEWAY, endpoint, null);
+            assertThat(response.getStatusCode())
+                    .as(endpoint + " should not be publicly accessible")
+                    .isIn(401, 403, 404);
+        }
+    }
+
+    @Test(priority = 5)
+    @Story("Health - Downstream Dependency Awareness")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Gateway health check reports on downstream service dependencies, not just its own liveness")
+    public void test05_HealthReflectsDownstreamDependencies() {
+        Map<String, Object> body = client.get(ServiceType.GATEWAY, "/actuator/health", null).as(Map.class);
+
+        if (!body.containsKey("components")) {
+            throw new SkipException("Component details not exposed — cannot verify downstream awareness");
+        }
+
+        Map<?, ?> components = (Map<?, ?>) body.get("components");
+        logStep("Health components reported: " + components.keySet());
+
+        assertThat(components)
+                .as("Health check should report on more than just the gateway's own liveness")
+                .hasSizeGreaterThan(1);
+    }
+
     // ══════════════════════════════════════════════════════════════
     // 3. PROMETHEUS METRICS
     // ══════════════════════════════════════════════════════════════
@@ -137,6 +170,25 @@ public class Observability extends BaseTest {
 
         assertThat(metrics).as("HTTP request metrics with URI tags").contains("http_server_requests");
         assertThat(metrics).contains("uri");
+    }
+
+    @Test(priority = 13)
+    @Story("Metrics - Distributed Tracing")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Verify gateway responses carry a trace/correlation ID for distributed tracing")
+    public void test13_ResponsesCarryTraceId() {
+        ServiceResponse response = client.get(ServiceType.GATEWAY, "/api/products", null);
+
+        boolean hasTraceHeader = response.getHeaders().keySet().stream()
+                .anyMatch(h -> h.equalsIgnoreCase("X-Trace-Id")
+                        || h.equalsIgnoreCase("traceparent")
+                        || h.equalsIgnoreCase("X-B3-TraceId"));
+
+        if (!hasTraceHeader) {
+            throw new SkipException("No recognized tracing header found — tracing may not be configured");
+        }
+
+        logStep("✓ Trace header present on response");
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -239,15 +291,6 @@ public class Observability extends BaseTest {
                 .isGreaterThan(before);
     }
 
-    private long extractProductsRequestCount() {
-        String metrics = client.get(ServiceType.GATEWAY, "/actuator/prometheus", null).getBody();
-        return metrics.lines()
-                .filter(line -> line.contains("http_server_requests_seconds_count") && line.contains("uri=\"/api/products\""))
-                .map(line -> line.substring(line.lastIndexOf(' ') + 1))
-                .mapToLong(v -> (long) Double.parseDouble(v))
-                .sum();
-    }
-
     // ══════════════════════════════════════════════════════════════
     // 7. MICROSERVICES HEALTH CHECKS
     // ══════════════════════════════════════════════════════════════
@@ -262,54 +305,17 @@ public class Observability extends BaseTest {
         assertServiceHealthy(ServiceType.ORDER, "order-service");
     }
 
-    @Test(priority = 4)
-    @Story("Actuator - Sensitive Endpoint Protection")
-    @Severity(SeverityLevel.CRITICAL)
-    @Description("Verify sensitive actuator endpoints (env, heapdump, threaddump) are not publicly exposed")
-    public void test04_SensitiveActuatorEndpointsAreProtected() {
-        for (String endpoint : List.of("/actuator/env", "/actuator/heapdump", "/actuator/threaddump")) {
-            ServiceResponse response = client.get(ServiceType.GATEWAY, endpoint, null);
-            assertThat(response.getStatusCode())
-                    .as(endpoint + " should not be publicly accessible")
-                    .isIn(401, 403, 404);
-        }
-    }
+    // ══════════════════════════════════════════════════════════════
+    // HELPERS
+    // ══════════════════════════════════════════════════════════════
 
-    @Test(priority = 5)
-    @Story("Health - Downstream Dependency Awareness")
-    @Severity(SeverityLevel.NORMAL)
-    @Description("Gateway health check reports on downstream service dependencies, not just its own liveness")
-    public void test05_HealthReflectsDownstreamDependencies() {
-        Map<String, Object> body = client.get(ServiceType.GATEWAY, "/actuator/health", null).as(Map.class);
-
-        if (!body.containsKey("components")) {
-            throw new SkipException("Component details not exposed — cannot verify downstream awareness");
-        }
-
-        Map<?, ?> components = (Map<?, ?>) body.get("components");
-        logStep("Health components reported: " + components.keySet());
-
-        assertThat(components)
-                .as("Health check should report on more than just the gateway's own liveness")
-                .hasSizeGreaterThan(1);
-    }
-    @Test(priority = 13)
-    @Story("Metrics - Distributed Tracing")
-    @Severity(SeverityLevel.NORMAL)
-    @Description("Verify gateway responses carry a trace/correlation ID for distributed tracing")
-    public void test13_ResponsesCarryTraceId() {
-        ServiceResponse response = client.get(ServiceType.GATEWAY, "/api/products", null);
-
-        boolean hasTraceHeader = response.getHeaders().keySet().stream()
-                .anyMatch(h -> h.equalsIgnoreCase("X-Trace-Id")
-                        || h.equalsIgnoreCase("traceparent")
-                        || h.equalsIgnoreCase("X-B3-TraceId"));
-
-        if (!hasTraceHeader) {
-            throw new SkipException("No recognized tracing header found — tracing may not be configured");
-        }
-
-        logStep("✓ Trace header present on response");
+    private long extractProductsRequestCount() {
+        String metrics = client.get(ServiceType.GATEWAY, "/actuator/prometheus", null).getBody();
+        return metrics.lines()
+                .filter(line -> line.contains("http_server_requests_seconds_count") && line.contains("uri=\"/api/products\""))
+                .map(line -> line.substring(line.lastIndexOf(' ') + 1))
+                .mapToLong(v -> (long) Double.parseDouble(v))
+                .sum();
     }
 
     private void assertServiceHealthy(ServiceType service, String label) {

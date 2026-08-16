@@ -6,6 +6,8 @@ import com.amazon.tests.transport.ServiceResponse;
 import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.JwtTestUtils;
 import com.amazon.tests.utils.apiClients.GatewayApiClient;
+import com.amazon.tests.workflows.PurchaseResult;
+import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.qameta.allure.*;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
@@ -34,9 +36,16 @@ public class JwtSecurityTest extends BaseTest {
     public void setup() {
         logStep("Setting up JWT security tests");
 
-        gatewayApiClient = new GatewayApiClient(context.getExecutor());
+        // Use the static executor field (set in @BeforeSuite) — NOT
+        // context.getExecutor(), since `context` is only populated in
+        // @BeforeMethod, which runs AFTER @BeforeClass and would NPE here.
+        gatewayApiClient = new GatewayApiClient(executor);
 
-        authResponse = AuthUtils.registerAndGetAuth();
+        PurchaseResult purchase = PurchaseWorkflow.start(executor, authStrategy)
+                .registerCustomer()
+                .execute();
+
+        authResponse = purchase.getCustomer();
         validToken = authResponse.getAccessToken();
         userId = authResponse.getUser().getId();
 
@@ -47,6 +56,7 @@ public class JwtSecurityTest extends BaseTest {
                 .as("Valid token should work (200 or 503 if service down)");
 
         logStep("✅ Setup complete - valid token verified");
+
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -212,7 +222,10 @@ public class JwtSecurityTest extends BaseTest {
     @Severity(SeverityLevel.BLOCKER)
     @Description("Verify user cannot access another user's resources using their own token")
     public void test50_CannotAccessOtherUsersResources() {
-        TestModels.AuthResponse otherUser = AuthUtils.registerAndGetAuth();
+        PurchaseResult otherPurchase = PurchaseWorkflow.start(executor, authStrategy)
+                .registerCustomer()
+                .execute();
+        TestModels.AuthResponse otherUser = otherPurchase.getCustomer();
 
         ServiceResponse response = gatewayApiClient.get(USER_ENDPOINT + otherUser.getUser().getId(), validToken);
 

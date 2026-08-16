@@ -13,20 +13,6 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Gateway Timeout Tests
- *
- * Config under test:
- *   connect-timeout:  1s (TCP connection phase)
- *   response-timeout: 3s (HTTP response phase)
- *   timelimiter:      3s (total request time)
- *
- * Note: response-timeout and timelimiter are both 3s, so tests can't
- * distinguish which one enforces a given timeout — both are exercised
- * together and treated as one observable 3s ceiling.
- */
-@Epic("API Gateway")
-@Feature("Timeout Handling")
 public class TimeoutTests extends BaseTest {
 
     private static final String SLOW_ENDPOINT = "/api/users/test/slow";
@@ -35,7 +21,10 @@ public class TimeoutTests extends BaseTest {
 
     @BeforeClass
     public void setup() {
-        client = new RawApiClient(context.getExecutor());
+        // Use the static executor field (set in @BeforeSuite) — NOT
+        // context.getExecutor(), since `context` is only populated in
+        // @BeforeMethod, which runs AFTER @BeforeClass and would NPE here.
+        client = new RawApiClient(executor);
     }
 
     @Test(priority = 1)
@@ -159,8 +148,6 @@ public class TimeoutTests extends BaseTest {
 
         slowCall.join(); // don't leak the async call past the test
     }
-
-    // ══════════════════════════════════════════════════════════════
 
     private void skipIfSlowEndpointUnavailable() {
         ServiceResponse check = client.get(ServiceType.GATEWAY, SLOW_ENDPOINT + "?delay=100", null);

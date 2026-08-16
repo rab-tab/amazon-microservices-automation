@@ -74,6 +74,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 CMD mvn test \
     -Dsurefire.suiteXmlFiles=src/test/resources/regression.xml \
     -Dsurefire.reportsDirectory=target/surefire-reports \
+    -Denv=docker \
     -Dbase.url=${BASE_URL} \
     -Ddb.host=${DB_HOST} \
     -Ddb.port=5432 \

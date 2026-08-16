@@ -4,8 +4,9 @@ import com.amazon.tests.BaseTest;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.transport.ServiceResponse;
 import com.amazon.tests.transport.ServiceType;
-import com.amazon.tests.utils.AuthUtils;
 import com.amazon.tests.utils.apiClients.RawApiClient;
+import com.amazon.tests.workflows.PurchaseResult;
+import com.amazon.tests.workflows.PurchaseWorkflow;
 import com.github.javafaker.Faker;
 import io.qameta.allure.*;
 import org.testng.annotations.BeforeClass;
@@ -16,8 +17,6 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Epic("Amazon Microservices")
-@Feature("API Gateway - Routing Verification")
 public class RoutingTest extends BaseTest {
 
     private static final Faker faker = new Faker();
@@ -28,9 +27,16 @@ public class RoutingTest extends BaseTest {
 
     @BeforeClass
     public void setup() {
-        client = new RawApiClient(context.getExecutor());
+        // Use the static executor field (set in @BeforeSuite) — NOT
+        // context.getExecutor(), since `context` is only populated in
+        // @BeforeMethod, which runs AFTER @BeforeClass and would NPE here.
+        client = new RawApiClient(executor);
 
-        TestModels.AuthResponse auth = AuthUtils.registerAndGetAuth();
+        PurchaseResult purchase = PurchaseWorkflow.start(executor, authStrategy)
+                .registerCustomer()
+                .execute();
+
+        TestModels.AuthResponse auth = purchase.getCustomer();
         validToken = auth.getAccessToken();
         userId = auth.getUser().getId();
         logStep("Setup complete - user: " + userId);
@@ -137,21 +143,27 @@ public class RoutingTest extends BaseTest {
         logStep("✅ Verified: size=" + size + " correctly passed through to backend");
     }
 
-    @Test
+    @Test(priority = 6)
+    @Story("Routing - Unmapped Routes")
+    @Severity(SeverityLevel.NORMAL)
     @Description("Verify gateway returns 404 for routes with no backend mapping")
     public void test06_UnmappedRouteReturns404() {
         ServiceResponse response = client.get(ServiceType.GATEWAY, "/api/nonexistent-service/foo", null);
         assertThat(response.getStatusCode()).isEqualTo(404);
     }
 
-    @Test
+    @Test(priority = 7)
+    @Story("Routing - HTTP Method Validation")
+    @Severity(SeverityLevel.NORMAL)
     @Description("Verify unsupported HTTP method on a valid path returns 405")
     public void test07_UnsupportedMethodReturns405() {
-        ServiceResponse response = client.delete(ServiceType.GATEWAY, "/api/products", null); // needs RawApiClient.delete(...)
+        ServiceResponse response = client.delete(ServiceType.GATEWAY, "/api/products", null);
         assertThat(response.getStatusCode()).isEqualTo(405);
     }
 
-    @Test
+    @Test(priority = 8)
+    @Story("Routing - Path Normalization")
+    @Severity(SeverityLevel.NORMAL)
     @Description("Verify trailing slash doesn't break routing")
     public void test08_TrailingSlashHandledConsistently() {
         ServiceResponse withoutSlash = client.get(ServiceType.GATEWAY, "/api/products", null);
@@ -159,11 +171,18 @@ public class RoutingTest extends BaseTest {
         assertThat(withoutSlash.getStatusCode()).isEqualTo(withSlash.getStatusCode());
     }
 
-    @Test
+    @Test(priority = 9)
+    @Story("Routing - Path Normalization")
+    @Severity(SeverityLevel.NORMAL)
     @Description("Verify path case sensitivity behaves as configured")
     public void test09_PathCaseSensitivity() {
+        // TODO: confirm gateway's intended case-sensitivity behavior (check
+        // Spring Cloud Gateway route predicate config in application.yml —
+        // path matching is case-sensitive by default unless explicitly
+        // configured otherwise) and assert ONE specific expected status.
+        // isIn(200, 404) below cannot fail regardless of actual behavior —
+        // same as flagged elsewhere in this project, needs a real decision.
         ServiceResponse response = client.get(ServiceType.GATEWAY, "/api/Products", null);
-        // Assert whatever your gateway's intended behavior is — 404 if case-sensitive, 200 if not
         assertThat(response.getStatusCode()).isIn(200, 404);
     }
 
