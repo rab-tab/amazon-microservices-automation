@@ -1,12 +1,17 @@
 // ════════════════════════════════════════════════════════════════
-// Automation Pipeline — amazon-test-automation repo (K8s version)
+// Automation Pipeline — amazon-test-automation repo (K8s + sharded)
 //
 // Replaces docker-compose with kubectl apply against the k3s cluster
-// running on the qa-agent EC2 instance itself. Reuses ECR login and
-// tag-resolution logic unchanged from the compose-based version —
-// only "Start Infrastructure" and "Start Microservices" are replaced,
-// plus a new port-forward stage since K8s Services aren't reachable
-// on localhost the way compose's port mappings were.
+// running on the qa-agent EC2 instance itself. ECR login and
+// tag-resolution logic unchanged from the compose-based version.
+//
+// Testing moved from sequential (single mvn test on the agent, with
+// port-forwarded localhost access) to sharded (a K8s Indexed Job
+// running 3 pods in parallel, in-cluster, via docker.properties'
+// real Service DNS names — no port-forwarding needed for this path).
+// "Compile Tests", "Run Tests", and "Port Forward Services" are gone,
+// replaced by "Build & Push Test Image", "Run Sharded Tests", and
+// "Aggregate Test Results".
 // ════════════════════════════════════════════════════════════════
 
 pipeline {
@@ -40,19 +45,12 @@ pipeline {
         NAMESPACE      = "amazon"
         KUBECONFIG     = "/home/ubuntu/.kube/config"
         MAVEN_OPTS     = "-Xmx256m -XX:+UseG1GC"
-
-        BASE_URL       = "http://localhost:8090"
-        DB_HOST        = "localhost"
-        KAFKA_SERVERS  = "localhost:9092"
-        REDIS_HOST     = "localhost"
+        S3_BUCKET      = "amazon-microservices-build-artifacts-978185568053"
     }
 
     stages {
 
         // ── ECR Login ──────────────────────────────────────────────
-        // Unchanged from the compose version — still needed for the
-        // Context stage's docker pull checks below, and reused again
-        // when we build the K8s imagePullSecret.
         stage('ECR Login') {
             steps {
                 withCredentials([[
@@ -69,18 +67,11 @@ pipeline {
         }
 
         // ── Context: resolve per-service tags ─────────────────────
-        // UNCHANGED from the compose version. Still uses `docker pull`
-        // on the agent itself to check whether IMAGE_TAG exists per
-        // service, falling back to :latest — same logic, same reason
-        // (changed services get tested at exact commit, unchanged
-        // services get last known good). The resolved TAG_* env vars
-        // get substituted into the K8s manifests further down instead
-        // of into docker-compose's environment.
         stage('Context') {
             steps {
                 echo """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧪 Automation Pipeline Starting (K8s)
+🧪 Automation Pipeline Starting (K8s, sharded)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Image Tag:    ${params.IMAGE_TAG}
 Triggered By: ${params.TRIGGERED_BY}
@@ -144,10 +135,6 @@ Skip E2E:     ${params.SKIP_E2E}
         }
 
         // ── Kubernetes Setup ───────────────────────────────────────
-        // New stage, no compose equivalent. Ensures the namespace
-        // exists and refreshes the ECR pull secret — ECR tokens expire
-        // ~12h, so this can't be a one-time manual step; it has to
-        // run fresh every pipeline execution.
         stage('Kubernetes Setup') {
             steps {
                 withCredentials([[
@@ -170,28 +157,7 @@ Skip E2E:     ${params.SKIP_E2E}
             }
         }
 
-        // ── Deploy Infrastructure to K8s ───────────────────────────
-        // Replaces "Start Infrastructure" (docker-compose up postgres
         // ── Deploy to Kubernetes (Kustomize) ───────────────────────
-        // Replaces both "Start Infrastructure" and "Start Microservices"
-        // from the compose version. The repo's k8s/ folder already had
-        // a kustomization.yaml (Kustomize) tying together 8 resource
-        // files across subfolders — we use kustomize's own `edit set
-        // image` to inject each service's resolved tag (from Context
-        // stage) at the correct full ECR image name, then a single
-        // `kubectl apply -k .` applies everything in dependency-safe
-        // order in one shot, replacing the old sed-placeholder hack.
-        //
-        // NOTE: `kubectl kustomize edit ...` is NOT valid — kubectl's
-        // built-in kustomize support only BUILDS (renders) a
-        // kustomization; it has no "edit" subcommand. "kustomize edit
-        // set image" only exists in the separate, standalone kustomize
-        // CLI binary, which isn't installed on this agent. Instead we
-        // append an images: block directly via a heredoc — kubectl's
-        // built-in kustomize DOES correctly honor this block once it's
-        // present, we just can't use "edit" to write it. Safe to append
-        // fresh every run since checkout starts clean each time (no
-        // risk of duplicate blocks accumulating across runs).
         stage('Deploy to Kubernetes') {
             steps {
                 dir('../amazon-microservices/k8s') {
@@ -241,66 +207,132 @@ EOF
             }
         }
 
-        // ── Port Forward Services ──────────────────────────────────
-        // New stage, no compose equivalent needed there (compose ports
-        // were already on localhost). K8s ClusterIP Services aren't
-        // reachable from the agent directly, so we tunnel each one the
-        // test suite needs onto localhost, matching exactly the ports
-        // BASE_URL/DB_HOST/KAFKA_SERVERS/REDIS_HOST above expect.
-        // Each port-forward runs as a background process; PIDs are
-        // saved to a file so post{always{}} can clean them up reliably
-        // even if a later stage fails.
-        stage('Port Forward Services') {
+        // ── Build & Push Test Image ────────────────────────────────
+        // Builds amazon-test-automation fresh from this repo's current
+        // source, tagged with this build's own number (not just
+        // :latest) so it's always clear exactly which test code ran
+        // for any given pipeline run.
+        stage('Build & Push Test Image') {
             steps {
-                sh """
-                    rm -f /tmp/port-forward-pids.txt
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-ecr-creds'
+                ]]) {
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                          docker login --username AWS --password-stdin ${REGISTRY}
 
-                    kubectl port-forward -n ${NAMESPACE} svc/postgres-service       5432:5432 > /tmp/pf-postgres.log 2>&1 &
-                    echo \$! >> /tmp/port-forward-pids.txt
-                    kubectl port-forward -n ${NAMESPACE} svc/redis-service         6379:6379 > /tmp/pf-redis.log 2>&1 &
-                    echo \$! >> /tmp/port-forward-pids.txt
-                    kubectl port-forward -n ${NAMESPACE} svc/kafka-service         9092:9092 > /tmp/pf-kafka.log 2>&1 &
-                    echo \$! >> /tmp/port-forward-pids.txt
-                    kubectl port-forward -n ${NAMESPACE} svc/user-service         8081:8081 > /tmp/pf-user.log 2>&1 &
-                    echo \$! >> /tmp/port-forward-pids.txt
-                    kubectl port-forward -n ${NAMESPACE} svc/product-service      8082:8082 > /tmp/pf-product.log 2>&1 &
-                    echo \$! >> /tmp/port-forward-pids.txt
-                    kubectl port-forward -n ${NAMESPACE} svc/order-service        8083:8083 > /tmp/pf-order.log 2>&1 &
-                    echo \$! >> /tmp/port-forward-pids.txt
-                    kubectl port-forward -n ${NAMESPACE} svc/payment-service      8084:8084 > /tmp/pf-payment.log 2>&1 &
-                    echo \$! >> /tmp/port-forward-pids.txt
-                    kubectl port-forward -n ${NAMESPACE} svc/api-gateway         8090:8080 > /tmp/pf-gateway.log 2>&1 &
-                    echo \$! >> /tmp/port-forward-pids.txt
+                        docker build -t ${REGISTRY}/amazon-test-automation:${BUILD_NUMBER} \
+                                     -t ${REGISTRY}/amazon-test-automation:latest .
 
-                    sleep 5
-
-                    echo "=== Port-forward status ==="
-                    for f in /tmp/pf-*.log; do echo "--- \$f ---"; cat "\$f"; done
-
-                    echo "=== Verifying tunnels ==="
-                    curl -s --max-time 3 http://localhost:8090/actuator/health || echo "⚠️ api-gateway tunnel not responding yet"
-                """
-                echo "✅ Port-forwards established"
-            }
-        }
-
-        stage('Compile Tests') {
-            steps {
-                checkout scm
-                sh '''
-                    mvn clean compile test-compile --no-transfer-progress -q
-                    echo "✅ Test code compiled successfully"
-                '''
-            }
-        }
-
-        stage('Run Tests') {
-            parallel {
-                stage('Regression Tests') {
-                    when { not { expression { params.SKIP_E2E } } }
-                    steps { runTestSuite('regression.xml', 'REgression suite') }
-                    post { always { collectTestResults() } }
+                        docker push ${REGISTRY}/amazon-test-automation:${BUILD_NUMBER}
+                        docker push ${REGISTRY}/amazon-test-automation:latest
+                    """
                 }
+                echo "✅ Test image pushed: amazon-test-automation:${BUILD_NUMBER}"
+            }
+        }
+
+        // ── Run Sharded Tests ───────────────────────────────────────
+        // Creates a fresh AWS credentials Secret (pods need this to
+        // upload results to S3), substitutes this build's number into
+        // the Job manifest, applies it, then polls until all 3 shards
+        // finish. kubectl wait --for=condition=complete doesn't
+        // cleanly handle the failure case (only succeeds on Complete,
+        // so a failed Job would just time out) — polling .status
+        // directly, same pattern as the CodeBuild polling used
+        // elsewhere in the dev pipeline.
+        stage('Run Sharded Tests') {
+            when { not { expression { params.SKIP_E2E } } }
+            steps {
+                dir('../amazon-microservices/k8s') {
+                    withCredentials([[
+                        $class: 'AmazonWebServicesCredentialsBinding',
+                        credentialsId: 'aws-ecr-creds'
+                    ]]) {
+                        sh """
+                            kubectl delete secret aws-s3-creds -n ${NAMESPACE} --ignore-not-found
+                            kubectl create secret generic aws-s3-creds \
+                              --from-literal=access-key-id=\$AWS_ACCESS_KEY_ID \
+                              --from-literal=secret-access-key=\$AWS_SECRET_ACCESS_KEY \
+                              -n ${NAMESPACE}
+
+                            sed "s/__BUILD_ID__/${BUILD_NUMBER}/g" sharded-test-job.yaml > sharded-test-job-resolved.yaml
+
+                            kubectl delete job sharded-test-run -n ${NAMESPACE} --ignore-not-found
+                            kubectl apply -f sharded-test-job-resolved.yaml
+                        """
+                    }
+
+                    script {
+                        def elapsed = 0
+                        def timeoutSecs = 600
+                        def status = 'RUNNING'
+
+                        while (elapsed < timeoutSecs) {
+                            sleep(15)
+                            elapsed += 15
+
+                            def succeeded = sh(
+                                script: "kubectl get job sharded-test-run -n ${NAMESPACE} -o jsonpath='{.status.succeeded}'",
+                                returnStdout: true
+                            ).trim()
+                            def failed = sh(
+                                script: "kubectl get job sharded-test-run -n ${NAMESPACE} -o jsonpath='{.status.failed}'",
+                                returnStdout: true
+                            ).trim()
+
+                            echo "  Sharded Job: succeeded=${succeeded ?: 0} failed=${failed ?: 0} (${elapsed}s)"
+
+                            if (succeeded == '3') {
+                                status = 'SUCCEEDED'
+                                break
+                            }
+                            if (failed && failed.toInteger() > 0) {
+                                status = 'FAILED'
+                                break
+                            }
+                        }
+
+                        if (status == 'RUNNING') {
+                            error("❌ Sharded test Job did not complete within ${timeoutSecs}s")
+                        }
+
+                        echo "=== Shard pod logs ==="
+                        sh "kubectl logs -n ${NAMESPACE} -l job-name=sharded-test-run --prefix=true --tail=100 || true"
+
+                        if (status == 'FAILED') {
+                            echo "⚠️  One or more shards failed — marking build UNSTABLE"
+                            currentBuild.result = 'UNSTABLE'
+                        } else {
+                            echo "✅ All 3 shards succeeded"
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Aggregate Test Results ──────────────────────────────────
+        // Downloads each shard's results into ITS OWN subfolder rather
+        // than flattening them together — Surefire writes one XML per
+        // test CLASS, and since sharding splits by method, two shards
+        // can easily own different methods of the same class, which
+        // would produce identically-named files if flattened.
+        stage('Aggregate Test Results') {
+            when { not { expression { params.SKIP_E2E } } }
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-ecr-creds'
+                ]]) {
+                    sh """
+                        mkdir -p target/aggregated-results
+                        aws s3 sync s3://${S3_BUCKET}/test-results/${BUILD_NUMBER}/ target/aggregated-results/ \
+                          --only-show-errors
+                    """
+                }
+                echo "✅ Shard results downloaded to target/aggregated-results/"
+                sh "find target/aggregated-results -name '*.xml' | wc -l"
             }
         }
 
@@ -313,20 +345,6 @@ EOF
     post {
         always {
             script {
-                // Kill port-forwards FIRST — leaving them running would
-                // leak processes and hold ports across pipeline runs.
-                sh '''
-                    if [ -f /tmp/port-forward-pids.txt ]; then
-                        while read pid; do
-                            kill $pid 2>/dev/null || true
-                        done < /tmp/port-forward-pids.txt
-                        rm -f /tmp/port-forward-pids.txt
-                    fi
-                '''
-
-                // Dump pod logs before tearing down — kubectl logs
-                // instead of docker logs, otherwise same intent as
-                // compose's log-dump-before-cleanup pattern.
                 echo "=== Pod logs ==="
                 ['user-service','product-service','order-service',
                  'payment-service','notification-service','api-gateway'].each { svc ->
@@ -335,21 +353,27 @@ EOF
                 }
 
                 sh """
+                    kubectl delete job sharded-test-run -n ${NAMESPACE} --ignore-not-found
+                    kubectl delete secret aws-s3-creds -n ${NAMESPACE} --ignore-not-found
                     kubectl delete deployment,statefulset --all -n ${NAMESPACE} --ignore-not-found
                     kubectl delete pod --all -n ${NAMESPACE} --ignore-not-found --grace-period=0 --force 2>/dev/null || true
                     echo "✅ K8s resources cleaned up"
                 """
 
                 junit allowEmptyResults: true,
-                      testResults: '**/target/surefire-reports/TEST-*.xml'
+                      testResults: 'target/aggregated-results/**/surefire-reports/TEST-*.xml'
 
                 allure([
                     includeProperties: true,
                     reportBuildPolicy: 'ALWAYS',
-                    results: [[path: 'target/allure-results']]
+                    results: [
+                        [path: 'target/aggregated-results/shard-0/allure-results'],
+                        [path: 'target/aggregated-results/shard-1/allure-results'],
+                        [path: 'target/aggregated-results/shard-2/allure-results']
+                    ]
                 ])
 
-                archiveArtifacts artifacts: 'target/diagnostics/**, target/extent-reports/**, target/allure-results/**',
+                archiveArtifacts artifacts: 'target/aggregated-results/**',
                                   allowEmptyArchive: true,
                                   fingerprint: false
             }
@@ -358,7 +382,7 @@ EOF
         success {
             echo """
 ╔══════════════════════════════════════════════════════╗
-║  ✅ Automation Pipeline PASSED (K8s)                  ║
+║  ✅ Automation Pipeline PASSED (K8s, sharded)         ║
 ║  Image Tag:  ${params.IMAGE_TAG.padRight(40)}║
 ╚══════════════════════════════════════════════════════╝"""
         }
@@ -371,34 +395,4 @@ EOF
             cleanWs()
         }
     }
-}
-
-// ════════════════════════════════════════════════════════════════
-// Helper functions — unchanged from the compose version
-// ════════════════════════════════════════════════════════════════
-
-def runTestSuite(String suite, String displayName) {
-    echo "\n━━━ Running: ${displayName} ━━━"
-    sh """
-        mvn test \
-          -Dsurefire.suiteXmlFiles=src/test/resources/${suite} \
-          -Dbase.url=${BASE_URL} \
-          -Duser.service.url=http://localhost:8081 \
-          -Dproduct.service.url=http://localhost:8082 \
-          -Dorder.service.url=http://localhost:8083 \
-          -Dkafka.bootstrap.servers=${KAFKA_SERVERS} \
-          -Ddb.host=${DB_HOST} \
-          -Ddb.port=5432 \
-          -Ddb.username=amazon \
-          -Ddb.password=amazon123 \
-          -Dredis.host=${REDIS_HOST} \
-          -Dredis.password=redis123 \
-          --no-transfer-progress \
-          -Dmaven.test.failure.ignore=true
-    """
-}
-
-def collectTestResults() {
-    junit allowEmptyResults: true,
-          testResults: 'target/surefire-reports/TEST-*.xml'
 }
