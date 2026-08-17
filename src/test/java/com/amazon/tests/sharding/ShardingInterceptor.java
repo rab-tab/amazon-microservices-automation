@@ -59,7 +59,7 @@ public class ShardingInterceptor implements IMethodInterceptor {
         for (IMethodInstance instance : methods) {
             String className = instance.getMethod().getTestClass().getName();
             String methodName = instance.getMethod().getConstructorOrMethod().getName();
-            String key = className + "#" + methodName;
+            String key = className;
 
             // Math.floorMod (not %) — % can return negative results for
             // negative hashCodes, which would break the modulo bucketing.
