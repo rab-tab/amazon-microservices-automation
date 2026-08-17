@@ -8,6 +8,7 @@ import com.amazon.tests.utils.RedisValidator;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.utils.concurrency.ConcurrencyTestHelper;
 import com.amazon.tests.utils.retry.RetryHandler;
+import com.amazon.tests.utils.retry.RetryPresets;
 import com.amazon.tests.utils.testData.TestDataFactory;
 import com.amazon.tests.utils.validators.DatabaseValidator;
 import com.amazon.tests.workflows.PurchaseResult;
@@ -87,7 +88,7 @@ public class OrderIdempotencyTest extends BaseTest {
         log.info("📤 Sending second request with key: {}", key2);
         ServiceResponse response2 = retryServiceCall(() ->
                         orderApiClient(token).createOrderWithFault(userId, key2, orderRequest, null),
-                raceConditionRetryConfig());
+                RetryPresets.raceCondition());
 
         String orderId2 = response2.as(TestModels.OrderResponse.class).getId();
 
@@ -253,7 +254,7 @@ public class OrderIdempotencyTest extends BaseTest {
 
         ServiceResponse response2 = retryServiceCall(() ->
                         orderApiClient(token).createOrderWithFault(userId, idempotencyKey, orderRequest, null),
-                raceConditionRetryConfig());
+                RetryPresets.raceCondition());
 
         assertEquals(response2.getStatusCode(), 200, "Should return existing order from DB");
         String orderId2 = response2.as(TestModels.OrderResponse.class).getId();

@@ -24,14 +24,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Feature("Order Payment Flow - Positive")
 @Slf4j
 public class OrderPaymentPositiveTest extends BaseTest {
-    private KafkaTestConsumer kafkaConsumer=new KafkaTestConsumer("payment.result"); ;
-    private PaymentApiClient paymentApiClient;
 
+    // FIX: no longer constructed at field-declaration time. Building a
+    // KafkaTestConsumer eagerly here meant its constructor ran the moment
+    // TestNG reflectively instantiated this class — which can happen during
+    // test discovery, before @BeforeSuite has wired executor/config or the
+    // broker is reachable. Any failure in that constructor surfaced as the
+    // opaque "Cannot instantiate class ..." error from Surefire.
+    private KafkaTestConsumer kafkaConsumer;
+    private PaymentApiClient paymentApiClient;
 
     @BeforeClass
     public void setup() {
-        paymentApiClient = new PaymentApiClient(kafkaConsumer, executor);  // "take the photo" HERE instead
+        // Constructed here instead — after @BeforeSuite has run, so
+        // executor/broker config are guaranteed to be ready.
+        kafkaConsumer = new KafkaTestConsumer("payment.result");
+        paymentApiClient = new PaymentApiClient(kafkaConsumer, executor);
     }
+
     private OrderApiClient orderApiClient(String token) {
         return new OrderApiClient(new BearerAuthStrategy(token), context.getExecutor());
     }
@@ -39,7 +49,7 @@ public class OrderPaymentPositiveTest extends BaseTest {
     @Test(timeOut = 30000)
     @Story("Successful Payment")
     public void testSuccessfulPaymentFlow() {
-        PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
+        PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(), authStrategy)
                 .registerCustomer()
                 .loginCustomer()
                 .registerSeller()
@@ -65,6 +75,7 @@ public class OrderPaymentPositiveTest extends BaseTest {
         logStep("✅ Order confirmed: {} | Payment: {} | Txn: {}",
                 orderId, order.getPaymentId(), payment.getTransactionId());
     }
+
     @Test(timeOut = 30000)
     @Story("Idempotency")
     @Severity(SeverityLevel.BLOCKER)
@@ -72,7 +83,7 @@ public class OrderPaymentPositiveTest extends BaseTest {
     public void testIdempotencyWithPayment() {
         // Note: overlaps with OrderIdempotencyTest — kept here since it also validates
         // payment fields on the duplicate response. Consider consolidating if redundant.
-        PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
+        PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(), authStrategy)
                 .registerCustomer()
                 .loginCustomer()
                 .registerSeller()

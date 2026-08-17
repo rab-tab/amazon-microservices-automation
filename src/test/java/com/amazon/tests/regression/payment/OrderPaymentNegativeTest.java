@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Feature("Order Payment Flow - Negative")
 @Slf4j
 public class OrderPaymentNegativeTest extends BaseTest {
-    private KafkaTestConsumer kafkaConsumer=new KafkaTestConsumer("payment.result"); ;
+    private KafkaTestConsumer kafkaConsumer;
     private PaymentApiClient paymentApiClient;
 
 
@@ -37,6 +37,7 @@ public class OrderPaymentNegativeTest extends BaseTest {
     }
     @BeforeClass
     public void setup() {
+        kafkaConsumer = new KafkaTestConsumer("payment.result");
         paymentApiClient = new PaymentApiClient(kafkaConsumer, executor);  // "take the photo" HERE instead
     }
 
