@@ -1,4 +1,4 @@
-package com.amazon.tests.config.extentReports;
+package com.amazon.tests.config.reports;
 
 
 import com.aventstack.extentreports.ExtentReports;

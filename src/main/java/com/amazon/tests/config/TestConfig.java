@@ -57,4 +57,8 @@ public interface TestConfig extends Config {
     @Key("db.password")
     @DefaultValue("amazon123")
     String databasePassword();
+
+    @Key("reporters")
+    @DefaultValue("extent,allure,slf4j")
+    String reporters();
 }

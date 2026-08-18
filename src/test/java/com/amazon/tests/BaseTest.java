@@ -4,7 +4,9 @@ import com.amazon.tests.auth.AuthStrategy;
 import com.amazon.tests.auth.NoAuthStrategy;
 import com.amazon.tests.config.ConfigManager;
 import com.amazon.tests.config.TestConfig;
-import com.amazon.tests.config.extentReports.ExtentReportManager;
+import com.amazon.tests.config.reports.ExtentReportManager;
+import com.amazon.tests.config.reports.TestReporter;
+import com.amazon.tests.config.reports.TestReporterFactory;
 import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.config.restAsssured.RestClient;
 import com.amazon.tests.dataseeding.cleanup.CleanupManager;
@@ -17,7 +19,6 @@ import com.amazon.tests.utils.retry.RetryHandler;
 import com.amazon.tests.utils.validators.DatabaseValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import io.qameta.allure.Allure;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +49,7 @@ public abstract class BaseTest {
     public static RequestExecutor executor;
     public static AuthStrategy authStrategy;
     protected static TestConfig testConfig;
+    protected TestReporter reporter = TestReporterFactory.create();
 
     protected static final ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule());
@@ -158,7 +160,7 @@ public abstract class BaseTest {
         log.info("STEP: {}", step);
     }
 
-    protected void logStep(String message, Object... args) {
+   /* protected void logStep(String message, Object... args) {
         String formatted = formatMessage(message, args);
         log.info("STEP: {}", formatted);
         try {
@@ -166,6 +168,10 @@ public abstract class BaseTest {
         } catch (Exception e) {
             // Allure not available - ignore
         }
+    }*/
+
+    protected void logStep(String message, Object... args) {
+        reporter.logStep(formatMessage(message, args));
     }
 
     private String formatMessage(String message, Object... args) {

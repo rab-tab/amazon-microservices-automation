@@ -40,4 +40,5 @@ public class ConfigManager {
     public String getPaymentServiceUrl() {
         return config.paymentServiceUrl();
     }
+    public String getReporters() {return config.reporters();}
 }
