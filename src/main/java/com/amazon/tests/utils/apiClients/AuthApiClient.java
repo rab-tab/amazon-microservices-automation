@@ -10,12 +10,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Slf4j
-public class AuthApiClient {
-
-    private final RequestExecutor executor;
+public class AuthApiClient extends ApiClient{
 
     public AuthApiClient(RequestExecutor executor) {
-        this.executor = executor;
+        super(executor);
     }
 
     public TestModels.AuthResponse registerCustomer() {

@@ -9,14 +9,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class OrderApiClient {
+public class OrderApiClient extends ApiClient{
 
-    private final RequestExecutor executor;
+
     private final AuthStrategy authStrategy;
 
     public OrderApiClient(AuthStrategy authStrategy, RequestExecutor executor) {
+        super(executor);
         this.authStrategy = authStrategy;
-        this.executor = executor;
     }
 
     // ============================================================

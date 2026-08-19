@@ -14,12 +14,10 @@ import java.util.concurrent.ThreadLocalRandom;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Slf4j
-public class ProductApiClient {
-
-    private final RequestExecutor executor;
+public class ProductApiClient extends ApiClient{
 
     public ProductApiClient(RequestExecutor executor) {
-        this.executor = executor;
+        super(executor);
     }
 
     // ============================================================

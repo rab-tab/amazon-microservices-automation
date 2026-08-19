@@ -1,4 +1,4 @@
-package com.amazon.tests.config.reports;
+package com.amazon.tests.reports;
 
 import lombok.extern.slf4j.Slf4j;
 

@@ -1,4 +1,4 @@
-package com.amazon.tests.config.reports;
+package com.amazon.tests.reports;
 
 import io.qameta.allure.Allure;
 import io.qameta.allure.model.Status;

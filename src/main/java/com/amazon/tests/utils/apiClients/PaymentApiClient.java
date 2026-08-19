@@ -8,13 +8,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Map;
 import java.util.Optional;
 
-public class PaymentApiClient {
+public class PaymentApiClient extends ApiClient{
     private final KafkaTestConsumer consumer;
-    private final RequestExecutor executor;
 
     public PaymentApiClient(KafkaTestConsumer consumer, RequestExecutor executor) {
+        super(executor);
         this.consumer = consumer;
-        this.executor = executor;
+
     }
 
     /**

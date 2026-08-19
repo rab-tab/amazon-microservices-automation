@@ -5,12 +5,11 @@ import com.amazon.tests.transport.*;
 
 import java.util.Map;
 
-public class GatewayApiClient {
+public class GatewayApiClient extends ApiClient {
 
-    private final RequestExecutor executor;
 
     public GatewayApiClient(RequestExecutor executor) {
-        this.executor = executor;
+        super(executor);
     }
 
     public ServiceResponse get(String endpoint, String token) {

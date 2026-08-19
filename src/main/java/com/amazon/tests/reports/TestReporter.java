@@ -1,4 +1,4 @@
-package com.amazon.tests.config.reports;
+package com.amazon.tests.reports;
 
 
     public interface TestReporter {
