@@ -1,6 +1,7 @@
 package com.amazon.tests.regression.orderCreationFlow;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.dataseeding.builders.CreateOrderRequestPrototype;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.transport.RequestExecutor;
 import com.amazon.tests.transport.ServiceResponse;
@@ -12,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -56,64 +56,28 @@ public class OrderCreationNegativeTest extends BaseTest {
     public Object[][] invalidOrderPayloads() {
         return new Object[][] {
                 { "Empty items list", (OrderRequestFactory) (products) ->
-                        TestModels.CreateOrderRequest.builder()
-                                .items(List.of())
-                                .shippingAddress("123 Test St")
-                                .build() },
+                        CreateOrderRequestPrototype.validBaseline(products.get(0))
+                                .clone().withEmptyItems().build() },
 
                 { "Invalid product ID", (OrderRequestFactory) (products) ->
-                        TestModels.CreateOrderRequest.builder()
-                                .items(List.of(TestModels.OrderItemRequest.builder()
-                                        .productId("FAKE-PRODUCT-" + UUID.randomUUID())
-                                        .productName("Test Product")
-                                        .unitPrice(BigDecimal.valueOf(10.0))
-                                        .quantity(1)
-                                        .build()))
-                                .shippingAddress("123 Test St")
-                                .build() },
-                { "Zero quantity", (OrderRequestFactory) (products) ->
-                        TestModels.CreateOrderRequest.builder()
-                                .items(List.of(TestModels.OrderItemRequest.builder()
-                                        .productId(products.get(0).getId())
-                                        .productName(products.get(0).getName())
-                                        .unitPrice(products.get(0).getPrice())
-                                        .quantity(0)   // ← only this is deliberately invalid
-                                        .build()))
-                                .shippingAddress("123 Test St")
-                                .build() },
+                        CreateOrderRequestPrototype.validBaseline(products.get(0))
+                                .clone().withProductId("FAKE-PRODUCT-" + UUID.randomUUID()).build() },
 
-               { "Negative quantity", (OrderRequestFactory) (products) ->
-                        TestModels.CreateOrderRequest.builder()
-                                .items(List.of(TestModels.OrderItemRequest.builder()
-                                        .productId(products.get(0).getId())
-                                        .productName(products.get(0).getName())
-                                        .unitPrice(products.get(0).getPrice())
-                                        .quantity(-5)   // ← only this is deliberately invalid
-                                        .build()))
-                                .shippingAddress("123 Test St")
-                                .build() },
+                { "Zero quantity", (OrderRequestFactory) (products) ->
+                        CreateOrderRequestPrototype.validBaseline(products.get(0))
+                                .clone().withQuantity(0).build() },
+
+                { "Negative quantity", (OrderRequestFactory) (products) ->
+                        CreateOrderRequestPrototype.validBaseline(products.get(0))
+                                .clone().withQuantity(-5).build() },
 
                 { "Missing shipping address", (OrderRequestFactory) (products) ->
-                        TestModels.CreateOrderRequest.builder()
-                                .items(List.of(TestModels.OrderItemRequest.builder()
-                                        .productId(products.get(0).getId())
-                                        .productName(products.get(0).getName())
-                                        .unitPrice(products.get(0).getPrice())
-                                        .quantity(1)
-                                        .build()))
-                                // shippingAddress deliberately omitted
-                                .build() },
+                        CreateOrderRequestPrototype.validBaseline(products.get(0))
+                                .clone().withShippingAddress(null).build() },
 
                 { "Extremely large quantity", (OrderRequestFactory) (products) ->
-                        TestModels.CreateOrderRequest.builder()
-                                .items(List.of(TestModels.OrderItemRequest.builder()
-                                        .productId(products.get(0).getId())
-                                        .productName(products.get(0).getName())
-                                        .unitPrice(products.get(0).getPrice())
-                                        .quantity(Integer.MAX_VALUE)   // ← only this is deliberately invalid
-                                        .build()))
-                                .shippingAddress("123 Test St")
-                                .build() }
+                        CreateOrderRequestPrototype.validBaseline(products.get(0))
+                                .clone().withQuantity(Integer.MAX_VALUE).build() }
         };
     }
         public interface OrderRequestFactory {
