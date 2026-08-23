@@ -1,13 +1,17 @@
 package com.amazon.tests.utils.validators;
 
 import com.amazon.tests.config.ConfigManager;
+import com.amazon.tests.config.db.DatabaseConfig;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
 import java.sql.*;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * Thread-safe database validator with connection pooling.
@@ -29,18 +33,23 @@ public class DatabaseValidator {
     // ✅ Private constructor with connection pool initialization
     private DatabaseValidator() {
         log.info("Initializing DatabaseValidator with connection pools...");
+        DatabaseConfig cfg = DatabaseConfig.fromEnvironment();   // ONE shared source
+        int perDbPoolSize = Math.max(1, cfg.getMaxPoolSize() / 4);  // split the pod's budget across 4 DBs
+
 
         String dbHost = ConfigManager.getInstance().getConfig().databaseHost();
         String dbPort = ConfigManager.getInstance().getConfig().databasePort();
         String dbUser = ConfigManager.getInstance().getConfig().databaseUsername();
         String dbPass = ConfigManager.getInstance().getConfig().databasePassword();
 
-        this.usersDataSource = createDataSource(dbHost, dbPort, "users_db", dbUser, dbPass);
-        this.productsDataSource = createDataSource(dbHost, dbPort, "products_db", dbUser, dbPass);
-        this.ordersDataSource = createDataSource(dbHost, dbPort, "orders_db", dbUser, dbPass);
-        this.paymentsDataSource = createDataSource(dbHost, dbPort, "payments_db", dbUser, dbPass);
+        this.usersDataSource    = createDataSource(cfg, "users_db", perDbPoolSize);
+        this.productsDataSource = createDataSource(cfg, "products_db", perDbPoolSize);
+        this.ordersDataSource   = createDataSource(cfg, "orders_db", perDbPoolSize);
+        this.paymentsDataSource = createDataSource(cfg, "payments_db", perDbPoolSize);
 
-        log.info("DatabaseValidator initialized successfully");
+
+        log.info("DatabaseValidator initialized — {} connections/DB, {} total",
+                perDbPoolSize, perDbPoolSize * 4);
     }
 
     // ✅ Singleton getInstance
@@ -58,26 +67,42 @@ public class DatabaseValidator {
     /**
      * Create HikariCP DataSource for a database
      */
-    private DataSource createDataSource(String host, String port, String dbName,
-                                        String username, String password) {
+    private DataSource createDataSource(DatabaseConfig cfg, String dbName, int poolSize) {
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(String.format("jdbc:postgresql://%s:%s/%s", host, port, dbName));
-        config.setUsername(username);
-        config.setPassword(password);
-
-        // Connection pool settings
-        config.setMaximumPoolSize(10);              // Max 10 connections per pool
-        config.setMinimumIdle(2);                   // Keep 2 idle connections ready
-        config.setConnectionTimeout(30000);         // 30 seconds
-        config.setIdleTimeout(600000);              // 10 minutes
-        config.setMaxLifetime(1800000);             // 30 minutes
+        config.setJdbcUrl(String.format("jdbc:postgresql://%s:%s/%s", cfg.getHost(), cfg.getPort(), dbName));
+        config.setUsername(cfg.getUsername());
+        config.setPassword(cfg.getPassword());
+        config.setMaximumPoolSize(poolSize);
+        config.setMinimumIdle(Math.min(2, poolSize));
+        config.setConnectionTimeout(cfg.getConnectionTimeout() * 1000L);
+        config.setIdleTimeout(600000);
+        config.setMaxLifetime(1800000);
         config.setAutoCommit(true);
-        config.setConnectionTestQuery("SELECT 1");  // Health check query
-
-        // Pool name for logging
+        config.setConnectionTestQuery("SELECT 1");
         config.setPoolName("HikariPool-" + dbName);
-
+        // Wire Hikari's built-in metrics into the same Micrometer registry
+        // MetricsSupport already pushes to Prometheus — HikariCP auto-publishes
+        // pool gauges (active/idle/pending/usage) into this registry with zero
+        // extra code once it's set here.
+        //config.setMetricRegistry(MetricsSupport.getMeterRegistry());
         return new HikariDataSource(config);
+    }
+
+    private final ScheduledExecutorService poolMonitor = Executors.newSingleThreadScheduledExecutor(
+            r -> { Thread t = new Thread(r, "hikari-pool-monitor"); t.setDaemon(true); return t; });
+
+
+    private void logPoolStats() {
+        logOnePool("users_db", usersDataSource);
+        logOnePool("products_db", productsDataSource);
+        logOnePool("orders_db", ordersDataSource);
+        logOnePool("payments_db", paymentsDataSource);
+    }
+
+    private void logOnePool(String name, DataSource ds) {
+        HikariPoolMXBean bean = ((HikariDataSource) ds).getHikariPoolMXBean();
+        log.info("[{}] active={} idle={} waiting={}", name,
+                bean.getActiveConnections(), bean.getIdleConnections(), bean.getThreadsAwaitingConnection());
     }
 
     // ===== USER DB ASSERTIONS =====
@@ -366,6 +391,7 @@ public class DatabaseValidator {
      */
     public void shutdown() {
         log.info("Shutting down DatabaseValidator connection pools...");
+        poolMonitor.shutdown();
         closeDataSource(usersDataSource);
         closeDataSource(productsDataSource);
         closeDataSource(ordersDataSource);
