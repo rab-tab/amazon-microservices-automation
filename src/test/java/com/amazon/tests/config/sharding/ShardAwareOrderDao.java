@@ -1,4 +1,4 @@
-package com.amazon.tests.config;
+package com.amazon.tests.config.sharding;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;

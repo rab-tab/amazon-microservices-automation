@@ -1,4 +1,4 @@
-package com.amazon.tests.config;
+package com.amazon.tests.config.sharding;
 
 public class TestShardKeyResolver {
 

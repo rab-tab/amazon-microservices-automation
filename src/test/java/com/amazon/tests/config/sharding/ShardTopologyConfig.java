@@ -1,6 +1,4 @@
-package com.amazon.tests.config;
-
-
+package com.amazon.tests.config.sharding;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -51,7 +49,17 @@ public class ShardTopologyConfig {
         return config;
     }
 
-    // properties file uses ${SHARD0_USER}-style placeholders — resolve against env vars
+    /**
+     * NEW — builds topology from endpoints computed at runtime (e.g. by
+     * TestcontainersShardTestEnvironment) instead of a static properties
+     * file. Used for the local dev path only; CI keeps using load(...).
+     */
+    public static ShardTopologyConfig fromEndpoints(List<ShardEndpoint> endpoints) {
+        ShardTopologyConfig config = new ShardTopologyConfig();
+        config.shards.addAll(endpoints);
+        return config;
+    }
+
     private static String resolveEnv(String value) {
         if (value != null && value.startsWith("${") && value.endsWith("}")) {
             String envVar = value.substring(2, value.length() - 1);

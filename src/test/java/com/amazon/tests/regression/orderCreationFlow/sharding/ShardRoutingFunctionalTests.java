@@ -2,9 +2,9 @@ package com.amazon.tests.regression.orderCreationFlow.sharding;
 
 
 import com.amazon.tests.BaseTest;
-import com.amazon.tests.config.ShardAwareOrderDao;
-import com.amazon.tests.config.ShardTopologyConfig;
-import com.amazon.tests.config.TestShardKeyResolver;
+import com.amazon.tests.config.sharding.ShardAwareOrderDao;
+import com.amazon.tests.config.sharding.ShardTopologyConfig;
+import com.amazon.tests.config.sharding.TestShardKeyResolver;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.transport.ServiceResponse;
 import com.amazon.tests.utils.apiClients.AuthApiClient;
