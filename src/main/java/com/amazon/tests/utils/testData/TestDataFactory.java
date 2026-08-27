@@ -3,9 +3,8 @@ package com.amazon.tests.utils.testData;
 import com.amazon.tests.models.TestModels;
 import com.github.javafaker.Faker;
 import lombok.experimental.UtilityClass;
-
-
 import java.math.BigDecimal;
+
 
 import java.util.List;
 import java.util.UUID;
@@ -42,8 +41,7 @@ public class TestDataFactory {
         return ProductRequest.builder()
                 .name(faker.commerce().productName())
                 .description(faker.lorem().paragraph())
-                .price(BigDecimal.valueOf(faker.number().randomDouble(2, 1, 1000))
-                        .setScale(2, RoundingMode.HALF_UP))
+                .price(BigDecimal.valueOf(faker.number().randomDouble(2, 1, 1000)))
                 .stockQuantity(faker.number().numberBetween(10, 500))
                 .imageUrl("https://via.placeholder.com/400x400?text=" + faker.commerce().productName())
                 .build();
@@ -53,7 +51,7 @@ public class TestDataFactory {
         return ProductRequest.builder()
                 .name(faker.commerce().productName())
                 .description(faker.lorem().sentence())
-                .price(BigDecimal.valueOf(price).setScale(2, RoundingMode.HALF_UP))
+                .price(BigDecimal.valueOf(faker.number().randomDouble(2, 1, 1000)))
                 .stockQuantity(100)
                 .build();
     }
@@ -111,7 +109,7 @@ public class TestDataFactory {
         return ProductRequest.builder()
                 .name(faker.commerce().productName())
                 .description(faker.lorem().sentence())
-                .price(BigDecimal.valueOf(price).setScale(2, RoundingMode.HALF_UP))
+                .price(BigDecimal.valueOf(price).setScale(2, BigDecimal.ROUND_HALF_UP))
                 .stockQuantity(stockQuantity)
                 .build();
     }
