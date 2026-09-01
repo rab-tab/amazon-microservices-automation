@@ -66,12 +66,18 @@ public class RoutingTest extends BaseTest {
     @Description("Verify gateway routes /api/products/** to product-service")
     public void test02_VerifyRoutingToProductService() {
         ServiceResponse gatewayResp = client.get(ServiceType.GATEWAY, "/api/products", null);
-        assertThat(gatewayResp.getStatusCode()).isEqualTo(200);
-        assertThat(gatewayResp.as(Map.class).get("products"))
-                .as("Gateway should return product data from product-service")
-                .isNotNull();
+        ServiceResponse directResp = client.get(ServiceType.PRODUCT, "/api/v1/products", null);
 
-        logStep("✅ Verified: Gateway routes /api/products/** to product-service");
+        assertThat(gatewayResp.getStatusCode()).isEqualTo(directResp.getStatusCode());
+
+        Map<String, Object> gatewayBody = gatewayResp.as(Map.class);
+        Map<String, Object> directBody = directResp.as(Map.class);
+
+        // Structural parity, not full equality — avoids the test01 trap
+        // (e.g. pagination metadata or timestamps that legitimately differ per-call)
+        assertThat(gatewayBody.get("products"))
+                .as("Gateway should return product data from product-service")
+                .isEqualTo(directBody.get("products"));
     }
 
     @Test(priority = 3)

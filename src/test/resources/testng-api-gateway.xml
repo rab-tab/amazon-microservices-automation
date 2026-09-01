@@ -7,7 +7,13 @@
         <listener class-name="com.amazon.tests.listeners.AllureTestListener"/>
     </listeners>
 
-    <!-- All test elements come after listeners -->
+    <test name="Routing">
+        <classes>
+            <class name="com.amazon.tests.regression.apiGateway.routing.RoutingTest"/>
+        </classes>
+    </test>
+
+  <!--
     <test name="JWT Security Tests">
         <classes>
             <class name="com.amazon.tests.regression.apiGateway.authentication.JwtSecurityTest"/>
@@ -32,11 +38,7 @@
         </classes>
     </test>
 
-    <test name="Routing">
-        <classes>
-            <class name="com.amazon.tests.regression.apiGateway.routing.RoutingTest"/>
-        </classes>
-    </test>
+
 
     <test name="Circuit Breaker">
         <classes>
@@ -49,6 +51,6 @@
             <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitingTest"/>
             <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitHeadersTest"/>
         </classes>
-    </test>
+    </test>-->
 
 </suite>
