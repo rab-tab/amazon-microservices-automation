@@ -95,7 +95,7 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
         log.warn("║  If the service is NOT pointed at the proxy above, every test in    ║");
         log.warn("║  this class will pass or fail for the WRONG REASON — the injected   ║");
         log.warn("║  network chaos will have zero effect on the real request path.      ║");
-        log.warn("╚══════════════════════════════════════════d════════════════════════╝");
+        log.warn("╚══════════════════════════════════════════════════════════════════╝");
     }
 
     @AfterSuite

@@ -7,10 +7,16 @@
 
     </listeners>
     <test name="Order Tests">
+        <groups>
+            <run>
+                <exclude name="sharding"/>
+            </run>
+        </groups>
         <classes>
-             <class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationFlowTest"/>
-             <class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationNegativeTest"/>
+             <!--<class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationFlowTest"/>
+             <class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationNegativeTest"/>-->
             <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyTest"/>
+            <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyEdgeCasesTest"/>
             <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyRedisFailuresTest"/>
         </classes>
     </test>

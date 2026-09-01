@@ -27,6 +27,8 @@
         <awaitility.version>4.2.0</awaitility.version>
         <testcontainers.version>1.21.4</testcontainers.version>  <!-- Latest version -->
         <jacoco.version>0.8.11</jacoco.version>
+        <test.heap.xmx>-Xmx2g</test.heap.xmx>
+        <suiteXmlFile>src/test/resources/regression.xml</suiteXmlFile>
     </properties>
 
     <dependencies>
@@ -368,10 +370,11 @@
                 <version>3.2.5</version>
                 <configuration>
                     <suiteXmlFiles>
-                       <!-- <suiteXmlFile>src/test/resources/testng.xml</suiteXmlFile>-->
+                        <suiteXmlFile>${suiteXmlFile}</suiteXmlFile>
                     </suiteXmlFiles>
                     <argLine>
                         @{argLine}
+                        ${test.heap.xmx}
                         -javaagent:"${settings.localRepository}/org/aspectj/aspectjweaver/1.9.21/aspectjweaver-1.9.21.jar"
                         -XX:+HeapDumpOnOutOfMemoryError
                         -XX:HeapDumpPath=${project.build.directory}/diagnostics/heap-dumps/
@@ -383,6 +386,7 @@
                         <property>
                             <name>listener</name>
                             <value>com.amazon.tests.listeners.AllureTestListener</value>
+
                         </property>
                     </properties>
                 </configuration>

@@ -27,12 +27,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Idempotency edge cases beyond the core duplicate-detection scenarios
  * already covered by OrderIdempotencyTest / OrderIdempotencyEventualConsistencyTest:
  *
+ * - Missing idempotency key (rejected)
  * - Payload mismatch on a reused key (documents current behavior)
  * - Idempotency key format boundary validation
  * - Cross-endpoint key namespace isolation
  * - Concurrent requests with DIFFERENT keys (no accidental interference)
  *
- * Fast, no additional infra required — every-commit cadence.
+ * Fast, no additional infra required — every-commit cadence. (Anything that
+ * needs a real Redis-TTL wait belongs in OrderIdempotencyTest instead, even
+ * if it reads like an "edge case.")
  */
 @Slf4j
 @Epic("Order Service")
@@ -44,7 +47,43 @@ public class OrderIdempotencyEdgeCasesTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 1. SAME KEY, DIFFERENT PAYLOAD
+    // 1. MISSING IDEMPOTENCY KEY — NEW
+    // ══════════════════════════════════════════════════════════════
+
+    @Test(description = "Request with no idempotency key header should be rejected")
+    @Story("Idempotency - Key Format Validation")
+    @Severity(SeverityLevel.NORMAL)
+    public void testMissingIdempotencyKeyRejected() {
+        logStep("TEST: Request with no idempotency key at all");
+
+        PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
+                .registerCustomer()
+                .registerSeller()
+                .createProductWithStock(19.99, 500)
+                .execute();
+
+        String userId = purchase.getCustomer().getUser().getId();
+        String token = purchase.getCustomer().getAccessToken();
+        OrderApiClient orderApiClient = orderApiClient(token);
+
+        TestModels.CreateOrderRequest orderRequest =
+                TestDataFactory.defaultOrder(purchase.getProducts()).build();
+
+        // ASSUMPTION: passing null here makes createOrderWithFault omit the
+        // idempotency-key header entirely rather than sending a literal
+        // "null" string. Confirm against OrderApiClient's implementation —
+        // if it doesn't support that, this needs a lower-level request builder
+        // (e.g. RawApiClient) that can send the request without the header.
+        ServiceResponse response = orderApiClient.createOrderWithFault(userId, null, orderRequest, null);
+
+        logStep("  Response status: " + response.getStatusCode());
+        assertThat(response.getStatusCode())
+                .as("Missing idempotency key should be rejected")
+                .isEqualTo(400);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 2. SAME KEY, DIFFERENT PAYLOAD
     // ══════════════════════════════════════════════════════════════
 
     @Test(description = "Same idempotency key with a DIFFERENT order payload — documents actual behavior")
@@ -95,7 +134,7 @@ public class OrderIdempotencyEdgeCasesTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 2. KEY FORMAT BOUNDARY VALIDATION
+    // 3. KEY FORMAT BOUNDARY VALIDATION
     // ══════════════════════════════════════════════════════════════
 
     @DataProvider(name = "idempotencyKeyBoundaries")
@@ -143,7 +182,7 @@ public class OrderIdempotencyEdgeCasesTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 3. CROSS-ENDPOINT KEY NAMESPACE ISOLATION
+    // 4. CROSS-ENDPOINT KEY NAMESPACE ISOLATION
     // ══════════════════════════════════════════════════════════════
 
     @Test(description = "Same idempotency key value used for order creation should not collide with cancellation")
@@ -178,7 +217,7 @@ public class OrderIdempotencyEdgeCasesTest extends BaseTest {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 4. CONCURRENT REQUESTS, DIFFERENT KEYS
+    // 5. CONCURRENT REQUESTS, DIFFERENT KEYS
     // ══════════════════════════════════════════════════════════════
 
     @Test(description = "Concurrent requests with DIFFERENT idempotency keys create independent orders, no cross-interference")

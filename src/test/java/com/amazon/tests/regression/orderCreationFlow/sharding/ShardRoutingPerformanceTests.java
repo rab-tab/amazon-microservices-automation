@@ -1,12 +1,6 @@
 package com.amazon.tests.regression.orderCreationFlow.sharding;
 
-import com.amazon.tests.BaseTest;
-import com.amazon.tests.models.TestModels;
-import com.amazon.tests.utils.apiClients.AuthApiClient;
-import com.amazon.tests.utils.apiClients.OrderApiClient;
-import com.amazon.tests.utils.apiClients.ProductApiClient;
 import lombok.extern.slf4j.Slf4j;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.util.ArrayList;
@@ -19,35 +13,12 @@ import java.util.concurrent.Executors;
 
 import static org.testng.Assert.assertTrue;
 
-/**
- * Item 6 (latency-vs-baseline) is implemented here as a threshold/SLA
- * check, not a true comparative measurement — that needs an unsharded
- * environment running side by side, which is a CI topology decision
- * beyond what a single test class should own. TODO: revisit once/if a
- * default-profile comparison environment exists in the pipeline.
- */
 @Slf4j
-public class ShardRoutingPerformanceTests extends BaseTest {
+@Test(groups = "sharding")
+public class ShardRoutingPerformanceTests extends AbstractShardTest {
 
     private static final long SINGLE_ORDER_P95_THRESHOLD_MS = 500;
     private static final long CONCURRENT_THROUGHPUT_MIN_ORDERS_PER_SEC = 20;
-
-    private AuthApiClient authApiClient;
-    private ProductApiClient productApiClient;
-    private OrderApiClient orderApiClient;
-
-    private TestModels.AuthResponse sellerData;
-    private List<TestModels.ProductResponse> sharedProduct;
-
-    @BeforeClass
-    public void setup() {
-        authApiClient = new AuthApiClient(executor);
-        productApiClient = new ProductApiClient(executor);
-        orderApiClient = new OrderApiClient(authStrategy, executor);
-
-        sellerData = authApiClient.registerSeller();
-        sharedProduct = productApiClient.createProducts(sellerData, 1);
-    }
 
     // ---------- 6. Routing overhead vs. SLA threshold ----------
 
@@ -109,12 +80,13 @@ public class ShardRoutingPerformanceTests extends BaseTest {
             Thread.sleep(100);
         }
         boolean completed = latch.getCount() == 0;
-        long elapsedSec = (System.nanoTime() - start) / 1_000_000_000;
+
+        long elapsedSec = Math.max((System.nanoTime() - start) / 1_000_000_000, 1);
         pool.shutdown();
 
         assertTrue(completed, "Not all requests completed within 60s timeout");
 
-        double throughput = (double) (concurrentRequests - failures.size()) / Math.max(elapsedSec, 1);
+        double throughput = (double) (concurrentRequests - failures.size()) / elapsedSec;
         logStep("Throughput: " + throughput + " orders/sec, failures: " + failures.size());
 
         assertTrue(failures.isEmpty(), failures.size() + " requests failed under concurrent cross-shard load");
@@ -124,26 +96,12 @@ public class ShardRoutingPerformanceTests extends BaseTest {
 
     // ---------- 8. Per-shard connection pool isolation ----------
 
-    /**
-     * ASSUMPTION: HikariCP max-pool-size for each shard is 10, per the
-     * application-sharded.yml example from earlier in this thread — if
-     * the real configured value differs, adjust SATURATING_REQUESTS
-     * (should comfortably exceed the pool size) and TARGET_SHARD_FOR_SATURATION
-     * accordingly.
-     */
     @Test(description = "Saturating one shard's connection pool should not degrade response times on other shards", priority = 3)
     public void testShardRouter_PerShardConnectionPoolIsolation() throws InterruptedException {
 
-        int saturatingRequests = 40; // comfortably exceeds an assumed pool size of 10
         int targetShardForSaturation = 0;
-
-        // Fixed userId set that always resolves to shard 0 would need
-        // TestShardKeyResolver here — reused via a static/shared instance
-        // if this class is later merged with the functional test class's setup.
-        List<String> shard0UserIds = new ArrayList<>();
-        // NOTE: requires TestShardKeyResolver — wiring omitted here since
-        // it duplicates setup already shown in ShardRoutingFunctionalTests;
-        // reuse that class's resolver instance rather than re-instantiating.
+        int otherShard = 1;
+        int saturatingRequests = 40; // comfortably exceeds the configured Hikari pool size
 
         ExecutorService saturationPool = Executors.newFixedThreadPool(saturatingRequests);
         CountDownLatch saturationLatch = new CountDownLatch(saturatingRequests);
@@ -151,7 +109,7 @@ public class ShardRoutingPerformanceTests extends BaseTest {
         for (int i = 0; i < saturatingRequests; i++) {
             saturationPool.submit(() -> {
                 try {
-                    String userId = UUID.randomUUID().toString(); // TODO: constrain to shard0
+                    String userId = shardKeyResolver.generateUserIdForShard(targetShardForSaturation);
                     orderApiClient.createOrder(userId, UUID.randomUUID().toString(), sharedProduct);
                 } catch (Exception ignored) {
                 } finally {
@@ -160,21 +118,22 @@ public class ShardRoutingPerformanceTests extends BaseTest {
             });
         }
 
-        // Measure a shard-3 request's latency WHILE shard-0 is under saturation load
+        // Measure a different-shard request's latency WHILE shard-0 is saturated
         long start = System.nanoTime();
-        String otherShardUserId = UUID.randomUUID().toString(); // TODO: constrain to a different shard
+        String otherShardUserId = shardKeyResolver.generateUserIdForShard(otherShard);
         orderApiClient.createOrder(otherShardUserId, UUID.randomUUID().toString(), sharedProduct);
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
-        // Replaces: saturationLatch.await(30, TimeUnit.SECONDS)
         long deadline = System.currentTimeMillis() + 30_000;
         while (saturationLatch.getCount() > 0 && System.currentTimeMillis() < deadline) {
             Thread.sleep(100);
         }
         saturationPool.shutdown();
-        logStep("Other-shard latency during shard-0 saturation: " + elapsedMs + "ms");
+
+        logStep("Shard " + otherShard + " latency during shard " + targetShardForSaturation + " saturation: " + elapsedMs + "ms");
 
         assertTrue(elapsedMs <= SINGLE_ORDER_P95_THRESHOLD_MS,
-                "Other-shard request took " + elapsedMs + "ms during shard-0 saturation — pool isolation may be leaking");
+                "Shard " + otherShard + " request took " + elapsedMs + "ms during shard " + targetShardForSaturation
+                        + " saturation — pool isolation may be leaking");
     }
 }
