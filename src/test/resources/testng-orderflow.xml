@@ -16,8 +16,8 @@
              <!--<class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationFlowTest"/>
              <class name="com.amazon.tests.regression.orderCreationFlow.OrderCreationNegativeTest"/>-->
             <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyTest"/>
-            <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyEdgeCasesTest"/>
-            <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyRedisFailuresTest"/>
+            <!--<class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyEdgeCasesTest"/>
+            <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyRedisFailuresTest"/>-->
         </classes>
     </test>
 

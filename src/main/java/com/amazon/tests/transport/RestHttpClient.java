@@ -2,6 +2,8 @@ package com.amazon.tests.transport;
 
 import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.config.restAsssured.RestClient;
+import com.amazon.tests.validators.transport.request.RequestValidationChain;
+import com.amazon.tests.validators.transport.response.ResponseValidationChain;
 import io.restassured.http.Header;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
@@ -24,6 +26,8 @@ public class RestHttpClient implements RequestExecutor {
 
     @Override
     public ServiceResponse execute(ServiceRequest request) {
+        RequestValidationChain.validate(request);   // ← new: fails fast, clear message, before any network call
+
         RequestSpecification spec = resolveSpec(request);
 
         Map<String, Object> pathParams = request.getAttribute(RequestAttributes.PATH_PARAMS, Map.class, Map.of());
@@ -44,11 +48,15 @@ public class RestHttpClient implements RequestExecutor {
             case OPTIONS -> restClient.options(request.getEndpoint(), spec);
         };
 
-        return ServiceResponse.builder()
+        ServiceResponse serviceResponse = ServiceResponse.builder()
                 .statusCode(response.getStatusCode())
                 .body(response.getBody().asString())
                 .headers(toMap(response))
                 .build();
+
+        ResponseValidationChain.validate(serviceResponse);   // sanity-check before returning to the caller
+
+        return serviceResponse;
     }
 
     private RequestSpecification resolveSpec(ServiceRequest request) {

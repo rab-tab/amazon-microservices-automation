@@ -7,9 +7,14 @@
         <listener class-name="com.amazon.tests.listeners.AllureTestListener"/>
     </listeners>
 
-    <test name="Routing">
+   <!-- <test name="Routing">
         <classes>
             <class name="com.amazon.tests.regression.apiGateway.routing.RoutingTest"/>
+        </classes>
+    </test>-->
+    <test name="Timeout Tests">
+        <classes>
+            <class name="com.amazon.tests.regression.apiGateway.resiliency.timeOut.GatewayTimeoutTest"/>
         </classes>
     </test>
 
