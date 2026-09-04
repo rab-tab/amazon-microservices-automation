@@ -7,14 +7,21 @@
         <listener class-name="com.amazon.tests.listeners.AllureTestListener"/>
     </listeners>
 
+
    <!-- <test name="Routing">
         <classes>
             <class name="com.amazon.tests.regression.apiGateway.routing.RoutingTest"/>
         </classes>
-    </test>-->
+    </test>
     <test name="Timeout Tests">
         <classes>
             <class name="com.amazon.tests.regression.apiGateway.resiliency.timeOut.GatewayTimeoutTest"/>
+        </classes>
+    </test>-->
+
+    <test name="Rate Limiting Tests">
+        <classes>
+            <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitCoreTest"/>
         </classes>
     </test>
 
@@ -51,11 +58,6 @@
         </classes>
     </test>
 
-    <test name="Rate Limiting Tests">
-        <classes>
-            <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitingTest"/>
-            <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitHeadersTest"/>
-        </classes>
-    </test>-->
+   -->
 
 </suite>

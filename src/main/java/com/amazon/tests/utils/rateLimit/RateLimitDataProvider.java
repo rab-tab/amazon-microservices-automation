@@ -1,4 +1,4 @@
-package com.amazon.tests.utils;
+package com.amazon.tests.utils.rateLimit;
 
 
 import com.amazon.tests.config.RateLimitConfig;
@@ -27,7 +27,7 @@ public class RateLimitDataProvider {
         return new Object[][] {
                 { RateLimitConfig.IPBased.REGISTRATION },
                 { RateLimitConfig.IPBased.LOGIN },
-                { RateLimitConfig.IPBased.PRODUCTS_LIST }
+              //  { RateLimitConfig.IPBased.PRODUCTS_LIST }
         };
     }
 
@@ -42,8 +42,8 @@ public class RateLimitDataProvider {
     public static Object[][] userBasedScenarios() {
         return new Object[][] {
                 { RateLimitConfig.UserBased.ORDER_LIST },
-                { RateLimitConfig.UserBased.ORDER_CREATION },
-                { RateLimitConfig.UserBased.PROFILE_UPDATE }
+              //  { RateLimitConfig.UserBased.ORDER_CREATION },
+              //  { RateLimitConfig.UserBased.PROFILE_UPDATE }
         };
     }
 

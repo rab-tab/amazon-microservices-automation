@@ -54,14 +54,14 @@ public class RateLimitConfig {
                 .endpoint("/api/users/login")
                 .requestBodyTemplate(null)  // Will be generated dynamically using createLoginRequest
                 .httpMethod("POST")
-                .totalRequests(25)       // Reduced from 30 (1.25x burst)
-                .threadPoolSize(25)
-                .replenishRate(10)       // 10 req/sec
-                .burstCapacity(20)       // burst: 20
-                .expectedSuccess(20)
+                .totalRequests(15)       // Reduced from 30 (1.25x burst)
+                .threadPoolSize(15)
+                .replenishRate(5)       // 10 req/sec
+                .burstCapacity(10)       // burst: 20
+                .expectedSuccess(10)
                 .expectedRejected(5)     // Reduced from 10
                 .requiresAuth(true)
-                .tolerance(3)            // Increased from 2 for better stability
+                .tolerance(2)            // Increased from 2 for better stability
                 .build();
 
         public static final RateLimitConfig PRODUCTS_LIST = RateLimitConfig.builder()
@@ -92,27 +92,26 @@ public class RateLimitConfig {
                 .httpMethod("GET")
                 .totalRequests(15)
                 .threadPoolSize(15)
-                .replenishRate(1)        // 60/min = 1/sec
+                .replenishRate(5)        // corrected — matches gateway: 5 req/sec (was incorrectly 1)
                 .burstCapacity(10)
                 .expectedSuccess(10)
                 .expectedRejected(5)
                 .requiresAuth(true)
                 .tolerance(2)
                 .build();
-
         public static final RateLimitConfig ORDER_CREATION = RateLimitConfig.builder()
                 .testName("Order Creation Rate Limit")
                 .endpoint("/api/orders")
                 .requestBodyTemplate(null)
                 .httpMethod("POST")
-                .totalRequests(10)
-                .threadPoolSize(10)
-                .replenishRate(0.166)    // 10/min ≈ 0.166/sec
-                .burstCapacity(5)
-                .expectedSuccess(5)
+                .totalRequests(25)        // corrected — must exceed real burst (20) to trigger rejection at all
+                .threadPoolSize(25)
+                .replenishRate(10)        // corrected — matches gateway: 10 req/sec (was 0.166)
+                .burstCapacity(20)        // corrected — matches gateway: burst 20 (was 5)
+                .expectedSuccess(20)
                 .expectedRejected(5)
                 .requiresAuth(true)
-                .tolerance(1)
+                .tolerance(2)
                 .build();
 
         public static final RateLimitConfig PROFILE_UPDATE = RateLimitConfig.builder()

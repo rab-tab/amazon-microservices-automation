@@ -152,7 +152,8 @@ public class RestClient {
             default -> throw new IllegalArgumentException("Unsupported HTTP method: " + method);
         };
 
-        response.then().log().ifError();
+       // response.then().log().all();
+        response.then().log().ifValidationFails();
         return response;
     }
 }

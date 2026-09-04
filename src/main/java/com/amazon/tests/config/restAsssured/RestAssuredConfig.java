@@ -4,7 +4,8 @@ import com.amazon.tests.config.TestConfig;
 import com.amazon.tests.transport.ServiceType;
 import io.qameta.allure.restassured.AllureRestAssured;
 import io.restassured.builder.RequestSpecBuilder;
-import io.restassured.filter.log.LogDetail;
+import io.restassured.config.HttpClientConfig;
+import io.restassured.config.LogConfig;
 import io.restassured.http.ContentType;
 import io.restassured.specification.RequestSpecification;
 
@@ -54,12 +55,21 @@ public class RestAssuredConfig {
     }
 
     private RequestSpecBuilder baseBuilder(String baseUri) {
+        io.restassured.config.RestAssuredConfig raConfig =
+                io.restassured.config.RestAssuredConfig.config()
+                        .httpClient(HttpClientConfig.httpClientConfig()
+                        .setParam("http.conn-manager.max-total", 200)
+                        .setParam("http.conn-manager.max-per-route", 200))
+                        .logConfig(LogConfig.logConfig()
+                                //.enableLoggingOfRequestAndResponseIfValidationFails()
+                                .blacklistHeader("Authorization"));
         return new RequestSpecBuilder()
                 .setBaseUri(baseUri)
                 .setContentType(ContentType.JSON)
                 .setAccept(ContentType.JSON)
                 .addFilter(new AllureRestAssured())
-                .log(LogDetail.ALL);
+                .setConfig(raConfig);
+        //.log(LogDetail.ALL);
     }
 
     private void applyOptions(RequestSpecBuilder builder, RequestSpecificationOptions options) {
