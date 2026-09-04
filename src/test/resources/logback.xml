@@ -9,6 +9,9 @@
             <pattern>%d{HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
+    <encoder>
+        <pattern>%d{HH:mm:ss.SSS} [%thread] [%X{test:-NO_TEST}] %-5level %logger{36} - %msg%n</pattern>
+    </encoder>
 
     <root level="INFO">
         <appender-ref ref="RP"/>

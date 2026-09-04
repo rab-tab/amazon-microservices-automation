@@ -6,6 +6,7 @@ import com.aventstack.extentreports.ExtentTest;
 import com.aventstack.extentreports.reporter.ExtentSparkReporter;
 import com.aventstack.extentreports.reporter.configuration.Theme;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -95,6 +96,7 @@ public class ExtentReportManager {
     public void createTest(String testName, String description) {
         ExtentTest extentTest = extent.createTest(testName, description);
         test.set(extentTest);
+        MDC.put("test", testName);
         log.debug("Thread {}: Created test node '{}'",
                 Thread.currentThread().getId(), testName);
     }
@@ -188,6 +190,7 @@ public class ExtentReportManager {
      */
     public void removeTest() {
         test.remove();
+        MDC.remove("test");
         log.debug("Thread {}: Removed test node from ThreadLocal",
                 Thread.currentThread().getId());
     }

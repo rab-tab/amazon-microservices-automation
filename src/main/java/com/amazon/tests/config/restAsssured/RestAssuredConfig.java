@@ -1,6 +1,7 @@
 package com.amazon.tests.config.restAsssured;
 
 import com.amazon.tests.config.TestConfig;
+import com.amazon.tests.reports.ReportingFilter;
 import com.amazon.tests.transport.ServiceType;
 import io.qameta.allure.restassured.AllureRestAssured;
 import io.restassured.builder.RequestSpecBuilder;
@@ -68,7 +69,8 @@ public class RestAssuredConfig {
                 .setContentType(ContentType.JSON)
                 .setAccept(ContentType.JSON)
                 .addFilter(new AllureRestAssured())
-                .setConfig(raConfig);
+                .setConfig(raConfig)
+        .addFilter(new ReportingFilter());
         //.log(LogDetail.ALL);
     }
 

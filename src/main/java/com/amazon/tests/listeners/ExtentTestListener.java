@@ -2,6 +2,9 @@ package com.amazon.tests.listeners;
 
 
 import com.amazon.tests.reports.ExtentReportManager;
+import com.amazon.tests.reports.ReportingFilter;
+import com.aventstack.extentreports.markuputils.MarkupHelper;
+import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.ISuite;
 import org.testng.ISuiteListener;
@@ -61,52 +64,37 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
 
         // Remove from ThreadLocal
         ExtentReportManager.getInstance().removeTest();
+        ReportingFilter.clearLastResponse();
     }
 
     @Override
     public void onTestFailure(ITestResult result) {
         log.error("Test Failed: {}", result.getMethod().getMethodName());
 
-        // Log failure
-        ExtentReportManager.getInstance().logFail(
-                "Test failed: " + result.getThrowable().getMessage()
-        );
+        Response last = ReportingFilter.getLastResponse();
+        if (last != null) {
+            ExtentReportManager.getInstance().getTest().fail(
+                    MarkupHelper.createCodeBlock(
+                            last.getStatusLine() + "\n" + last.getBody().asPrettyString()));
+        }
 
-        // Capture screenshot
-       /* String screenshotPath = ScreenshotUtil.captureScreenshot(
-                result.getMethod().getMethodName()
-        );
+        ExtentReportManager.getInstance().getTest().fail(result.getThrowable());
 
-        if (screenshotPath != null) {
-            ExtentReportManager.getInstance().addScreenshot(screenshotPath);
-        }*/
-
-        // Log stack trace
-        ExtentReportManager.getInstance().logFail(
-                "<pre>" + getStackTrace(result.getThrowable()) + "</pre>"
-        );
-
-        // Remove from ThreadLocal
         ExtentReportManager.getInstance().removeTest();
+        ReportingFilter.clearLastResponse();
     }
 
     @Override
     public void onTestSkipped(ITestResult result) {
         log.warn("Test Skipped: {}", result.getMethod().getMethodName());
-
-        ExtentReportManager.getInstance().logSkip(
-                "Test skipped: " + result.getMethod().getMethodName()
-        );
-
+        ExtentReportManager.getInstance().logSkip("Test skipped: " + result.getMethod().getMethodName());
         if (result.getThrowable() != null) {
-            ExtentReportManager.getInstance().logSkip(
-                    "Reason: " + result.getThrowable().getMessage()
-            );
+            ExtentReportManager.getInstance().logSkip("Reason: " + result.getThrowable().getMessage());
         }
-
-        // Remove from ThreadLocal
         ExtentReportManager.getInstance().removeTest();
+        ReportingFilter.clearLastResponse();   // ADD
     }
+
 
     @Override
     public void onTestFailedButWithinSuccessPercentage(ITestResult result) {

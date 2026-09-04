@@ -123,7 +123,7 @@ public abstract class BaseTest {
     public void cleanupTestMethod() {
         MetricsSupport.recordTestDuration(System.currentTimeMillis() - testStart);
         MetricsSupport.pushToPrometheus("automation-suite");
-
+        ExtentReportManager.getInstance().removeTest();
         if (cleanupManager != null) {
             try {
                 cleanupManager.executeCleanup();
