@@ -10,6 +10,8 @@ import org.slf4j.MDC;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Date;
 
 
@@ -39,7 +41,9 @@ public class ExtentReportManager {
 
         // Create reports directory
         String reportDir = "target/extent-reports/";
-        new File(reportDir).mkdirs();
+        File dir = new File(reportDir);
+        dir.mkdirs();
+        pruneOldReports(dir, 10);   // ADD — keep the 10 most recent, delete the rest
 
         // Generate timestamped report filename
         String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
@@ -67,6 +71,18 @@ public class ExtentReportManager {
         log.info("ExtentReportManager initialized. Report: {}", reportPath);
     }
 
+    private void pruneOldReports(File dir, int keepCount) {
+        File[] reports = dir.listFiles((d, name) -> name.startsWith("TestReport_") && name.endsWith(".html"));
+        if (reports == null || reports.length <= keepCount) return;
+
+        Arrays.sort(reports, Comparator.comparingLong(File::lastModified));
+        int toDelete = reports.length - keepCount;
+        for (int i = 0; i < toDelete; i++) {
+            if (reports[i].delete()) {
+                log.debug("Pruned old report: {}", reports[i].getName());
+            }
+        }
+    }
     /**
      * Get singleton instance (thread-safe with double-check locking)
      */

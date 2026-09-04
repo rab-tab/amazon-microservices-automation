@@ -157,21 +157,13 @@ public abstract class BaseTest {
     }
 
     protected void logStep(String step) {
-        log.info("STEP: {}", step);
+        logStep(step, (Object[]) null);
     }
 
-   /* protected void logStep(String message, Object... args) {
-        String formatted = formatMessage(message, args);
-        log.info("STEP: {}", formatted);
-        try {
-            Allure.step(formatted);
-        } catch (Exception e) {
-            // Allure not available - ignore
-        }
-    }*/
-
     protected void logStep(String message, Object... args) {
-        reporter.logStep(formatMessage(message, args));
+        String formatted = (args == null || args.length == 0) ? message : formatMessage(message, args);
+        log.info("STEP: {}", formatted);
+        reporter.logStep(formatted);
     }
 
     private String formatMessage(String message, Object... args) {

@@ -1,17 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
-    <!-- RP appender has NO encoder - it handles formatting internally -->
+    <!-- RP appender has no encoder of its own — it formats internally -->
     <appender name="RP" class="com.epam.reportportal.logback.appender.ReportPortalAppender"/>
 
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] [%X{test:-NO_TEST}] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
-    <encoder>
-        <pattern>%d{HH:mm:ss.SSS} [%thread] [%X{test:-NO_TEST}] %-5level %logger{36} - %msg%n</pattern>
-    </encoder>
+
+    <!-- Step narration, pass/fail bookkeeping — INFO is correct, readable trail -->
+    <logger name="com.amazon.tests.listeners" level="INFO"/>
+    <logger name="com.amazon.tests.reports" level="INFO"/>
+
+    <!-- Retry internals — WARN is enough by default, retries themselves are the signal -->
+    <logger name="com.amazon.tests.utils.retry" level="WARN"/>
+
+    <!-- HTTP client / request-response detail — noisy, runtime-overridable -->
+    <logger name="com.amazon.tests.transport" level="${HTTP_LOG_LEVEL:-INFO}"/>
+
+    <!-- Quiet down noisy third-party libraries -->
+    <logger name="org.apache.http" level="WARN"/>
+    <logger name="io.restassured" level="WARN"/>
 
     <root level="INFO">
         <appender-ref ref="RP"/>

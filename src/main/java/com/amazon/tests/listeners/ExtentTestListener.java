@@ -73,9 +73,9 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
 
         Response last = ReportingFilter.getLastResponse();
         if (last != null) {
-            ExtentReportManager.getInstance().getTest().fail(
-                    MarkupHelper.createCodeBlock(
-                            last.getStatusLine() + "\n" + last.getBody().asPrettyString()));
+            String detail = last.getStatusLine() + "\n" + last.getBody().asPrettyString();
+            log.debug("Failure HTTP detail for {}: {}", result.getMethod().getMethodName(), detail);   // ADD
+            ExtentReportManager.getInstance().getTest().fail(MarkupHelper.createCodeBlock(detail));
         }
 
         ExtentReportManager.getInstance().getTest().fail(result.getThrowable());
