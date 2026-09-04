@@ -20,7 +20,7 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
 
     @Override
     public void onStart(ISuite suite) {
-        log.info("Test Suite Started: {}", suite.getName());
+        log.info("[SUITE] Started: {}", suite.getName());
         // Initialize ExtentReportManager
         ExtentReportManager.getInstance();
     }
@@ -38,7 +38,7 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
         String className = result.getTestClass().getName();
         String description = result.getMethod().getDescription();
 
-        log.info("Test Started: {}.{}", className, testName);
+        log.info("[TEST] Started");
 
         // Create test node for current thread
         ExtentReportManager.getInstance().createTest(
@@ -56,7 +56,7 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
 
     @Override
     public void onTestSuccess(ITestResult result) {
-        log.info("Test Passed: {}", result.getMethod().getMethodName());
+        log.info("[TEST] Passed", result.getMethod().getMethodName());
 
         ExtentReportManager.getInstance().logPass(
                 "Test passed successfully: " + result.getMethod().getMethodName()
@@ -69,7 +69,7 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
 
     @Override
     public void onTestFailure(ITestResult result) {
-        log.error("Test Failed: {}", result.getMethod().getMethodName());
+        log.error("[TEST] Failed: {}", result.getMethod().getMethodName());
 
         Response last = ReportingFilter.getLastResponse();
         if (last != null) {
@@ -86,7 +86,7 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
 
     @Override
     public void onTestSkipped(ITestResult result) {
-        log.warn("Test Skipped: {}", result.getMethod().getMethodName());
+        log.warn("[TEST] Skipped: {}", result.getMethod().getMethodName());
         ExtentReportManager.getInstance().logSkip("Test skipped: " + result.getMethod().getMethodName());
         if (result.getThrowable() != null) {
             ExtentReportManager.getInstance().logSkip("Reason: " + result.getThrowable().getMessage());
