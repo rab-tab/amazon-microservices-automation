@@ -71,6 +71,9 @@ public class ExtentReportManager {
         log.info("ExtentReportManager initialized. Report: {}", reportPath);
     }
 
+    public void attachTest(ExtentTest existingTest) {
+        test.set(existingTest);
+    }
     private void pruneOldReports(File dir, int keepCount) {
         File[] reports = dir.listFiles((d, name) -> name.startsWith("TestReport_") && name.endsWith(".html"));
         if (reports == null || reports.length <= keepCount) return;

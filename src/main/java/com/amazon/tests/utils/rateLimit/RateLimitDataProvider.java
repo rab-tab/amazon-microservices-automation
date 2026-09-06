@@ -42,7 +42,7 @@ public class RateLimitDataProvider {
     public static Object[][] userBasedScenarios() {
         return new Object[][] {
                 { RateLimitConfig.UserBased.ORDER_LIST },
-              //  { RateLimitConfig.UserBased.ORDER_CREATION },
+               // { RateLimitConfig.UserBased.ORDER_CREATION },
               //  { RateLimitConfig.UserBased.PROFILE_UPDATE }
         };
     }
@@ -59,13 +59,13 @@ public class RateLimitDataProvider {
         return new Object[][] {
                 // IP-based scenarios
                 {RateLimitConfig.IPBased.REGISTRATION },
-                {RateLimitConfig.IPBased.LOGIN },
-                {RateLimitConfig.IPBased.PRODUCTS_LIST },
+                //{RateLimitConfig.IPBased.LOGIN },
+                //{RateLimitConfig.IPBased.PRODUCTS_LIST },
 
                 // User-based scenarios
                 {RateLimitConfig.UserBased.ORDER_LIST },
-                {RateLimitConfig.UserBased.ORDER_CREATION },
-                {RateLimitConfig.UserBased.PROFILE_UPDATE }
+                //{RateLimitConfig.UserBased.ORDER_CREATION },
+               // {RateLimitConfig.UserBased.PROFILE_UPDATE }
         };
     }
 

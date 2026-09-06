@@ -56,7 +56,7 @@ public class RateLimitCoreTest extends BaseTest {
         RateLimitConfig.UserBased.PROFILE_UPDATE.setUserId(userId);
     }
 
-    @Test(dataProvider = "ipBasedScenarios", dataProviderClass = RateLimitDataProvider.class, priority = 1,enabled = false)
+    @Test(dataProvider = "ipBasedScenarios", dataProviderClass = RateLimitDataProvider.class, priority = 1)
     public void testIPBasedRateLimiting(RateLimitConfig config) throws Exception {
         String token = config.isRequiresAuth() ? config.getAuthToken() : null;
         runRateLimitTest(config, token);
@@ -87,7 +87,7 @@ public class RateLimitCoreTest extends BaseTest {
 
         for (int i = 0; i < config.getTotalRequests(); i++) {
             final int requestNum = i;
-            pool.submit(() -> {
+            pool.submit(withTestContext(()  -> {
                 try {
                     ServiceResponse response = rateLimitUtil.sendConfiguredRequest(config, authToken, requestNum);
                     int statusCode = response.getStatusCode();
@@ -107,7 +107,7 @@ public class RateLimitCoreTest extends BaseTest {
                 } finally {
                     latch.countDown();
                 }
-            });
+            }));
         }
 
         boolean completed = TimeoutHelper.awaitLatch(latch, TimeoutHelper.Timeouts.THIRTY_SECONDS);

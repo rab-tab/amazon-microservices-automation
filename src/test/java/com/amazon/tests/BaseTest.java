@@ -4,30 +4,34 @@ import com.amazon.tests.auth.AuthStrategy;
 import com.amazon.tests.auth.NoAuthStrategy;
 import com.amazon.tests.config.ConfigManager;
 import com.amazon.tests.config.TestConfig;
-import com.amazon.tests.reports.ExtentReportManager;
-import com.amazon.tests.reports.TestReporter;
-import com.amazon.tests.reports.TestReporterFactory;
 import com.amazon.tests.config.restAsssured.RestAssuredConfig;
 import com.amazon.tests.config.restAsssured.RestClient;
 import com.amazon.tests.dataseeding.cleanup.CleanupManager;
 import com.amazon.tests.dataseeding.core.SeedingContext;
+import com.amazon.tests.reports.ExtentReportManager;
+import com.amazon.tests.reports.TestReporter;
+import com.amazon.tests.reports.TestReporterFactory;
 import com.amazon.tests.transport.RequestExecutor;
 import com.amazon.tests.transport.RestHttpClient;
 import com.amazon.tests.utils.metrics.MetricsHttpServer;
 import com.amazon.tests.utils.metrics.MetricsSupport;
 import com.amazon.tests.utils.retry.RetryHandler;
 import com.amazon.tests.utils.validators.DatabaseValidator;
+import com.aventstack.extentreports.ExtentTest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
 import org.aeonbits.owner.ConfigFactory;
+import org.slf4j.MDC;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.BeforeSuite;
 
+import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -109,8 +113,11 @@ public abstract class BaseTest {
     // ==========================================
 
     @BeforeMethod(alwaysRun = true)
-    public void setupTestMethod() {
+    public void setupTestMethod(Method method) {
         String namespace = generateNamespace();
+        ExtentReportManager.getInstance().createTest(
+                getClass().getSimpleName() + "." + method.getName()
+        );
 
         context = new SeedingContext(namespace, testConfig, executor);
         cleanupManager = new CleanupManager(context);
@@ -182,6 +189,23 @@ public abstract class BaseTest {
             Thread.currentThread().interrupt();
             log.warn("Wait interrupted", e);
         }
+    }
+
+    protected Runnable withTestContext(Runnable task) {
+        ExtentTest currentTest = ExtentReportManager.getInstance().getTest();
+        Map<String, String> mdcContext = MDC.getCopyOfContextMap();  // may be null
+        return () -> {
+            if (mdcContext != null) {
+                MDC.setContextMap(mdcContext);
+            }
+            ExtentReportManager.getInstance().attachTest(currentTest);
+            try {
+                task.run();
+            } finally {
+                MDC.clear();
+                ExtentReportManager.getInstance().removeTest();
+            }
+        };
     }
 
     protected void logSeedingStats() {

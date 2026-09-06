@@ -41,10 +41,10 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
         log.info("[TEST] Started");
 
         // Create test node for current thread
-        ExtentReportManager.getInstance().createTest(
+       /* ExtentReportManager.getInstance().createTest(
                 className + "." + testName,
                 description != null ? description : ""
-        );
+        );*/
 
         // Add categories and author
         if (result.getMethod().getGroups().length > 0) {
