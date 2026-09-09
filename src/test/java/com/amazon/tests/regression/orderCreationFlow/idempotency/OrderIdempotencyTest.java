@@ -107,16 +107,6 @@ public class OrderIdempotencyTest extends BaseTest {
         log.info("════════════════════════════════════════════════════════");
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // TEST 2: Multi-Instance Race Condition with Retry
-    //
-    // ⚠️ DISABLED. Also flagging a design conflict before you re-enable this:
-    // the assertions here (successCount == 10, ok >= 7) assume every concurrent
-    // duplicate eventually resolves to 200 via retry. That's a different model
-    // from "same key, PROCESSING -> 409" in the design table -- confirm with
-    // the service owner which model order-service actually implements before
-    // trusting either this test or TEST 4 below.
-    // ══════════════════════════════════════════════════════════════════════════
 
     @Test(priority = 2)
     @Story("Multi-Instance Concurrency")

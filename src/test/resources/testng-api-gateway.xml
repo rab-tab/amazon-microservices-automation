@@ -21,8 +21,8 @@
 
     <test name="Rate Limiting Tests">
         <classes>
-           <!-- <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitCoreTest"/>
-            <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitHeadersTest"/>-->
+            <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitCoreTest"/>
+            <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitHeadersTest"/>
             <class name="com.amazon.tests.regression.apiGateway.resiliency.rateLimiting.RateLimitBehaviorTest"/>
 
         </classes>

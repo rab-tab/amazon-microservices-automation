@@ -14,7 +14,7 @@ public class ExtentReporterAdapter implements TestReporter {
 
     @Override
     public void logFail(String message, Throwable cause) {
-        ExtentReportManager.getInstance().logFail(message + "\n" + cause);
+        ExtentReportManager.getInstance().getTest().fail(message).fail(cause);
     }
 
     @Override

@@ -79,7 +79,7 @@ public abstract class BaseTest {
         RestAssured.enableLoggingOfRequestAndResponseIfValidationFails();
 
         DatabaseValidator.getInstance();
-        ExtentReportManager.getInstance();
+       // ExtentReportManager.getInstance();
 
         String env = System.getProperty("env", "local");
         System.setProperty("env", env);
@@ -115,9 +115,12 @@ public abstract class BaseTest {
     @BeforeMethod(alwaysRun = true)
     public void setupTestMethod(Method method) {
         String namespace = generateNamespace();
-        ExtentReportManager.getInstance().createTest(
-                getClass().getSimpleName() + "." + method.getName()
-        );
+
+        if (ConfigManager.getInstance().isReporterEnabled("extent")) {
+            ExtentReportManager.getInstance().createTest(
+                    getClass().getSimpleName() + "." + method.getName()
+            );
+        }
 
         context = new SeedingContext(namespace, testConfig, executor);
         cleanupManager = new CleanupManager(context);
@@ -130,7 +133,11 @@ public abstract class BaseTest {
     public void cleanupTestMethod() {
         MetricsSupport.recordTestDuration(System.currentTimeMillis() - testStart);
         MetricsSupport.pushToPrometheus("automation-suite");
-        ExtentReportManager.getInstance().removeTest();
+
+        if (ConfigManager.getInstance().isReporterEnabled("extent")) {
+            ExtentReportManager.getInstance().removeTest();   // also redundant — listener already does this, see note below
+        }
+
         if (cleanupManager != null) {
             try {
                 cleanupManager.executeCleanup();
@@ -147,7 +154,11 @@ public abstract class BaseTest {
         log.info("Shutting down test suite...");
 
         DatabaseValidator.getInstance().shutdown();
-        ExtentReportManager.getInstance().flush();
+
+        if (ConfigManager.getInstance().isReporterEnabled("extent")) {
+            ExtentReportManager.getInstance().flush();
+        }
+
         MetricsSupport.pushToPrometheus("amazon-automation-framework");
 
         Thread.sleep(5000);

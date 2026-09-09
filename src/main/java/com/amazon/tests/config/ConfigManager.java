@@ -2,6 +2,8 @@ package com.amazon.tests.config;
 
 import org.aeonbits.owner.ConfigFactory;
 
+import java.util.Arrays;
+
 public class ConfigManager {
 
     private static final ConfigManager instance = new ConfigManager();
@@ -41,4 +43,12 @@ public class ConfigManager {
         return config.paymentServiceUrl();
     }
     public String getReporters() {return config.reporters();}
+    public boolean isReporterEnabled(String reporterName) {
+        String configured = getReporters();
+        if (configured == null || configured.isBlank()) return false;
+        return Arrays.stream(configured.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .anyMatch(reporterName.toLowerCase()::equals);
+    }
 }

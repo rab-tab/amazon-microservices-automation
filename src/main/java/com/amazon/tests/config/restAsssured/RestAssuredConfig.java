@@ -60,7 +60,10 @@ public class RestAssuredConfig {
                 io.restassured.config.RestAssuredConfig.config()
                         .httpClient(HttpClientConfig.httpClientConfig()
                         .setParam("http.conn-manager.max-total", 200)
-                        .setParam("http.conn-manager.max-per-route", 200))
+                        .setParam("http.conn-manager.max-per-route", 200)
+                        .setParam("http.connection.timeout", 2000)      // RestAssured -> gateway, localhost
+                        .setParam("http.socket.timeout", 8000)           // covers ~5s realistic worst-case + margin
+                        .setParam("http.conn-manager.timeout", 5000L))
                         .logConfig(LogConfig.logConfig()
                                 //.enableLoggingOfRequestAndResponseIfValidationFails()
                                 .blacklistHeader("Authorization"));

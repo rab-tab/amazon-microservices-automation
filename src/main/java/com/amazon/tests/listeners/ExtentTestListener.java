@@ -1,6 +1,6 @@
 package com.amazon.tests.listeners;
 
-
+import com.amazon.tests.config.ConfigManager;
 import com.amazon.tests.reports.ExtentReportManager;
 import com.amazon.tests.reports.ReportingFilter;
 import com.aventstack.extentreports.markuputils.MarkupHelper;
@@ -11,90 +11,72 @@ import org.testng.ISuiteListener;
 import org.testng.ITestListener;
 import org.testng.ITestResult;
 
-/**
- * TestNG listener that integrates with ExtentReportManager.
- * Automatically logs test results to Extent Reports.
- */
 @Slf4j
 public class ExtentTestListener implements ITestListener, ISuiteListener {
+
+    private final boolean extentEnabled = ConfigManager.getInstance().isReporterEnabled("extent");
 
     @Override
     public void onStart(ISuite suite) {
         log.info("[SUITE] Started: {}", suite.getName());
-        // Initialize ExtentReportManager
+        if (!extentEnabled) return;
         ExtentReportManager.getInstance();
     }
 
     @Override
     public void onFinish(ISuite suite) {
-        log.info("Test Suite Finished: {}", suite.getName());
-        // Flush the report
+        log.info("[SUITE] Finished: {}", suite.getName());
+        if (!extentEnabled) return;
         ExtentReportManager.getInstance().flush();
     }
 
     @Override
     public void onTestStart(ITestResult result) {
-        String testName = result.getMethod().getMethodName();
-        String className = result.getTestClass().getName();
-        String description = result.getMethod().getDescription();
-
         log.info("[TEST] Started");
-
-        // Create test node for current thread
-       /* ExtentReportManager.getInstance().createTest(
-                className + "." + testName,
-                description != null ? description : ""
-        );*/
-
-        // Add categories and author
+        if (!extentEnabled) return;
         if (result.getMethod().getGroups().length > 0) {
             ExtentReportManager.getInstance().assignCategory(result.getMethod().getGroups());
         }
-
-        ExtentReportManager.getInstance().logInfo("Test execution started");
     }
 
     @Override
     public void onTestSuccess(ITestResult result) {
-        log.info("[TEST] Passed", result.getMethod().getMethodName());
-
-        ExtentReportManager.getInstance().logPass(
-                "Test passed successfully: " + result.getMethod().getMethodName()
-        );
-
-        // Remove from ThreadLocal
+        log.info("[TEST] Passed");
+        if (!extentEnabled) return;
+        ExtentReportManager.getInstance().logPass("Test passed successfully");
         ExtentReportManager.getInstance().removeTest();
         ReportingFilter.clearLastResponse();
     }
 
     @Override
     public void onTestFailure(ITestResult result) {
-        log.error("[TEST] Failed: {}", result.getMethod().getMethodName());
+        log.error("[TEST] Failed: {}", result.getThrowable().getMessage());
+        if (!extentEnabled) return;
 
         Response last = ReportingFilter.getLastResponse();
         if (last != null) {
             String detail = last.getStatusLine() + "\n" + last.getBody().asPrettyString();
-            log.debug("Failure HTTP detail for {}: {}", result.getMethod().getMethodName(), detail);   // ADD
+            log.debug("[HTTP] {}", detail);
             ExtentReportManager.getInstance().getTest().fail(MarkupHelper.createCodeBlock(detail));
         }
 
         ExtentReportManager.getInstance().getTest().fail(result.getThrowable());
-
         ExtentReportManager.getInstance().removeTest();
         ReportingFilter.clearLastResponse();
     }
 
     @Override
     public void onTestSkipped(ITestResult result) {
-        log.warn("[TEST] Skipped: {}", result.getMethod().getMethodName());
-        ExtentReportManager.getInstance().logSkip("Test skipped: " + result.getMethod().getMethodName());
+        log.warn("[TEST] Skipped");
+        if (!extentEnabled) return;
+
+        ExtentReportManager.getInstance().logSkip("Test skipped");
         if (result.getThrowable() != null) {
             ExtentReportManager.getInstance().logSkip("Reason: " + result.getThrowable().getMessage());
         }
         ExtentReportManager.getInstance().removeTest();
-        ReportingFilter.clearLastResponse();   // ADD
+        ReportingFilter.clearLastResponse();
     }
-
 
     @Override
     public void onTestFailedButWithinSuccessPercentage(ITestResult result) {
@@ -104,14 +86,5 @@ public class ExtentTestListener implements ITestListener, ISuiteListener {
     @Override
     public void onTestFailedWithTimeout(ITestResult result) {
         onTestFailure(result);
-    }
-
-    private String getStackTrace(Throwable throwable) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(throwable.toString()).append("\n");
-        for (StackTraceElement element : throwable.getStackTrace()) {
-            sb.append("\tat ").append(element.toString()).append("\n");
-        }
-        return sb.toString();
     }
 }
