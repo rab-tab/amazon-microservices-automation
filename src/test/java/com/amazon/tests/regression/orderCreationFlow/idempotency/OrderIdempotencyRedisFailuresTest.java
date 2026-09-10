@@ -5,6 +5,7 @@ package com.amazon.tests.regression.orderCreationFlow.idempotency;
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.auth.BearerAuthStrategy;
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.transport.ServiceResponse;
 import com.amazon.tests.utils.RedisValidator;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.utils.testData.TestDataFactory;
@@ -15,7 +16,6 @@ import eu.rekawek.toxiproxy.ToxiproxyClient;
 import eu.rekawek.toxiproxy.model.ToxicDirection;
 import io.qameta.allure.*;
 import lombok.extern.slf4j.Slf4j;
-import org.testcontainers.containers.ToxiproxyContainer;
 import org.testng.annotations.*;
 
 import java.io.IOException;
@@ -27,81 +27,77 @@ import static org.awaitility.Awaitility.await;
 /**
  * Redis Network & Connectivity Failures - Realistic Tests
  *
- * Strategy: Toxiproxy in front of the REAL local Redis instance (not a
- * disposable Testcontainers Redis) — keeps resource footprint minimal
- * and exercises the actual fail-open fallback logic in
- * OrderIdempotencyService against the Redis client the service really uses.
+ * Strategy: a PERSISTENT, natively-installed Toxiproxy instance
+ * (toxiproxy-server, no Docker) sits permanently between order-service and
+ * local Redis. order-service's local profile is configured to always route
+ * through the proxy (127.0.0.1:8666) instead of talking to Redis directly
+ * (127.0.0.1:6379) — see scripts/toxiproxy/README.md for one-time setup.
  *
- * ⚠️ MANUAL PRECONDITION: order-service MUST be started with its Redis
- * connection pointed at the Toxiproxy endpoint logged at suite startup
- * (SPRING_DATA_REDIS_HOST / SPRING_DATA_REDIS_PORT). Unlike a
- * disconnected/isolated container, this test needs the service to
- * genuinely route through the proxy for the injected chaos to have any
- * effect on the real request path.
+ * This replaces the earlier Testcontainers-based ephemeral-proxy approach,
+ * which required manually restarting order-service pointed at a freshly
+ * created proxy before every run. With the persistent setup, order-service
+ * is ALWAYS wired through Toxiproxy, so there is no manual precondition —
+ * this class just connects to the already-running proxy's admin API and
+ * injects/removes toxics per test.
  *
  * WHAT THIS VERIFIES: OrderIdempotencyService.checkAndAcquire() is
  * fail-open — Redis being unreachable/slow/reset should degrade order
  * creation to DB-only idempotency (slower, no lock-based race
  * avoidance) rather than failing the request outright.
  *
- * Run frequency: Before releases (not part of standard regression —
- * requires manual service reconfiguration).
+ * PREREQUISITE (one-time, not per-run): toxiproxy-server must be running
+ * locally with scripts/toxiproxy/toxiproxy.json loaded, and order-service's
+ * local profile must point spring.data.redis.port at 8666. See
+ * scripts/toxiproxy/README.md. If those aren't set up, @BeforeSuite below
+ * fails fast with a clear message rather than tests failing for the wrong
+ * reason.
+ *
+ * Run frequency: Before releases (not part of standard regression).
  */
 @Slf4j
 @Epic("Order Service")
 @Feature("Redis Network Failures (Realistic)")
 public class OrderIdempotencyRedisFailuresTest extends BaseTest {
 
-    private static final String LOCAL_REDIS_HOST = "host.docker.internal"; // adjust if Redis isn't reachable this way from containers
-    private static final int LOCAL_REDIS_PORT = 6379;
+    private static final String TOXIPROXY_ADMIN_HOST = "127.0.0.1";
+    private static final int TOXIPROXY_ADMIN_PORT = 8474; // toxiproxy-server default
+    private static final String REDIS_PROXY_NAME = "redis";
 
-    private static ToxiproxyContainer toxiproxy;
     private static Proxy redisProxy;
 
     private PurchaseResult purchase;
     private OrderApiClient orderApiClient;
 
     // ══════════════════════════════════════════════════════════════
-    // CONTAINER SETUP
+    // CONNECT TO THE ALREADY-RUNNING PROXY (no container lifecycle)
     // ══════════════════════════════════════════════════════════════
 
     @BeforeSuite
-    public static void setupProxy() throws IOException {
-        log.info("🐳 Starting Toxiproxy container (pointing at existing local Redis)...");
+    public static void connectToProxy() {
+        log.info("🔌 Connecting to persistent Toxiproxy admin API at {}:{}...",
+                TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT);
 
-        toxiproxy = new ToxiproxyContainer("ghcr.io/shopify/toxiproxy:2.5.0");
-        toxiproxy.start();
+        ToxiproxyClient toxiproxyClient = new ToxiproxyClient(TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT);
 
-        ToxiproxyClient toxiproxyClient = new ToxiproxyClient(toxiproxy.getHost(), toxiproxy.getControlPort());
+        try {
+            redisProxy = toxiproxyClient.getProxy(REDIS_PROXY_NAME);
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                    "Could not reach Toxiproxy at " + TOXIPROXY_ADMIN_HOST + ":" + TOXIPROXY_ADMIN_PORT +
+                            ", or the '" + REDIS_PROXY_NAME + "' proxy isn't defined. " +
+                            "Make sure toxiproxy-server is running with scripts/toxiproxy/toxiproxy.json loaded " +
+                            "(see scripts/toxiproxy/README.md) before running this suite.", e);
+        }
 
-        redisProxy = toxiproxyClient.createProxy(
-                "redis",
-                "0.0.0.0:8667",
-                LOCAL_REDIS_HOST + ":" + LOCAL_REDIS_PORT
-        );
+        if (redisProxy == null) {
+            throw new IllegalStateException(
+                    "Toxiproxy admin API reachable, but no proxy named '" + REDIS_PROXY_NAME + "' exists. " +
+                            "Check scripts/toxiproxy/toxiproxy.json was loaded on toxiproxy-server startup.");
+        }
 
-        String proxiedEndpoint = toxiproxy.getHost() + ":" + toxiproxy.getMappedPort(8667);
-
-        log.info("✅ Toxiproxy started, proxying to local Redis at {}:{}", LOCAL_REDIS_HOST, LOCAL_REDIS_PORT);
-        log.info("   Proxied endpoint: {}", proxiedEndpoint);
-
-        log.warn("╔══════════════════════════════════════════════════════════════════╗");
-        log.warn("║  MANUAL PRECONDITION REQUIRED — READ BEFORE RUNNING THIS SUITE     ║");
-        log.warn("║                                                                      ║");
-        log.warn("║  order-service MUST be started with:                                ║");
-        log.warn("║    SPRING_DATA_REDIS_HOST={}                          ║", toxiproxy.getHost());
-        log.warn("║    SPRING_DATA_REDIS_PORT={}                                    ║", toxiproxy.getMappedPort(8667));
-        log.warn("║                                                                      ║");
-        log.warn("║  If the service is NOT pointed at the proxy above, every test in    ║");
-        log.warn("║  this class will pass or fail for the WRONG REASON — the injected   ║");
-        log.warn("║  network chaos will have zero effect on the real request path.      ║");
-        log.warn("╚══════════════════════════════════════════════════════════════════╝");
-    }
-
-    @AfterSuite
-    public static void teardownProxy() {
-        if (toxiproxy != null) toxiproxy.stop();
-        log.info("🧹 Toxiproxy container stopped");
+        log.info("✅ Connected to '{}' proxy — confirm order-service's local profile points " +
+                "spring.data.redis.port at the proxy port (see scripts/toxiproxy/README.md), " +
+                "not directly at Redis, or injected chaos will have no effect.", REDIS_PROXY_NAME);
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -136,7 +132,7 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
-            logStep("🧹 Redis proxy cleaned up - connection restored");
+            logStep("🧹 Redis proxy cleaned up - connection restored (proxy itself stays running)");
         }
     }
 
@@ -233,8 +229,18 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
         TestModels.OrderResponse first = orderApiClient.createOrder(userId, idempotencyKey, purchase.getProducts());
         logStep("  ✓ First request created order: " + first.getId());
 
-        TestModels.OrderResponse duplicate = orderApiClient.createOrder(userId, idempotencyKey, purchase.getProducts());
+        // NOTE: deliberately NOT using createOrder() here — it hard-asserts 201,
+        // but a duplicate idempotency-key request correctly returns 200. Using
+        // createOrderWithFault() (no baked-in status assertion) so we can check
+        // the status explicitly, same pattern as OrderIdempotencyTest.
+        TestModels.CreateOrderRequest orderRequest = TestDataFactory.defaultOrder(purchase.getProducts()).build();
+        ServiceResponse duplicateResponse = orderApiClient.createOrderWithFault(userId, idempotencyKey, orderRequest, null);
 
+        assertThat(duplicateResponse.getStatusCode())
+                .as("Duplicate request against a DB-only fallback (Redis down) should return 200, not create a new order")
+                .isEqualTo(200);
+
+        TestModels.OrderResponse duplicate = duplicateResponse.as(TestModels.OrderResponse.class);
         assertThat(duplicate.getId())
                 .as("Duplicate request should return the SAME order even with Redis fully down — proves DB unique constraint + fallback lookup work without the lock")
                 .isEqualTo(first.getId());
@@ -260,11 +266,23 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
         // Restore Redis connectivity
         redisProxy.toxics().get("cut_connection").remove();
         logStep("  🟢 Redis connection restored");
+        Thread.sleep(2000);
+        logStep("  ⏳ Waited 500ms for Redis client reconnection before verifying recovery");
+
 
         // A subsequent duplicate request, now that Redis is healthy again, should
         // rebuild the cache — verify the DB-derived record is still correct and
         // that Redis eventually reflects it.
-        TestModels.OrderResponse duplicate = orderApiClient.createOrder(userId, idempotencyKey, purchase.getProducts());
+        // NOTE: same fix as test04 — createOrder() hard-asserts 201, but this is
+        // deliberately a duplicate-key request that correctly returns 200.
+        TestModels.CreateOrderRequest orderRequest = TestDataFactory.defaultOrder(purchase.getProducts()).build();
+        ServiceResponse duplicateResponse = orderApiClient.createOrderWithFault(userId, idempotencyKey, orderRequest, null);
+
+        assertThat(duplicateResponse.getStatusCode())
+                .as("Duplicate request after Redis recovery should return 200, not create a new order")
+                .isEqualTo(200);
+
+        TestModels.OrderResponse duplicate = duplicateResponse.as(TestModels.OrderResponse.class);
         assertThat(duplicate.getId()).isEqualTo(order.getId());
 
         String cacheKey = "idempotency:order:" + userId + ":" + idempotencyKey;

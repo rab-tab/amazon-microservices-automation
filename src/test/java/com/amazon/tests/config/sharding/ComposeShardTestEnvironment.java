@@ -12,7 +12,7 @@ public class ComposeShardTestEnvironment implements ShardTestEnvironment {
     @Override
     public void start() throws Exception {
         topology = ShardTopologyConfig.load("shard-topology.properties");
-        toxiproxy = new ToxiproxyShardController("toxiproxy", 8474, topology);
+        toxiproxy = new ToxiproxyShardController("scripts/toxiproxy", 8474, topology);
     }
 
     @Override

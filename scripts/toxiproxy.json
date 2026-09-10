@@ -1,0 +1,1 @@
+[{"name": "redis", "listen": "127.0.0.1:8666", "upstream": "127.0.0.1:6379", "enabled": true}]
