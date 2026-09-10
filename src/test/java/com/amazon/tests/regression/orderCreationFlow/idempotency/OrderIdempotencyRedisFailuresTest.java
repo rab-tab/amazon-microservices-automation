@@ -19,6 +19,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.*;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,30 +31,27 @@ import static org.awaitility.Awaitility.await;
 /**
  * Redis Network & Connectivity Failures - Realistic Tests
  *
- * Strategy: a PERSISTENT, natively-installed Toxiproxy instance
- * (toxiproxy-server, no Docker) sits permanently between order-service and
- * local Redis. order-service's local profile is configured to always route
- * through the proxy (127.0.0.1:8666) instead of talking to Redis directly
- * (127.0.0.1:6379) — see scripts/toxiproxy/README.md for one-time setup.
+ * Strategy: a natively-installed Toxiproxy instance (toxiproxy-server, no
+ * Docker) sits between order-service and local Redis. order-service's local
+ * profile is configured to always route through the proxy (127.0.0.1:8666)
+ * instead of talking to Redis directly (127.0.0.1:6379) — see
+ * scripts/toxiproxy/README.md for one-time setup.
  *
- * This replaces the earlier Testcontainers-based ephemeral-proxy approach,
- * which required manually restarting order-service pointed at a freshly
- * created proxy before every run. With the persistent setup, order-service
- * is ALWAYS wired through Toxiproxy, so there is no manual precondition —
- * this class just connects to the already-running proxy's admin API and
- * injects/removes toxics per test.
+ * This suite is self-managing for the proxy process itself: @BeforeSuite
+ * checks whether toxiproxy-server's admin API is already reachable. If a
+ * persistent instance is already running (recommended for regular local
+ * dev, per the README), it's reused and left alone. If nothing is running,
+ * this suite starts its own toxiproxy-server subprocess with
+ * scripts/toxiproxy/toxiproxy.json and tears it down in @AfterSuite — no
+ * manual "start it first" step required for a one-off run.
+ *
+ * order-service itself is NOT managed here — it must already be running,
+ * separately, pointed at the proxy port (8666), before this suite runs.
  *
  * WHAT THIS VERIFIES: OrderIdempotencyService.checkAndAcquire() is
  * fail-open — Redis being unreachable/slow/reset should degrade order
  * creation to DB-only idempotency (slower, no lock-based race
  * avoidance) rather than failing the request outright.
- *
- * PREREQUISITE (one-time, not per-run): toxiproxy-server must be running
- * locally with scripts/toxiproxy/toxiproxy.json loaded, and order-service's
- * local profile must point spring.data.redis.port at 8666. See
- * scripts/toxiproxy/README.md. If those aren't set up, @BeforeSuite below
- * fails fast with a clear message rather than tests failing for the wrong
- * reason.
  *
  * Run frequency: Before releases (not part of standard regression).
  */
@@ -63,7 +64,18 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
     private static final int TOXIPROXY_ADMIN_PORT = 8474; // toxiproxy-server default
     private static final String REDIS_PROXY_NAME = "redis";
 
+    // Override with -Dtoxiproxy.binary=/some/other/path if it's not on PATH
+    // for however this suite gets launched (IDE run configs don't always
+    // inherit a shell's PATH the way a terminal does).
+    private static final String TOXIPROXY_BINARY =
+            System.getProperty("toxiproxy.binary", "toxiproxy-server");
+    private static final Path TOXIPROXY_CONFIG =
+            Paths.get("scripts/toxiproxy/toxiproxy.json").toAbsolutePath();
+
     private static Proxy redisProxy;
+    // Only set if THIS suite run started toxiproxy-server itself — null means
+    // an already-running instance was reused, and @AfterSuite must leave it alone.
+    private static Process ownedToxiproxyProcess;
 
     private PurchaseResult purchase;
     private OrderApiClient orderApiClient;
@@ -73,9 +85,26 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
     // ══════════════════════════════════════════════════════════════
 
     @BeforeSuite
-    public static void connectToProxy() {
-        log.info("🔌 Connecting to persistent Toxiproxy admin API at {}:{}...",
-                TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT);
+    public static void startProxyIfNeededAndConnect() throws IOException {
+        if (isAdminApiReachable()) {
+            log.info("🔌 Toxiproxy admin API already reachable at {}:{} — reusing existing instance",
+                    TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT);
+        } else {
+            log.info("🚀 Toxiproxy not running — starting toxiproxy-server (config: {})", TOXIPROXY_CONFIG);
+            ProcessBuilder pb = new ProcessBuilder(TOXIPROXY_BINARY, "-config", TOXIPROXY_CONFIG.toString());
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+            try {
+                ownedToxiproxyProcess = pb.start();
+            } catch (IOException e) {
+                throw new IllegalStateException(
+                        "Failed to start toxiproxy-server ('" + TOXIPROXY_BINARY + "'). If it's not on PATH " +
+                                "for this run, pass -Dtoxiproxy.binary=/full/path/to/toxiproxy-server. " +
+                                "See scripts/toxiproxy/README.md.", e);
+            }
+            waitForAdminApiReady(Duration.ofSeconds(10));
+            log.info("✅ toxiproxy-server started by this suite (PID {})", ownedToxiproxyProcess.pid());
+        }
 
         ToxiproxyClient toxiproxyClient = new ToxiproxyClient(TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT);
 
@@ -85,8 +114,8 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
             throw new IllegalStateException(
                     "Could not reach Toxiproxy at " + TOXIPROXY_ADMIN_HOST + ":" + TOXIPROXY_ADMIN_PORT +
                             ", or the '" + REDIS_PROXY_NAME + "' proxy isn't defined. " +
-                            "Make sure toxiproxy-server is running with scripts/toxiproxy/toxiproxy.json loaded " +
-                            "(see scripts/toxiproxy/README.md) before running this suite.", e);
+                            "Make sure scripts/toxiproxy/toxiproxy.json defines it correctly " +
+                            "(see scripts/toxiproxy/README.md).", e);
         }
 
         if (redisProxy == null) {
@@ -98,6 +127,61 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
         log.info("✅ Connected to '{}' proxy — confirm order-service's local profile points " +
                 "spring.data.redis.port at the proxy port (see scripts/toxiproxy/README.md), " +
                 "not directly at Redis, or injected chaos will have no effect.", REDIS_PROXY_NAME);
+    }
+
+    @AfterSuite
+    public static void stopProxyIfThisSuiteStartedIt() {
+        if (ownedToxiproxyProcess == null) {
+            log.info("🔌 Leaving Toxiproxy running — this suite reused an already-running instance");
+            return;
+        }
+        log.info("🛑 Stopping toxiproxy-server (started by this suite run)...");
+        ownedToxiproxyProcess.destroy();
+
+        long deadline = System.currentTimeMillis() + 5000; // 5s grace period
+        boolean exited = false;
+        while (System.currentTimeMillis() < deadline) {
+            if (!ownedToxiproxyProcess.isAlive()) {
+                exited = true;
+                break;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        if (!exited && ownedToxiproxyProcess.isAlive()) {
+            log.warn("toxiproxy-server didn't stop within 5s — forcing termination");
+            ownedToxiproxyProcess.destroyForcibly();
+        }
+    }
+
+    private static boolean isAdminApiReachable() {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT), 300);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static void waitForAdminApiReady(Duration timeout) {
+        long deadline = System.currentTimeMillis() + timeout.toMillis();
+        while (System.currentTimeMillis() < deadline) {
+            if (isAdminApiReachable()) {
+                return;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting for toxiproxy-server to start", e);
+            }
+        }
+        throw new IllegalStateException(
+                "toxiproxy-server did not become ready within " + timeout.getSeconds() + "s of starting it");
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -265,10 +349,18 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
 
         // Restore Redis connectivity
         redisProxy.toxics().get("cut_connection").remove();
-        logStep("  🟢 Redis connection restored");
-        Thread.sleep(2000);
-        logStep("  ⏳ Waited 500ms for Redis client reconnection before verifying recovery");
+        logStep("  🟢 Redis connection restored (toxic removed)");
 
+        // Removing the toxic is instant, but Lettuce's shared connection needs a
+        // moment to actually detect the channel is usable again and reconnect —
+        // firing the next request immediately risks it still hitting the stale
+        // connection and falling back to DB-only again, which would correctly
+        // return the right order but never touch the cache (skipped by design
+        // once Redis is known-unreachable for that request). Poll isCached()
+        // pre-condition isn't available here without an extra dependency, so a
+        // short bounded wait is the pragmatic choice.
+        Thread.sleep(500);
+        logStep("  ⏳ Waited 500ms for Redis client reconnection before verifying recovery");
 
         // A subsequent duplicate request, now that Redis is healthy again, should
         // rebuild the cache — verify the DB-derived record is still correct and
