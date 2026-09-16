@@ -1,0 +1,38 @@
+version: '3.8'
+
+# Local Redis Cluster for chaos/failover testing.
+#
+# Uses grokzen/redis-cluster — a single container running 6 Redis instances
+# (3 masters + 3 replicas, one replica per master) on ports 7000-7005. This
+# specifically avoids the multi-container gossip/announce-ip problem: since
+# all 6 nodes share one container's loopback interface internally, they can
+# gossip with each other AND be reached from the host at the same addresses
+# — a plain multi-container Compose setup can't do both at once without
+# host networking (which isn't reliably available cross-platform).
+#
+# IP=0.0.0.0 is required on macOS (Rancher Desktop/Docker Desktop) — the
+# image's default cluster-discovery IP doesn't work there. See
+# https://github.com/Grokzen/docker-redis-cluster for details.
+
+services:
+  redis-cluster:
+    image: grokzen/redis-cluster:7.0.10
+    container_name: redis-cluster-local
+    ports:
+      - "7000:7000"
+      - "7001:7001"
+      - "7002:7002"
+      - "7003:7003"
+      - "7004:7004"
+      - "7005:7005"
+    environment:
+      IP: "0.0.0.0"          # required on macOS — see comment above
+      INITIAL_PORT: "7000"
+      MASTERS: "3"
+      SLAVES_PER_MASTER: "1"
+      CLUSTER_ONLY: "true"   # skip the 2 extra standalone (non-cluster) nodes — not needed here
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7000", "cluster", "info"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
