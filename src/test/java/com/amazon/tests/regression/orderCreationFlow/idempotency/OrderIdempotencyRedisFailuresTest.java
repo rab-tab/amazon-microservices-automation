@@ -24,6 +24,13 @@ import java.net.Socket;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -386,5 +393,90 @@ public class OrderIdempotencyRedisFailuresTest extends BaseTest {
                         .isTrue());
 
         logStep("✅ Cache rebuilt correctly after Redis recovery");
+    }
+
+    @Test(description = "REALISTIC: Concurrent requests with Redis fully down force a genuine DB unique-constraint race — proves the DataIntegrityViolationException fallback, not just DB-lookup fallback")
+    @Story("Redis Fail-Open Behavior")
+    @Severity(SeverityLevel.CRITICAL)
+    public void test06_ConcurrentRequestsWithRedisDown_DbConstraintResolvesRace() throws Exception {
+        logStep("REALISTIC TEST: N concurrent requests, same key, Redis cut BEFORE any of them start");
+
+        // Cut Redis before firing anything — every single thread must go
+        // through checkDbOnly() with zero coordination between them. This is
+        // the gap test04/test05 don't cover: those fire sequentially, so the
+        // second request always finds the first's row already committed via
+        // a plain SELECT and never attempts its own INSERT. Here, multiple
+        // threads can all see "not found" simultaneously and race straight
+        // into the actual INSERT — the only way to genuinely exercise
+        // OrderService.createOrder()'s DataIntegrityViolationException catch
+        // block rather than just its DB-lookup fallback.
+        redisProxy.toxics().resetPeer("cut_connection", ToxicDirection.DOWNSTREAM, 0);
+        logStep("  ✂️  Redis connection CUT (before any request starts)");
+
+        String userId = purchase.getCustomer().getUser().getId();
+        String idempotencyKey = TestDataFactory.newIdempotencyKey();
+        TestModels.CreateOrderRequest orderRequest = TestDataFactory.defaultOrder(purchase.getProducts()).build();
+
+        int concurrentCount = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(concurrentCount);
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch endGate = new CountDownLatch(concurrentCount);
+        List<ServiceResponse> responses = new CopyOnWriteArrayList<>();
+
+        for (int i = 0; i < concurrentCount; i++) {
+            final int requestNum = i + 1;
+            executor.submit(() -> {
+                try {
+                    startGate.await();
+                    ServiceResponse response = orderApiClient.createOrderWithFault(userId, idempotencyKey, orderRequest, null);
+                    responses.add(response);
+                    logStep("  Thread " + requestNum + " completed: status=" + response.getStatusCode());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    endGate.countDown();
+                }
+            });
+        }
+
+        logStep("  🏁 Releasing all " + concurrentCount + " threads (Redis still down)...");
+        startGate.countDown();
+        endGate.await();
+        executor.shutdown();
+
+        assertThat(responses).as("All " + concurrentCount + " requests should get a response").hasSize(concurrentCount);
+
+        long errorCount = responses.stream().filter(r -> r.getStatusCode() >= 400).count();
+        if (errorCount > 0) {
+            responses.stream().filter(r -> r.getStatusCode() >= 400)
+                    .forEach(r -> log.error("   Status {}: {}", r.getStatusCode(), r.getBody()));
+        }
+        assertThat(errorCount)
+                .as("No request should error out — every loser of the DB race should be caught and " +
+                        "resolved to the winner's order, not propagate a 4xx/5xx")
+                .isZero();
+
+        long createdCount = responses.stream().filter(r -> r.getStatusCode() == 201).count();
+        long duplicateCount = responses.stream().filter(r -> r.getStatusCode() == 200).count();
+        logStep("  201 Created: " + createdCount + " | 200 Duplicate: " + duplicateCount);
+
+        assertThat(createdCount)
+                .as("Exactly one request should win the DB unique-constraint race and create the order")
+                .isEqualTo(1L);
+        assertThat(duplicateCount)
+                .as("Every other request should lose the race, hit DataIntegrityViolationException, " +
+                        "and be resolved to the winner's order via the fallback lookup")
+                .isEqualTo(concurrentCount - 1L);
+
+        Set<String> uniqueOrderIds = responses.stream()
+                .map(r -> r.as(TestModels.OrderResponse.class).getId())
+                .collect(Collectors.toSet());
+        assertThat(uniqueOrderIds)
+                .as("All " + concurrentCount + " responses should resolve to exactly ONE order, " +
+                        "despite zero Redis coordination during the race")
+                .hasSize(1);
+
+        logStep("✅ DB unique constraint correctly resolved a real concurrent-insert race with Redis fully down — " +
+                "1 order from " + concurrentCount + " concurrent requests, zero errors");
     }
 }
