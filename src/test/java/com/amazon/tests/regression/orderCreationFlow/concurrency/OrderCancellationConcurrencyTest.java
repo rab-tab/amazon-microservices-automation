@@ -3,10 +3,12 @@ package com.amazon.tests.regression.orderCreationFlow.concurrency;
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.auth.BearerAuthStrategy;
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.reports.ExtentReportManager;
 import com.amazon.tests.transport.ServiceResponse;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
+import com.aventstack.extentreports.markuputils.MarkupHelper;
 import io.qameta.allure.*;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.Test;
@@ -145,7 +147,7 @@ public class OrderCancellationConcurrencyTest extends BaseTest {
 
         for (int i = 0; i < concurrentCount; i++) {
             final int requestNum = i + 1;
-            executor.submit(() -> {
+            executor.submit(withTestContext(() -> {
                 try {
                     startGate.await();
                     ServiceResponse response = client.cancelOrderRaw(token, userId, order.getId());
@@ -156,7 +158,7 @@ public class OrderCancellationConcurrencyTest extends BaseTest {
                 } finally {
                     endGate.countDown();
                 }
-            });
+            }));
         }
 
         logStep("  🏁 Releasing all " + concurrentCount + " concurrent cancel requests...");
@@ -169,7 +171,11 @@ public class OrderCancellationConcurrencyTest extends BaseTest {
         long errorCount = responses.stream().filter(r -> r.getStatusCode() >= 400).count();
         if (errorCount > 0) {
             responses.stream().filter(r -> r.getStatusCode() >= 400)
-                    .forEach(r -> log.error("   Status {}: {}", r.getStatusCode(), r.getBody()));
+                    .forEach(r -> {
+                        log.error("   Status {}: {}", r.getStatusCode(), r.getBody());
+                        ExtentReportManager.getInstance().getTest().fail(
+                                MarkupHelper.createCodeBlock("Status " + r.getStatusCode() + "\n" + r.getBody()));
+                    });
         }
         assertThat(errorCount)
                 .as("Every concurrent cancel should succeed (200) — a broken/absent retry would surface " +

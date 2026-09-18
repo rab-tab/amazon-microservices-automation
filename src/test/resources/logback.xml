@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
+    <statusListener class="ch.qos.logback.core.status.NopStatusListener"/>
     <!-- RP appender has no encoder of its own — it formats internally -->
     <appender name="RP" class="com.epam.reportportal.logback.appender.ReportPortalAppender"/>
 
@@ -13,6 +14,7 @@
     <!-- Step narration, pass/fail bookkeeping — INFO is correct, readable trail -->
     <logger name="com.amazon.tests.listeners" level="INFO"/>
     <logger name="com.amazon.tests.reports" level="INFO"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
 
     <!-- Retry internals — WARN is enough by default, retries themselves are the signal -->
     <logger name="com.amazon.tests.utils.retry" level="WARN"/>
@@ -23,6 +25,7 @@
     <!-- Quiet down noisy third-party libraries -->
     <logger name="org.apache.http" level="WARN"/>
     <logger name="io.restassured" level="WARN"/>
+    <logger name="org.apache.kafka" level="WARN"/>
 
     <root level="INFO">
         <appender-ref ref="RP"/>

@@ -20,6 +20,7 @@ public final class RetryPresets {
                 .initialDelay(100)
                 .retryPolicy(RetryHandler.RetryPolicy.LINEAR)
                 .retryOnStatusCodes(404, 503)
+                .idempotentOperation(true)
                 .build();
     }
 

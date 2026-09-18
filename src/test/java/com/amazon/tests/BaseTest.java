@@ -9,6 +9,7 @@ import com.amazon.tests.config.restAsssured.RestClient;
 import com.amazon.tests.dataseeding.cleanup.CleanupManager;
 import com.amazon.tests.dataseeding.core.SeedingContext;
 import com.amazon.tests.reports.ExtentReportManager;
+import com.amazon.tests.reports.ReportingFilter;
 import com.amazon.tests.reports.TestReporter;
 import com.amazon.tests.reports.TestReporterFactory;
 import com.amazon.tests.transport.RequestExecutor;
@@ -31,6 +32,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.BeforeSuite;
 
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -202,19 +204,26 @@ public abstract class BaseTest {
         }
     }
 
+    // BaseTest.java
     protected Runnable withTestContext(Runnable task) {
+        return withTestContext(task, null);
+    }
+
+    protected Runnable withTestContext(Runnable task, List<Response> sharedResponseGroup) {
         ExtentTest currentTest = ExtentReportManager.getInstance().getTest();
-        Map<String, String> mdcContext = MDC.getCopyOfContextMap();  // may be null
+        Map<String, String> mdcContext = MDC.getCopyOfContextMap();
         return () -> {
-            if (mdcContext != null) {
-                MDC.setContextMap(mdcContext);
-            }
+            if (mdcContext != null) MDC.setContextMap(mdcContext);
             ExtentReportManager.getInstance().attachTest(currentTest);
+            if (sharedResponseGroup != null) {
+                ReportingFilter.attachCaptureGroup(sharedResponseGroup);   // NEW
+            }
             try {
                 task.run();
             } finally {
                 MDC.clear();
                 ExtentReportManager.getInstance().removeTest();
+                ReportingFilter.clearCaptureGroup();   // NEW
             }
         };
     }

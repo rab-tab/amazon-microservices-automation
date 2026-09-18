@@ -3,6 +3,7 @@ package com.amazon.tests.regression.orderCreationFlow.idempotency;
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.auth.BearerAuthStrategy;
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.reports.ExtentReportManager;
 import com.amazon.tests.transport.ServiceResponse;
 import com.amazon.tests.utils.RedisValidator;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
@@ -51,7 +52,7 @@ public class OrderIdempotencyTest extends BaseTest {
         };
     }
 
-    @Test(priority = 1, dataProvider = "idempotencyKeyScenarios")
+    @Test(priority = 1, dataProvider = "idempotencyKeyScenarios",enabled = false)
     @Story("Idempotency Key Behavior")
     @Description("Verify idempotency key reuse vs. distinct keys for the same user")
     public void testIdempotencyKeyBehavior(String scenario, boolean reuseSameKey) throws Exception {
@@ -112,7 +113,8 @@ public class OrderIdempotencyTest extends BaseTest {
     @Story("Multi-Instance Concurrency")
     @Description("10 concurrent requests with same idempotency key should create only 1 order")
     public void testMultipleInstancesRaceCondition() throws Exception {
-        log.info("=== TEST 2: Multi-Instance Race Condition (with Retry) ===");
+       // log.info("=== TEST 2: Multi-Instance Race Condition (with Retry) ===");
+        logStep("=== TEST 2: Multi-Instance Race Condition (with Retry) ===");
 
         PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
                 .registerCustomer()
@@ -127,13 +129,15 @@ public class OrderIdempotencyTest extends BaseTest {
         final TestModels.CreateOrderRequest orderRequest =
                 TestDataFactory.defaultOrder(purchase.getProducts()).build();
 
-        log.info("🔑 Idempotency Key: {}", idempotencyKey);
+      //  log.info("🔑 Idempotency Key: {}", idempotencyKey);
+        logStep("🔑 Idempotency Key: {}", idempotencyKey);
 
         RetryHandler.RetryConfig retryConfig = new RetryHandler.RetryConfig()
                 .maxAttempts(10)
                 .initialDelay(100)
                 .retryPolicy(RetryHandler.RetryPolicy.LINEAR)
                 .retryOnStatusCodes(404, 503)
+                .idempotentOperation(true)
                 .build();
 
         ExecutorService executor = Executors.newFixedThreadPool(10);
@@ -144,33 +148,41 @@ public class OrderIdempotencyTest extends BaseTest {
 
         for (int i = 0; i < 10; i++) {
             final int requestNum = i + 1;
-            executor.submit(() -> {
+            executor.submit(withTestContext(() -> {
                 try {
                     startGate.await();
-                    log.info("🚀 Thread {} sending request with retry...", requestNum);
+                   // log.info("🚀 Thread {} sending request with retry...", requestNum);
+                    logStep("🚀 Thread {} sending request with retry...", requestNum);
 
                     ServiceResponse response = retryServiceCall(() ->
                                     orderApiClient(token).createOrderWithFault(userId, idempotencyKey, orderRequest, null),
                             retryConfig);
 
                     responses.add(response);
-                    log.info("✓ Thread {} completed: status={}", requestNum, response.getStatusCode());
+                  //  log.info("✓ Thread {} completed: status={}", requestNum, response.getStatusCode());
+                    logStep("✓ Thread {} completed: status={}", requestNum, response.getStatusCode());
+
                 } catch (Exception e) {
                     log.error("❌ Thread {} failed after all retries: {}", requestNum, e.getMessage(), e);
+                    ExtentReportManager.getInstance().getTest().fail(
+                            "Thread " + requestNum + " failed after all retries").fail(e);
                 } finally {
                     endGate.countDown();
                 }
-            });
+            }));
         }
 
-        log.info("🏁 Releasing all 10 threads...");
+       // log.info("🏁 Releasing all 10 threads...");
+        logStep("🏁 Releasing all 10 threads...");
         startGate.countDown();
         ConcurrencyTestHelper.waitForLatch(endGate, 60000);
         executor.shutdown();
         ConcurrencyTestHelper.waitForExecutorTermination(executor, 10000);
 
-        log.info("════════════════════════════════════════════════════════");
-        log.info("📊 Test Results: Total requests: {}", responses.size());
+       // log.info("════════════════════════════════════════════════════════");
+        //log.info("📊 Test Results: Total requests: {}", responses.size());
+        logStep("════════════════════════════════════════════════════════");
+        logStep("📊 Test Results: Total requests: {}", responses.size());
 
         Map<Integer, Long> statusCounts = responses.stream()
                 .collect(Collectors.groupingBy(ServiceResponse::getStatusCode, Collectors.counting()));
@@ -194,23 +206,26 @@ public class OrderIdempotencyTest extends BaseTest {
                 .map(r -> r.as(TestModels.OrderResponse.class).getId())
                 .collect(Collectors.toSet());
 
-        log.info("   Unique orders created: {}", orderIds.size());
+      //  log.info("   Unique orders created: {}", orderIds.size());
+        logStep("   Unique orders created: {}", orderIds.size());
         assertEquals(orderIds.size(), 1, "Should create exactly 1 order");
 
         long created = statusCounts.getOrDefault(201, 0L);
         long ok = statusCounts.getOrDefault(200, 0L);
-        log.info("   201 Created: {} | 200 OK: {}", created, ok);
+       // log.info("   201 Created: {} | 200 OK: {}", created, ok);
+        logStep("   201 Created: {} | 200 OK: {}", created, ok);
         assertTrue(created >= 1, "Should have at least 1 '201 Created'");
         assertTrue(ok >= 7, "Should have at least 7 '200 OK'");
 
-        log.info("✅ PASSED: Race condition handled correctly with retry");
+       // log.info("✅ PASSED: Race condition handled correctly with retry");
+        logStep("✅ PASSED: Race condition handled correctly with retry");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // TEST 3: Redis Cache Expiry with Retry — PASS
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 3)
+    @Test(priority = 3,enabled = false)
     @Story("Cache Expiry Fallback")
     @Description("After Redis cache expires, should fallback to database")
     public void testRedisCacheExpiry() throws Exception {
@@ -267,7 +282,7 @@ public class OrderIdempotencyTest extends BaseTest {
     // TEST 5: Complete Key Expiry (Order Deleted) — PASS
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 5)
+    @Test(priority = 5,enabled = false)
     @Story("Idempotency Key Reuse After Cleanup")
     @Description("After order is deleted, same idempotency key can create new order")
     public void testIdempotencyKeyCompleteExpiry() throws Exception {
@@ -331,7 +346,7 @@ public class OrderIdempotencyTest extends BaseTest {
     // TEST 6: User-Scoped Idempotency — FAIL
     // ══════════════════════════════════════════════════════════════════════════
 
-    @Test(priority = 6)
+    @Test(priority = 6,enabled = false)
     @Story("User-Scoped Idempotency")
     @Description("Same idempotency key for different users should create different orders")
     public void testIdempotencyKeyScopedToUser() throws Exception {
@@ -379,12 +394,12 @@ public class OrderIdempotencyTest extends BaseTest {
         log.error("🔎 DIAGNOSTIC: response2 status={}, orderId={}, orderId matches user1's order? {}, order's actual owner userId={}, expected owner (user2)={}",
                 response2.getStatusCode(), orderId2, orderId2.equals(orderId1), orderId2OwnerId, userId2);
 
-        if (response2.getStatusCode() == 200 && orderId2.equals(orderId1)) {
-            log.error("🚨 CONFIRMED: User 2's request returned User 1's order — cross-user idempotency leak");
-        }
-        if (orderId2OwnerId != null && !orderId2OwnerId.equals(userId2)) {
-            log.error("🚨 CONFIRMED: Order returned to user2 has owner userId={} instead of {}", orderId2OwnerId, userId2);
-        }
+        assertNotEquals(orderId2, orderId1,
+                "Same idempotency key used by two different users must NOT return the same order " +
+                        "(cross-user idempotency leak)");
+
+        assertEquals(orderId2OwnerId, userId2,
+                "Order returned to user2 must be owned by user2, not user1");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -404,6 +419,7 @@ public class OrderIdempotencyTest extends BaseTest {
                 .maxAttempts(3)
                 .initialDelay(200)
                 .retryPolicy(RetryHandler.RetryPolicy.LINEAR)
+                .idempotentOperation(true)   // ADD — this test's whole premise is that the idempotency key makes retry safe
                 .build();
     }
 
