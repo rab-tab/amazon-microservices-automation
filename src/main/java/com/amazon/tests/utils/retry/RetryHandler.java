@@ -7,21 +7,32 @@ import org.apache.http.conn.ConnectTimeoutException;
 import org.apache.http.conn.ConnectionPoolTimeoutException;
 
 import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 
 /**
  * Global retry handler for handling transient failures in tests.
  *
  * Supports:
- * - HTTP status code-based retries (502, 503, 504, etc.)
- * - Exception-based retries, split into two safety tiers:
+ * - HTTP status code-based retries, split into two safety tiers:
+ *     - ALWAYS_SAFE_STATUS_CODES (429, 503, 408): server signals it did not
+ *       process the request (rate-limited / unavailable / client-side timeout)
+ *       — retried unconditionally.
+ *     - AMBIGUOUS_STATUS_CODES (500, 502, 504): the server may have partially
+ *       or fully processed the request before failing — only retried if the
+ *       operation is explicitly marked idempotent.
+ * - Exception-based retries, split into the same two safety tiers:
  *     - connection-never-established failures (always safe to retry)
  *     - ambiguous failures like read-timeouts (only retried if the
  *       operation is explicitly marked idempotent — see RetryConfig#idempotentOperation)
- * - Configurable retry policies (exponential backoff, linear, fibonacci)
+ * - Configurable retry policies (exponential backoff, linear, fibonacci),
+ *   each with optional jitter to avoid synchronized "thundering herd" retries
+ *   from concurrent callers.
  * - Extent Report integration so retries are visible, not silently masked
  */
 @Slf4j
@@ -30,13 +41,29 @@ public class RetryHandler {
     private static final int DEFAULT_MAX_ATTEMPTS = 3;
     private static final long DEFAULT_INITIAL_DELAY_MS = 100;
 
-    // 404 intentionally excluded — a 404 is usually a real failure (resource
-    // doesn't exist), not a transient one. Retrying it just delays surfacing
-    // a real bug and masks it as "flaky infra". Opt in per-call-site via
-    // addRetryableStatusCode(404) only for known eventual-consistency polling.
-    private static final Set<Integer> DEFAULT_RETRYABLE_STATUS_CODES = new HashSet<>(
-            Arrays.asList(408, 429, 500, 502, 503, 504)
+    // Status codes where the server definitely did NOT process the request —
+    // safe to retry regardless of idempotency.
+    // 408 Request Timeout: client-side, request never fully reached the server.
+    // 429 Too Many Requests: rejected before processing, by definition.
+    // 503 Service Unavailable: server explicitly refused to process.
+    private static final Set<Integer> ALWAYS_SAFE_STATUS_CODES = new HashSet<>(
+            Arrays.asList(408, 429, 503)
     );
+
+    // Status codes where the server MAY have processed the request before
+    // failing — only safe to retry if the operation is idempotent.
+    // 500 Internal Server Error: failure could occur after a write completed.
+    // 502 Bad Gateway: upstream may have processed before the gateway failed.
+    // 504 Gateway Timeout: upstream may have processed before timing out.
+    private static final Set<Integer> AMBIGUOUS_STATUS_CODES = new HashSet<>(
+            Arrays.asList(500, 502, 504)
+    );
+
+    // 404 intentionally excluded from both sets — a 404 is usually a real
+    // failure (resource doesn't exist), not a transient one. Retrying it
+    // just delays surfacing a real bug and masks it as "flaky infra". Opt in
+    // per-call-site via addRetryableStatusCode(404) only for known
+    // eventual-consistency polling.
 
     // Exceptions meaning the request never reached the server at all —
     // nothing happened server-side, so retrying is always safe regardless
@@ -44,7 +71,17 @@ public class RetryHandler {
     private static final Set<Class<? extends Exception>> CONNECTION_NEVER_ESTABLISHED = Set.of(
             ConnectException.class,
             ConnectTimeoutException.class,
-            ConnectionPoolTimeoutException.class
+            ConnectionPoolTimeoutException.class,
+            UnknownHostException.class   // DNS resolution failure — request never left the client either
+    );
+
+    // Ambiguous by default: the request may have reached and been processed
+    // by the server before this exception surfaced client-side. Registered
+    // automatically so callers don't have to remember to opt in via
+    // retryOnException(...) — but still only honored when the caller has
+    // explicitly proven the operation is idempotent.
+    private static final Set<Class<? extends Exception>> DEFAULT_AMBIGUOUS_EXCEPTIONS = Set.of(
+            SocketTimeoutException.class
     );
 
     /**
@@ -54,8 +91,9 @@ public class RetryHandler {
         private int maxAttempts = DEFAULT_MAX_ATTEMPTS;
         private long initialDelayMs = DEFAULT_INITIAL_DELAY_MS;
         private RetryPolicy retryPolicy = RetryPolicy.EXPONENTIAL_BACKOFF;
-        private Set<Integer> retryableStatusCodes = new HashSet<>(DEFAULT_RETRYABLE_STATUS_CODES);
-        private Set<Class<? extends Exception>> retryableExceptions = new HashSet<>();
+        private boolean jitter = true;
+        private Set<Integer> retryableStatusCodes = new HashSet<>(ALWAYS_SAFE_STATUS_CODES);
+        private Set<Class<? extends Exception>> retryableExceptions = new HashSet<>(DEFAULT_AMBIGUOUS_EXCEPTIONS);
         private boolean logRetries = true;
 
         // Defaults to false (safest assumption). Only set true when the
@@ -78,6 +116,22 @@ public class RetryHandler {
             return this;
         }
 
+        /**
+         * Enable/disable random jitter added to every computed delay
+         * (default: enabled). Without jitter, concurrent callers retrying
+         * on the same fixed schedule can synchronize into repeated waves
+         * against a recovering or rate-limited service ("thundering herd").
+         */
+        public RetryConfig jitter(boolean enabled) {
+            this.jitter = enabled;
+            return this;
+        }
+
+        /**
+         * Replaces the default ALWAYS_SAFE status codes (408, 429, 503).
+         * Note: this does not affect AMBIGUOUS_STATUS_CODES (500, 502, 504),
+         * which are added separately and gated by idempotentOperation.
+         */
         public RetryConfig retryOnStatusCodes(Integer... statusCodes) {
             this.retryableStatusCodes = new HashSet<>(Arrays.asList(statusCodes));
             return this;
@@ -88,6 +142,11 @@ public class RetryHandler {
             return this;
         }
 
+        /**
+         * Registers an additional exception type as retryable under the
+         * ambiguous tier — only honored when idempotentOperation(true).
+         * SocketTimeoutException is already registered by default.
+         */
         public RetryConfig retryOnException(Class<? extends Exception> exceptionClass) {
             this.retryableExceptions.add(exceptionClass);
             return this;
@@ -100,9 +159,9 @@ public class RetryHandler {
 
         /**
          * Marks this operation as safe to retry even on ambiguous failures
-         * (e.g. read-timeout, where the server may have already processed
-         * the request). Only set true for GET/DELETE, or POST/PUT calls
-         * using a request-scoped idempotency key.
+         * (read-timeouts, and 500/502/504 responses, where the server may
+         * have already processed the request). Only set true for GET/DELETE,
+         * or POST/PUT calls using a request-scoped idempotency key.
          */
         public RetryConfig idempotentOperation(boolean idempotent) {
             this.idempotentOperation = idempotent;
@@ -138,7 +197,7 @@ public class RetryHandler {
                 T result = operation.get();
 
                 Integer statusCode = extractStatusCode(result);
-                if (statusCode != null && config.retryableStatusCodes.contains(statusCode)) {
+                if (statusCode != null && isStatusRetryable(statusCode, config)) {
                     if (attempt < config.maxAttempts) {
                         long delay = calculateDelay(config, attempt);
                         logRetry(config, attempt, statusCode, delay);
@@ -198,15 +257,33 @@ public class RetryHandler {
     }
 
     /**
+     * Determines whether a status code is retryable under this config.
+     * ALWAYS_SAFE codes (or anything explicitly configured via
+     * retryOnStatusCodes/addRetryableStatusCode) retry unconditionally.
+     * AMBIGUOUS codes (500/502/504) only retry when idempotentOperation
+     * has been explicitly set — the server may have already processed
+     * the request before returning one of these.
+     */
+    private static boolean isStatusRetryable(int statusCode, RetryConfig config) {
+        if (config.retryableStatusCodes.contains(statusCode)) {
+            return true;
+        }
+        if (AMBIGUOUS_STATUS_CODES.contains(statusCode)) {
+            return config.idempotentOperation;
+        }
+        return false;
+    }
+
+    /**
      * Determines whether a caught exception is safe to retry.
      *
      * - Connection-never-established failures (pool exhaustion, connection
-     *   refused, connect timeout): the request never reached the server —
-     *   always safe, regardless of idempotency.
-     * - Anything else configured via retryOnException(...) (e.g. read
-     *   timeout): ambiguous — the server may have already processed the
-     *   request. Only retried if the caller has explicitly proven this
-     *   operation is idempotent via RetryConfig#idempotentOperation(true).
+     *   refused, connect timeout, DNS failure): the request never reached
+     *   the server — always safe, regardless of idempotency.
+     * - Anything else configured via retryOnException(...) (SocketTimeoutException
+     *   is registered by default): ambiguous — the server may have already
+     *   processed the request. Only retried if the caller has explicitly
+     *   proven this operation is idempotent via RetryConfig#idempotentOperation(true).
      */
     private static boolean isSafeToRetry(Exception e, RetryConfig config) {
         boolean requestNeverSent = CONNECTION_NEVER_ESTABLISHED.stream()
@@ -223,19 +300,25 @@ public class RetryHandler {
     }
 
     /**
-     * Calculate delay based on retry policy
+     * Calculate delay based on retry policy, with optional jitter.
+     * Jitter adds up to +/-25% random variation to the computed delay so
+     * concurrent callers retrying on the same schedule don't synchronize
+     * into repeated waves against the target service.
      */
     private static long calculateDelay(RetryConfig config, int attempt) {
-        switch (config.retryPolicy) {
-            case EXPONENTIAL_BACKOFF:
-                return config.initialDelayMs * (long) Math.pow(2, attempt - 1);
-            case LINEAR:
-                return config.initialDelayMs;
-            case FIBONACCI:
-                return config.initialDelayMs * fibonacci(attempt);
-            default:
-                return config.initialDelayMs;
+        long baseDelay = switch (config.retryPolicy) {
+            case EXPONENTIAL_BACKOFF -> config.initialDelayMs * (long) Math.pow(2, attempt - 1);
+            case LINEAR -> config.initialDelayMs;
+            case FIBONACCI -> config.initialDelayMs * fibonacci(attempt);
+        };
+
+        if (!config.jitter) {
+            return baseDelay;
         }
+
+        long jitterRange = (long) (baseDelay * 0.25);
+        long jitterOffset = jitterRange == 0 ? 0 : ThreadLocalRandom.current().nextLong(-jitterRange, jitterRange + 1);
+        return Math.max(0, baseDelay + jitterOffset);
     }
 
     private static long fibonacci(int n) {
@@ -259,7 +342,7 @@ public class RetryHandler {
         }
     }
 
-    // ===== Logging — now mirrored into Extent, not just slf4j =====
+    // ===== Logging — mirrored into Extent, not just slf4j =====
 
     private static void logRetry(RetryConfig config, int attempt, int statusCode, long delay) {
         if (config.logRetries) {
