@@ -10,14 +10,19 @@
 // Flow:
 //   Receive IMAGE_TAG → Pull images → Start infra (Kafka/Redis/PG)
 //   → Wait for health → Start microservices → Wait for health
-//   → Run tests in stages → Generate Allure report → Stop everything
+//   → Run tests (single-node OR sharded on Kubernetes) → Generate
+//     Allure report → Stop everything
 //
 // Key design decisions:
 //   - Services start fresh every run (clean state = reliable tests)
 //   - Infrastructure starts before services (dependency order)
-//   - Tests run sequentially (RAM constraint + test isolation)
+//   - Single-node tests run sequentially (RAM constraint + test isolation)
+//   - Sharded tests run as an Indexed Kubernetes Job, parallelism = shard count
 //   - Services always stop in post {} (even if tests fail)
 //   - Allure report always generated (even if some tests fail)
+//   - Sharded runs: each pod's logs/artifacts are pulled back and merged
+//     into the Jenkins workspace BEFORE the Job is deleted, since pods are
+//     ephemeral — cleanWs() would otherwise take everything with it.
 // ════════════════════════════════════════════════════════════════
 
 pipeline {
@@ -62,6 +67,17 @@ pipeline {
             name: 'SKIP_E2E',
             defaultValue: false,
             description: 'Skip E2E tests (run unit-level integration tests only)'
+        )
+        // ── NEW: sharded execution controls ──────────────────────
+        booleanParam(
+            name: 'RUN_SHARDED',
+            defaultValue: false,
+            description: 'Run the regression suite sharded across Kubernetes pods instead of single-node'
+        )
+        string(
+            name: 'SHARD_COUNT',
+            defaultValue: '4',
+            description: 'Number of shards/pods to use when RUN_SHARDED is true'
         )
     }
 
@@ -117,6 +133,8 @@ Git Commit:   ${params.GIT_COMMIT ?: 'not provided'}
 Branch:       ${params.BRANCH}
 Triggered By: ${params.TRIGGERED_BY}
 Skip E2E:     ${params.SKIP_E2E}
+Run Sharded:  ${params.RUN_SHARDED}
+Shard Count:  ${params.RUN_SHARDED ? params.SHARD_COUNT : 'n/a'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
 
                 // ── Resolve per-service image tags ───────────────────
@@ -379,7 +397,7 @@ api-gateway:          ${env.TAG_API_GATEWAY}
             }
         }
 
-        // ── Stage 5-10: Test Suites ───────────────────────────────
+        // ── Stage 5: Run Tests (single-node path) ─────────────────
         // Each suite runs as a separate stage so:
         //   - You can see exactly which suite failed in the UI
         //   - Earlier suites don't block later ones if they partially fail
@@ -388,36 +406,115 @@ api-gateway:          ${env.TAG_API_GATEWAY}
         // continue-on-error equivalent: -Dmaven.test.failure.ignore=true
         // This means: run ALL tests even if some fail, collect all results,
         // then Jenkins marks build UNSTABLE (yellow) not FAILED (red)
+        //
+        // Only runs when RUN_SHARDED is false — the sharded path below
+        // replaces this entirely when true.
         stage('Run Tests') {
-        parallel {
-            /*stage('Auth & User Tests') {
-                steps { runTestSuite('testng-api-gateway.xml', 'Auth and User Tests') }
-                post { always { collectTestResults() } }
+            when { expression { !params.RUN_SHARDED } }
+            parallel {
+                stage('Regression Tests') {
+                    when {
+                        not { expression { params.SKIP_E2E } }
+                    }
+                    steps { runTestSuite('regression.xml', 'Regression Suite') }
+                    post { always { collectTestResults() } }
+                }
             }
-
-            stage('Product & Order Tests') {
-                steps { runTestSuite('testng-order.xml', 'Product and Order Tests') }
-                post { always { collectTestResults() } }
-            }
-
-            stage('DB Validation Tests') {
-                steps { runTestSuite('testng-db.xml', 'Database Validation Tests') }
-                post { always { collectTestResults() } }
-            }
-
-            stage('Kafka Event Tests') {
-                            steps { runTestSuite('testng-kafka.xml', 'Kafka Event Tests') }
-                            post { always { collectTestResults() } }
-                        }
-            }*/
-            stage('Regression Tests') {
-                            when {
-                             not { expression { params.SKIP_E2E } }
-                            }
-                            steps { runTestSuite('regression.xml', 'Regression Suite') }
-                            post { always { collectTestResults() } }
-                       }
         }
+
+        // ── Stage 5b: Run Sharded Regression (Kubernetes) ─────────
+        // Alternative to the single-node path above. Deploys an Indexed
+        // Kubernetes Job — one pod per shard, K8s sets JOB_COMPLETION_INDEX
+        // automatically per pod, which ShardingInterceptor reads to slice
+        // the test method list. Pods are ephemeral, so logs/artifacts are
+        // pulled back to the Jenkins workspace BEFORE the Job is deleted.
+        stage('Run Sharded Regression (Kubernetes)') {
+            when { expression { params.RUN_SHARDED } }
+            steps {
+                script {
+                    def shardCount = params.SHARD_COUNT.toInteger()
+                    def jobName = "regression-shard-${env.BUILD_NUMBER}"
+
+                    echo "🚀 Launching Indexed Job '${jobName}' with ${shardCount} shards"
+
+                    // TOTAL_SHARDS matches what ShardingInterceptor expects.
+                    // JOB_COMPLETION_INDEX is injected automatically by
+                    // Kubernetes on each pod when completionMode is Indexed —
+                    // no need to set it explicitly here.
+                    writeFile file: 'shard-job.yaml', text: """
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${jobName}
+  labels:
+    app: regression-shard
+    build: "${env.BUILD_NUMBER}"
+spec:
+  completions: ${shardCount}
+  parallelism: ${shardCount}
+  completionMode: Indexed
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: regression-shard
+        build: "${env.BUILD_NUMBER}"
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: test-runner
+        image: ${REGISTRY}/amazon-test-automation:${IMAGE_TAG}
+        env:
+        - name: TOTAL_SHARDS
+          value: "${shardCount}"
+        - name: BASE_URL
+          value: "${BASE_URL}"
+        - name: DB_HOST
+          value: "${DB_HOST}"
+        - name: KAFKA_SERVERS
+          value: "${KAFKA_SERVERS}"
+        - name: REDIS_HOST
+          value: "${REDIS_HOST}"
+        command: ["mvn", "test", "-Dsurefire.suiteXmlFiles=src/test/resources/regression.xml", "--no-transfer-progress", "-Dmaven.test.failure.ignore=true"]
+"""
+
+                    sh "kubectl apply -f shard-job.yaml"
+
+                    // Poll until every pod reaches a terminal state (Succeeded
+                    // OR Failed). Deliberately not using `kubectl wait --for=
+                    // condition=complete` alone — that only fires on FULL job
+                    // success, and we need artifacts even from a partially-
+                    // failed shard.
+                    timeout(time: 60, unit: 'MINUTES') {
+                        sh """
+                            echo "⏳ Waiting for all ${shardCount} shard pods to finish..."
+                            while true; do
+                                DONE=\$(kubectl get pods -l job-name=${jobName} -o jsonpath='{.items[*].status.phase}' | tr ' ' '\\n' | grep -cE 'Succeeded|Failed')
+                                TOTAL=\$(kubectl get pods -l job-name=${jobName} -o jsonpath='{.items[*].status.phase}' | tr ' ' '\\n' | wc -l)
+                                echo "  \$DONE/\$TOTAL pods finished"
+                                [ "\$DONE" -eq "\$TOTAL" ] && [ "\$TOTAL" -eq "${shardCount}" ] && break
+                                sleep 15
+                            done
+                        """
+                    }
+
+                    collectShardedArtifacts(jobName, shardCount)
+
+                    // Safe to delete now — artifacts already pulled out.
+                    // --wait=false so we don't block the pipeline on GC.
+                    sh "kubectl delete job ${jobName} --wait=false || true"
+
+                    def failedShards = sh(
+                        script: "kubectl get pods -l job-name=${jobName} -o jsonpath='{.items[?(@.status.phase==\"Failed\")].metadata.name}' 2>/dev/null || echo ''",
+                        returnStdout: true
+                    ).trim()
+                    if (failedShards) {
+                        echo "⚠️ Shard pod(s) failed at the pod level (not just test failures): ${failedShards}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+            post { always { collectTestResults() } }
         }
 
         // ── Stage: Static Analysis (SonarQube) ────────────────────
@@ -428,7 +525,9 @@ api-gateway:          ${env.TAG_API_GATEWAY}
         // ThreadLocal.remove(), unsynchronized shared collections, etc.
         // It will NOT catch cross-thread field races or actual runtime memory
         // growth — that's what the thread/heap sampling in runTestSuite() and
-        // the archived diagnostics below are for.
+        // the archived diagnostics below are for. Note: sharded runs don't
+        // produce jacoco.exec per-pod today, so coverage data here reflects
+        // single-node runs only until that gap is addressed separately.
         //
         // 'SonarQubeServer' below must match the name configured under
         // Jenkins → Manage Jenkins → System → SonarQube servers.
@@ -504,7 +603,10 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                        echo "✅ Containers stopped and cleaned up"
                    """
 
-                   // Collect final JUnit results for Jenkins trend charts
+                   // Collect final JUnit results for Jenkins trend charts.
+                   // Sharded runs already flattened each shard's surefire XMLs
+                   // into target/surefire-reports/ in collectShardedArtifacts(),
+                   // so this one glob covers both single-node and sharded runs.
                    junit allowEmptyResults: true,
                          testResults: '**/target/surefire-reports/TEST-*.xml'
 
@@ -525,7 +627,11 @@ api-gateway:          ${env.TAG_API_GATEWAY}
                    // Extent report HTML — cleanWs() below wipes the workspace,
                    // so without this archive step these are lost the moment
                    // the build finishes.
-                   archiveArtifacts artifacts: 'target/diagnostics/**, target/extent-reports/**, target/allure-results/**',
+                   //
+                   // target/sharded-logs/** and target/sharded-reports/** only
+                   // exist on sharded runs (populated by collectShardedArtifacts);
+                   // allowEmptyArchive means single-node runs archive fine without them.
+                   archiveArtifacts artifacts: 'target/diagnostics/**, target/extent-reports/**, target/allure-results/**, target/sharded-logs/**, target/sharded-reports/**',
                                      allowEmptyArchive: true,
                                      fingerprint: false
                }
@@ -647,6 +753,58 @@ def runTestSuite(String suite, String displayName) {
 def collectTestResults() {
     junit allowEmptyResults: true,
           testResults: 'target/surefire-reports/TEST-*.xml'
+}
+
+// ── NEW: pulls each shard pod's logs and target/ artifacts back to the
+// Jenkins workspace before the Job is deleted (pods are ephemeral — once
+// gone, kubectl logs/cp no longer work against them). Also produces a
+// single chronologically-merged log across all shards: since every line
+// already carries [pod]/[shard]/[test] via MDC (see ShardingInterceptor +
+// logback.xml), a straight sort-by-timestamp merge is directly readable
+// without needing a real log aggregator (Loki/ELK) for a first pass.
+def collectShardedArtifacts(String jobName, int shardCount) {
+    sh "mkdir -p target/sharded-logs target/sharded-reports"
+
+    for (int i = 0; i < shardCount; i++) {
+        def podName = sh(
+            script: "kubectl get pods -l job-name=${jobName},batch.kubernetes.io/job-completion-index=${i} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo ''",
+            returnStdout: true
+        ).trim()
+
+        if (!podName) {
+            echo "⚠️ Could not find pod for shard ${i} — it may have been evicted already"
+            continue
+        }
+
+        echo "📥 Collecting shard ${i} (pod: ${podName})"
+
+        // Pod's console output — already carries [pod]/[shard]/[test] MDC
+        // tags per-line, so no extra work needed to make it attributable
+        // once merged with the other shards' logs.
+        sh "kubectl logs ${podName} > target/sharded-logs/shard-${i}.log 2>&1 || echo '(no logs for shard ${i})'"
+
+        // Pull each pod's target/ (Extent report, Allure results, surefire
+        // XMLs) before the pod is deleted — kubectl cp works while the
+        // pod's container still exists, even in a terminal phase.
+        sh """
+            mkdir -p target/sharded-reports/shard-${i}
+            kubectl cp ${podName}:/app/target/extent-reports target/sharded-reports/shard-${i}/extent-reports 2>/dev/null || echo '(no extent-reports for shard ${i})'
+            kubectl cp ${podName}:/app/target/allure-results target/sharded-reports/shard-${i}/allure-results 2>/dev/null || echo '(no allure-results for shard ${i})'
+            kubectl cp ${podName}:/app/target/surefire-reports target/sharded-reports/shard-${i}/surefire-reports 2>/dev/null || echo '(no surefire-reports for shard ${i})'
+        """
+    }
+
+    // Merge into one chronologically-sorted stream across all shards.
+    sh """
+        echo "🔀 Merging ${shardCount} shard logs into one chronological stream..."
+        sort -t' ' -k1,1 target/sharded-logs/shard-*.log > target/sharded-logs/aggregated.log 2>/dev/null || true
+        echo "✅ Aggregated log: target/sharded-logs/aggregated.log (\$(wc -l < target/sharded-logs/aggregated.log) lines)"
+    """
+
+    // Flatten each shard's surefire XMLs into the same path the single-node
+    // path uses, so the junit collector and post{always{}} pick up all
+    // shards' results under one glob without needing shard-aware logic there.
+    sh "cp target/sharded-reports/shard-*/surefire-reports/*.xml target/surefire-reports/ 2>/dev/null || true"
 }
 
 def waitForContainer(Map args) {
