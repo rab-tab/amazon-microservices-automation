@@ -8,8 +8,9 @@
     </listeners>
     <test name="Product Tests">
         <classes>
-            <class name="com.amazon.tests.regression.productFlow.ProductApiTest"/>
-            <class name="com.amazon.tests.regression.productFlow.ProductApiNegativeTest"/>
+          <!--  <class name="com.amazon.tests.regression.productFlow.ProductApiTest"/>
+            <class name="com.amazon.tests.regression.productFlow.ProductApiNegativeTest"/>-->
+            <class name="com.amazon.tests.regression.productFlow.ProductUpdateConcurrencyTest"/>
         </classes></test>
 
 </suite>

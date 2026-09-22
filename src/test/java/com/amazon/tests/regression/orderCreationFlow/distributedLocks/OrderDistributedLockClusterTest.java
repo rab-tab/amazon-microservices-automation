@@ -1,4 +1,4 @@
-package com.amazon.tests.regression.orderCreationFlow;
+package com.amazon.tests.regression.orderCreationFlow.distributedLocks;
 
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.auth.BearerAuthStrategy;
