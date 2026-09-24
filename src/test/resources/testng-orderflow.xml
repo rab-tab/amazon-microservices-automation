@@ -18,8 +18,9 @@
             <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyTest"/>
             <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyEdgeCasesTest"/>-
             <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyRedisFailuresTest"/>
-            <class name="com.amazon.tests.regression.orderCreationFlow.distributedLocks.OrderDistributedLockClusterTest"/>-->
-            <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyTest"/>
+            <class name="com.amazon.tests.regression.orderCreationFlow.distributedLocks.OrderDistributedLockClusterTest"/>
+            <class name="com.amazon.tests.regression.orderCreationFlow.idempotency.OrderIdempotencyTest"/>-->
+            <class name="com.amazon.tests.regression.orderCreationFlow.concurrency.OrderCancellationConcurrencyTest"/>
         </classes>
     </test>
 

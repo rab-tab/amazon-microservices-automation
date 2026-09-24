@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,6 +116,22 @@ public class ProductApiClient extends ApiClient{
                 .method(HttpMethod.GET)
                 .endpoint("/api/v1/products/search")
                 .attribute(RequestAttributes.QUERY_PARAMS, Map.of("q", query))
+                .targetService(ServiceType.PRODUCT)
+                .build();
+        return requireSuccess(executor.execute(request), 200);
+    }
+
+    /**
+     * ⭐ NEW — GET /api/v1/products/category/{categoryId}, previously had
+     * no client method at all. Follows the exact same shape as
+     * getAllProducts()/searchProducts().
+     */
+    public ServiceResponse getProductsByCategory(UUID categoryId, int page, int size) {
+        ServiceRequest request = ServiceRequest.builder()
+                .method(HttpMethod.GET)
+                .endpoint("/api/v1/products/category/{categoryId}")
+                .attribute(RequestAttributes.PATH_PARAMS, Map.of("categoryId", categoryId.toString()))
+                .attribute(RequestAttributes.QUERY_PARAMS, Map.of("page", page, "size", size))
                 .targetService(ServiceType.PRODUCT)
                 .build();
         return requireSuccess(executor.execute(request), 200);

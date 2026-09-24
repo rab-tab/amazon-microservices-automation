@@ -9,8 +9,9 @@
     <test name="Product Tests">
         <classes>
           <!--  <class name="com.amazon.tests.regression.productFlow.ProductApiTest"/>
-            <class name="com.amazon.tests.regression.productFlow.ProductApiNegativeTest"/>-->
-            <class name="com.amazon.tests.regression.productFlow.ProductUpdateConcurrencyTest"/>
+            <class name="com.amazon.tests.regression.productFlow.ProductApiNegativeTest"/>
+            <class name="com.amazon.tests.regression.productFlow.ProductUpdateConcurrencyTest"/>-->
+            <class name="com.amazon.tests.regression.productFlow.ProductCacheEvictionRaceTest"/>
         </classes></test>
 
 </suite>
