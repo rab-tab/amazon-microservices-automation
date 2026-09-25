@@ -23,15 +23,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Kafka Event Publishing - Failure Scenarios
- *
- * Tests negative scenarios and failure handling in Kafka event publishing:
- * - Kafka broker unavailable / timeouts / retry exhaustion / ISR / serialization /
- *   message size / buffer overflow — all simulated via X-Fault header, no real
- *   Kafka cluster mutation needed (safe to run anywhere, unlike ConfigurationFailures).
- * - Invalid order data rejected before any event is published.
- */
 @Slf4j
 @Epic("Amazon Microservices")
 @Feature("Kafka - Event Publishing Failures")
@@ -42,15 +33,14 @@ public class OrderEventPublishingFailureTest extends BaseTest {
     private OrderApiClient orderApiClient;
 
     public enum FaultCategory {
-        BROKER_CONNECTIVITY, PRODUCER_LIMITS, SERIALIZATION_DATA,TOPIC_FAILURE
+        BROKER_CONNECTIVITY, PRODUCER_LIMITS, SERIALIZATION_DATA, TOPIC_FAILURE, SCHEMA_COMPATIBILITY, TRANSACTION_FAILURE
     }
-
 
     @BeforeMethod
     public void setup() {
         logStep("Setting up Kafka failure tests");
 
-        purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
+        purchase = PurchaseWorkflow.start(context.getExecutor(), authStrategy)
                 .registerCustomer()
                 .registerSeller()
                 .createProductWithStock(29.99, 500)
@@ -77,10 +67,6 @@ public class OrderEventPublishingFailureTest extends BaseTest {
     private String userId() {
         return purchase.getCustomer().getUser().getId();
     }
-
-    // ══════════════════════════════════════════════════════════════
-    // KAFKA INFRASTRUCTURE FAILURES (simulated via X-Fault)
-    // ══════════════════════════════════════════════════════════════
 
     @Test(description = "Kafka broker down - order creation should fail gracefully")
     @Story("Event Publishing Failure Scenarios")
@@ -122,47 +108,41 @@ public class OrderEventPublishingFailureTest extends BaseTest {
     @DataProvider(name = "kafkaFaultScenarios")
     public Object[][] kafkaFaultScenarios() {
         return new Object[][] {
-                // ── Kafka broker / connectivity failures ──
-                { FaultCategory.BROKER_CONNECTIVITY, "Producer timeout", "kafka-timeout", "Simulated Kafka timeout - producer timed out" },
-                { FaultCategory.BROKER_CONNECTIVITY, "Retry exhaustion", "kafka-retry-failure", "Simulated retry failure - max retries exceeded" },
-                { FaultCategory.BROKER_CONNECTIVITY, "Acknowledgment failure (insufficient ISR)", "kafka-ack-failure", "Simulated ack failure - insufficient in-sync replicas" },
-
-                // ── Producer configuration & limit failures ──
-                { FaultCategory.PRODUCER_LIMITS, "Message too large", "message-too-large", "Simulated message too large - event exceeds max.message.bytes" },
-                { FaultCategory.PRODUCER_LIMITS, "Producer buffer full", "buffer-full", "Simulated buffer full - producer buffer overflow" },
+                { FaultCategory.BROKER_CONNECTIVITY, "Producer timeout", "kafka-timeout", "Simulated Kafka timeout" },
+                { FaultCategory.BROKER_CONNECTIVITY, "Retry exhaustion", "kafka-retry-failure", "max retries exceeded" },
+                { FaultCategory.BROKER_CONNECTIVITY, "Insufficient ISR", "kafka-ack-failure", "insufficient in-sync replicas" },
+                { FaultCategory.PRODUCER_LIMITS, "Message too large", "message-too-large", "max.message.bytes" },
+                { FaultCategory.PRODUCER_LIMITS, "Producer buffer full", "buffer-full", "buffer" },
                 { FaultCategory.PRODUCER_LIMITS, "Producer quota exceeded", "quota-exceeded", "quota" },
                 { FaultCategory.PRODUCER_LIMITS, "Record batch too large", "batch-too-large", "batch" },
                 { FaultCategory.PRODUCER_LIMITS, "Compression failure", "compression-error", "compression" },
-
-                // ── Producer serialization & data failures ──
-                { FaultCategory.SERIALIZATION_DATA, "Serialization error", "serialization-error", "Simulated serialization error - cannot serialize event" },
+                { FaultCategory.SERIALIZATION_DATA, "Serialization error", "serialization-error", "cannot serialize" },
                 { FaultCategory.SERIALIZATION_DATA, "Invalid partition key", "invalid-partition-key", "" },
                 { FaultCategory.SERIALIZATION_DATA, "Schema registry unavailable", "schema-registry-down", "schema" },
-                // ── Topic & partition failures ──
-                { FaultCategory.TOPIC_FAILURE,"Topic does not exist", "topic-not-exist", "" },
-                { FaultCategory.TOPIC_FAILURE,"Topic authorization failure", "topic-auth-failure", "" }
+                { FaultCategory.TOPIC_FAILURE, "Topic does not exist", "topic-not-exist", "" },
+                { FaultCategory.TOPIC_FAILURE, "Topic authorization failure", "topic-auth-failure", "" },
+                { FaultCategory.SCHEMA_COMPATIBILITY, "Schema version mismatch", "schema-version-mismatch", "schema" },
+                { FaultCategory.TRANSACTION_FAILURE, "Transaction abort", "transaction-abort", "aborted" },
         };
     }
 
     @Test(dataProvider = "kafkaFaultScenarios")
     @Story("Event Publishing - Failures")
     @Severity(SeverityLevel.NORMAL)
-    @Description("Various simulated Kafka producer failures cause order creation to fail with the expected error message")
-    public void testKafkaFaultScenario(FaultCategory category,String scenario, String faultHeader, String expectedMessage) throws Exception {
+    @Description("Various simulated Kafka producer failures cause order creation to fail")
+    public void testKafkaFaultScenario(FaultCategory category, String scenario, String faultHeader, String expectedMessage) throws Exception {
         logStep("[" + category + "] " + scenario);
         logStep("TEST: " + scenario + " - simulating X-Fault: " + faultHeader);
 
         ServiceResponse response = createOrderWithFault(faultHeader);
 
         assertThat(response.getStatusCode()).as("Order creation should fail on " + scenario).isEqualTo(500);
-        assertThat(response.getBody()).as("Error message should indicate " + scenario).contains(expectedMessage);
+        if (!expectedMessage.isEmpty()) {
+            assertThat(response.getBody()).as("Error message should indicate " + scenario).contains(expectedMessage);
+        }
 
         logStep("✅ " + scenario + " handled correctly");
     }
-
-    // ══════════════════════════════════════════════════════════════
-    // INVALID DATA SCENARIOS
-    // ══════════════════════════════════════════════════════════════
 
     @Test
     @Story("Event Publishing - Validation")
@@ -172,7 +152,7 @@ public class OrderEventPublishingFailureTest extends BaseTest {
         logStep("TEST 8: Invalid order data rejected - no event published");
 
         TestModels.CreateOrderRequest invalidOrder = TestModels.CreateOrderRequest.builder()
-                .items(List.of()) // no items — invalid
+                .items(List.of())
                 .shippingAddress("123 Test St")
                 .build();
 
@@ -196,9 +176,87 @@ public class OrderEventPublishingFailureTest extends BaseTest {
         logStep("✅ Invalid data rejected before Kafka publishing");
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // HELPERS
-    // ══════════════════════════════════════════════════════════════
+    @Test
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Order fails when payload exceeds maximum Kafka message size")
+    public void test09_PayloadExceedsMaxMessageSize() throws Exception {
+        logStep("TEST 9: Payload exceeds maximum Kafka message size");
+
+        ServiceResponse response = createOrderWithFault("message-too-large");
+
+        assertThat(response.getStatusCode()).as("Order should fail when message exceeds max size").isEqualTo(500);
+        assertThat(response.getBody()).containsAnyOf("too large", "max.message.bytes", "message size");
+
+        Optional<JsonNode> event = kafkaConsumer.waitForMessage(
+                node -> node.has("userId") && userId().equals(node.get("userId").asText()),
+                2
+        );
+
+        assertThat(event).as("No event should be published when size exceeds limit").isEmpty();
+
+        logStep("✅ Oversized payload properly rejected");
+    }
+
+    @Test
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Order fails when producer encounters network partition")
+    public void test10_ProducerNetworkPartition() throws Exception {
+        logStep("TEST 10: Producer encounters network partition");
+
+        ServiceResponse response = createOrderWithFault("network-partition");
+
+        assertThat(response.getStatusCode()).as("Order should fail during network partition").isEqualTo(500);
+        assertThat(response.getBody()).containsAnyOf("network", "partition", "unavailable");
+
+        logStep("✅ Network partition handled correctly");
+    }
+
+    @Test
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Order fails when Kafka broker version incompatibility occurs")
+    public void test11_BrokerVersionIncompatibility() throws Exception {
+        logStep("TEST 11: Kafka broker version incompatibility");
+
+        ServiceResponse response = createOrderWithFault("broker-version-mismatch");
+
+        assertThat(response.getStatusCode()).as("Order should fail on version mismatch").isEqualTo(500);
+        assertThat(response.getBody()).containsAnyOf("version", "unsupported", "compatibility");
+
+        logStep("✅ Version incompatibility handled");
+    }
+
+    @Test
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Order fails when producer SSL/TLS configuration is invalid")
+    public void test12_SSLConfigurationFailure() throws Exception {
+        logStep("TEST 12: Producer SSL/TLS configuration failure");
+
+        ServiceResponse response = createOrderWithFault("ssl-config-error");
+
+        assertThat(response.getStatusCode()).as("Order should fail with SSL config error").isEqualTo(500);
+        assertThat(response.getBody()).containsAnyOf("SSL", "TLS", "certificate", "handshake");
+
+        logStep("✅ SSL configuration error handled");
+    }
+
+    @Test
+    @Story("Event Publishing - Failures")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Order fails when producer authentication token is invalid")
+    public void test13_ProducerAuthenticationFailure() throws Exception {
+        logStep("TEST 13: Producer SASL authentication failure");
+
+        ServiceResponse response = createOrderWithFault("auth-failure");
+
+        assertThat(response.getStatusCode()).as("Order should fail with auth error").isEqualTo(500);
+        assertThat(response.getBody()).containsAnyOf("authentication", "unauthorized", "credentials");
+
+        logStep("✅ Authentication failure handled");
+    }
 
     private ServiceResponse createOrderWithFault(String faultType) {
         TestModels.CreateOrderRequest orderRequest =

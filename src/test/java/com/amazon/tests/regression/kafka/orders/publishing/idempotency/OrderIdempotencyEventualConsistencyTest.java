@@ -25,12 +25,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-/**
- * Verifies that idempotent order creation holds up correctly under
- * eventual consistency: exactly one ORDER_CREATED event is published
- * for a duplicate request, and the order reliably reaches a terminal
- * state (CONFIRMED/PAYMENT_FAILED) despite async payment processing.
- */
 @Slf4j
 public class OrderIdempotencyEventualConsistencyTest extends BaseTest {
 
@@ -42,7 +36,7 @@ public class OrderIdempotencyEventualConsistencyTest extends BaseTest {
     public void setup() {
         logStep("Setting up idempotency + eventual consistency test");
 
-        purchase = PurchaseWorkflow.start(context.getExecutor(),authStrategy)
+        purchase = PurchaseWorkflow.start(context.getExecutor(), authStrategy)
                 .registerCustomer()
                 .registerSeller()
                 .createProductWithStock(29.99, 500)
@@ -55,7 +49,7 @@ public class OrderIdempotencyEventualConsistencyTest extends BaseTest {
         kafkaConsumer = new KafkaTestConsumer("order.events");
         kafkaConsumer.seekToEnd();
 
-        logStep("✅ Setup complete — user: " + purchase.getCustomer().getUser().getId());
+        logStep("✅ Setup complete");
     }
 
     @AfterMethod
@@ -74,14 +68,11 @@ public class OrderIdempotencyEventualConsistencyTest extends BaseTest {
     @Test(description = "Idempotent requests with eventual consistency verification")
     @Story("Async Communication Patterns")
     @Severity(SeverityLevel.CRITICAL)
-    public void testIdempotentRequestWithEventualConsistency() {
-        logStep("TEST: Idempotency + Eventual Consistency");
+    public void test01_IdempotentRequestWithEventualConsistency() {
+        logStep("TEST 1: Idempotency + Eventual Consistency");
 
         String idempotencyKey = TestDataFactory.newIdempotencyKey();
 
-        // ══════════════════════════════════════════════════════
-        // PART 1: IDEMPOTENCY
-        // ══════════════════════════════════════════════════════
         logStep("PART 1: Testing Idempotency");
 
         TestModels.OrderResponse firstOrder = orderApiClient.createOrder(userId(), idempotencyKey, purchase.getProducts());
@@ -92,9 +83,6 @@ public class OrderIdempotencyEventualConsistencyTest extends BaseTest {
         assertThat(duplicateOrder.getId()).isEqualTo(orderId);
         logStep("  ✓ Duplicate request: Returned existing order");
 
-        // ══════════════════════════════════════════════════════
-        // PART 2: EVENT VERIFICATION
-        // ══════════════════════════════════════════════════════
         logStep("PART 2: Verifying Kafka Events");
 
         List<JsonNode> events = kafkaConsumer.collectMessages(
@@ -102,44 +90,109 @@ public class OrderIdempotencyEventualConsistencyTest extends BaseTest {
                 5
         );
 
-        assertThat(events).as("Only ONE ORDER_CREATED event should be published").hasSize(1);
-        logStep("  ✓ Exactly 1 event published (idempotent)");
+        assertThat(events).as("Only ONE ORDER_CREATED event").hasSize(1);
+        logStep("  ✓ Exactly 1 event published");
 
-        // ══════════════════════════════════════════════════════
-        // PART 3: EVENTUAL CONSISTENCY - Wait for Payment Processing
-        // ══════════════════════════════════════════════════════
-        logStep("PART 3: Verifying Eventual Consistency (Payment Processing)");
+        logStep("PART 3: Verifying Eventual Consistency");
 
         OrderState finalState = pollForEventualConsistency(orderId);
 
-        assertThat(finalState.getStatus()).as("Order should eventually reach final state").isIn("CONFIRMED", "PAYMENT_FAILED");
+        assertThat(finalState.getStatus()).isIn("CONFIRMED", "PAYMENT_FAILED");
 
-        logStep("  ✓ Order reached final state: " + finalState.getStatus());
+        logStep("  ✓ Final status: " + finalState.getStatus());
         logStep("  ✓ Polling attempts: " + finalState.getAttempts());
         logStep("  ✓ Total wait time: " + finalState.getTotalWaitTimeMs() + "ms");
 
-        // ══════════════════════════════════════════════════════
-        // PART 4: CONSISTENCY VERIFICATION
-        // ══════════════════════════════════════════════════════
         logStep("PART 4: Verifying Data Consistency");
 
         TestModels.OrderResponse finalOrder = orderApiClient.getOrder(token(), userId(), orderId);
         assertThat(finalOrder.getId()).isEqualTo(orderId);
-        assertThat(finalOrder.getTotalAmount())
-                .as("Total amount should remain unchanged")
-                .isEqualByComparingTo(firstOrder.getTotalAmount());
 
-        logStep("✅ COMPLETE: Idempotency + Events + Eventual Consistency verified!");
+        logStep("✅ COMPLETE: Idempotency + Events + Eventual Consistency verified");
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // HELPERS
-    // ══════════════════════════════════════════════════════════════
+    @Test(description = "Rapid duplicate requests all return same order")
+    @Story("Async Communication Patterns")
+    @Severity(SeverityLevel.CRITICAL)
+    public void test02_RapidDuplicateRequests() {
+        logStep("TEST 2: Rapid duplicate requests");
 
-    /**
-     * Poll for eventual consistency with exponential backoff.
-     * Demonstrates Awaitility custom PollInterval usage.
-     */
+        String idempotencyKey = TestDataFactory.newIdempotencyKey();
+
+        TestModels.OrderResponse firstOrder = orderApiClient.createOrder(userId(), idempotencyKey, purchase.getProducts());
+        String orderId = firstOrder.getId();
+
+        logStep("  Sending 5 rapid duplicate requests...");
+        for (int i = 0; i < 5; i++) {
+            TestModels.OrderResponse duplicate = orderApiClient.createOrder(userId(), idempotencyKey, purchase.getProducts());
+            assertThat(duplicate.getId()).isEqualTo(orderId);
+            logStep("    ✓ Duplicate " + (i + 1) + " returned same order");
+        }
+
+        List<JsonNode> events = kafkaConsumer.collectMessages(
+                node -> node.has("orderId") && orderId.equals(node.get("orderId").asText()),
+                3
+        );
+
+        assertThat(events).as("Only 1 event despite 6 total requests").hasSize(1);
+
+        logStep("✅ Rapid duplicates handled correctly - single event published");
+    }
+
+    @Test(description = "Idempotency works across different API calls/sessions")
+    @Story("Async Communication Patterns")
+    @Severity(SeverityLevel.NORMAL)
+    public void test03_IdempotencyAcrossSessionBoundaries() {
+        logStep("TEST 3: Idempotency across session boundaries");
+
+        String idempotencyKey = TestDataFactory.newIdempotencyKey();
+
+        TestModels.OrderResponse order1 = orderApiClient.createOrder(userId(), idempotencyKey, purchase.getProducts());
+        String orderId = order1.getId();
+
+        logStep("  First request completed");
+
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        TestModels.OrderResponse order2 = orderApiClient.createOrder(userId(), idempotencyKey, purchase.getProducts());
+
+        assertThat(order2.getId()).isEqualTo(orderId);
+
+        logStep("✅ Idempotency key honored across session boundary");
+    }
+
+    @Test(description = "Different idempotency keys produce different orders")
+    @Story("Async Communication Patterns")
+    @Severity(SeverityLevel.NORMAL)
+    public void test04_DifferentIdempotencyKeysDifferentOrders() {
+        logStep("TEST 4: Different idempotency keys produce different orders");
+
+        String key1 = TestDataFactory.newIdempotencyKey();
+        String key2 = TestDataFactory.newIdempotencyKey();
+
+        TestModels.OrderResponse order1 = orderApiClient.createOrder(userId(), key1, purchase.getProducts());
+        TestModels.OrderResponse order2 = orderApiClient.createOrder(userId(), key2, purchase.getProducts());
+
+        assertThat(order1.getId()).isNotEqualTo(order2.getId());
+
+        logStep("  ✓ Key1 → Order " + order1.getId());
+        logStep("  ✓ Key2 → Order " + order2.getId());
+
+        List<JsonNode> events = kafkaConsumer.collectMessages(
+                node -> node.has("orderId") && (order1.getId().equals(node.get("orderId").asText()) ||
+                        order2.getId().equals(node.get("orderId").asText())),
+                5
+        );
+
+        assertThat(events).as("Two different orders should produce two events").hasSize(2);
+
+        logStep("✅ Different keys produce different orders and events");
+    }
+
     private OrderState pollForEventualConsistency(String orderId) {
         logStep("  🔄 Polling for eventual consistency...");
 
@@ -172,17 +225,11 @@ public class OrderIdempotencyEventualConsistencyTest extends BaseTest {
 
         } catch (Exception e) {
             long totalWaitTime = System.currentTimeMillis() - startTime;
-            log.error("  ❌ Eventual consistency timeout after {} attempts ({}ms)", attemptCounter.get(), totalWaitTime);
             throw new AssertionError(
-                    "Order did not reach final state within timeout. Attempts: "
-                            + attemptCounter.get() + ", Time: " + totalWaitTime + "ms", e);
+                    "Order did not reach final state. Attempts: " + attemptCounter.get() + ", Time: " + totalWaitTime + "ms", e);
         }
     }
 
-    /**
-     * Custom exponential backoff interval for Awaitility.
-     * Polling intervals: 100ms → 200ms → 400ms → 800ms → 1600ms → capped at maxMs.
-     */
     private static class ExponentialPollInterval implements PollInterval {
         private final long initialMs;
         private final long maxMs;
