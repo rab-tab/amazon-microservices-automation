@@ -1,227 +1,190 @@
 package com.amazon.tests.regression.productFlow;
 
-import com.amazon.tests.commonmodels.enums.ProductType;
-import com.amazon.tests.models.TestModels;
-import com.amazon.tests.transport.*;
-import com.amazon.tests.utils.testData.TestDataFactory;
-import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import com.amazon.tests.BaseTest;
+import com.amazon.tests.models.TestModels;
+import com.amazon.tests.utils.apiClients.ProductApiClient;
+import com.amazon.tests.utils.testData.TestDataFactory;
+import com.amazon.tests.workflows.PurchaseResult;
+import com.amazon.tests.workflows.PurchaseWorkflow;
+import io.qameta.allure.*;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+
+import java.math.BigDecimal;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Slf4j
-class ProductApiClient extends ApiClient{
+@Epic("Amazon Microservices")
+@Feature("Product Catalog - Positive")
+public class ProductApiTest extends BaseTest {
 
-    public ProductApiClient(RequestExecutor executor) {
-        super(executor);
+    private TestModels.AuthResponse sellerAuth;
+    private TestModels.ProductRequest productRequest;
+    private TestModels.ProductResponse createdProduct;
+    private ProductApiClient productApiClient;
+
+    @BeforeClass
+    public void setup() {
+        logStep("Setting up seller account for product tests");
+
+        PurchaseResult result = PurchaseWorkflow.start(executor,authStrategy)
+                .registerSeller()
+                .execute();
+
+        sellerAuth = result.getSellerAuth();
+        productApiClient = new ProductApiClient(executor);
+        productRequest = TestDataFactory.createRandomProduct();
     }
 
-    // ============================================================
-    // CREATE
-    // ============================================================
+    @Test(priority = 1)
+    @Story("Create Product")
+    @Severity(SeverityLevel.BLOCKER)
+    @Description("Verify seller can create a new product")
+    public void testCreateProduct() {
+        logStep("Creating product: " + productRequest.getName());
 
-    public TestModels.ProductResponse createProduct(TestModels.AuthResponse sellerData) {
-        return createProductInternal(sellerData, TestDataFactory.createProductWithPrice(49.99), 201)
+        createdProduct = productApiClient.createProductRaw(sellerAuth, productRequest)
                 .as(TestModels.ProductResponse.class);
+
+        assertThat(createdProduct.getId()).isNotBlank();
+        assertThat(createdProduct.getName()).isEqualTo(productRequest.getName());
+        assertThat(createdProduct.getPrice()).isEqualByComparingTo(productRequest.getPrice());
+        assertThat(createdProduct.getStockQuantity()).isEqualTo(productRequest.getStockQuantity());
+        assertThat(createdProduct.getStatus()).isEqualTo("ACTIVE");
+        assertThat(createdProduct.getRating()).isNotNull();
+        assertThat(createdProduct.getReviewCount()).isEqualTo(0);
+        assertThat(createdProduct.getSellerId()).isEqualTo(sellerAuth.getUser().getId());
+
+        logStep("Product created with ID: " + createdProduct.getId());
     }
 
-    public TestModels.ProductResponse createProduct(TestModels.AuthResponse sellerData, ProductType type) {
-        double price = switch (type) {
-            case CHEAP     -> ThreadLocalRandom.current().nextDouble(1.0, 20.0);
-            case EXPENSIVE -> ThreadLocalRandom.current().nextDouble(100.0, 1000.0);
-            default        -> ThreadLocalRandom.current().nextDouble(20.0, 100.0);
-        };
-        return createProductInternal(sellerData, TestDataFactory.createProductWithPrice(price), 201)
-                .as(TestModels.ProductResponse.class);
+    @Test(priority = 4, dependsOnMethods = "testCreateProduct")
+    @Story("Get Product")
+    @Severity(SeverityLevel.BLOCKER)
+    @Description("Verify product can be retrieved by ID")
+    public void testGetProductById() {
+        logStep("Fetching product: " + createdProduct.getId());
+
+        TestModels.ProductResponse fetched = productApiClient.getProduct(createdProduct.getId());
+
+        assertThat(fetched.getId()).isEqualTo(createdProduct.getId());
+        assertThat(fetched.getName()).isEqualTo(productRequest.getName());
+        assertThat(fetched.getStatus()).isEqualTo("ACTIVE");
     }
-    public ServiceResponse browseProducts(int page, int size) {
-        ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.GET)
-                .endpoint("/api/v1/products")
-                .attribute(RequestAttributes.QUERY_PARAMS, Map.of("page", page, "size", size))
-                .targetService(ServiceType.PRODUCT)
+
+    @Test(priority = 6, dependsOnMethods = "testCreateProduct")
+    @Story("List Products")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify product listing returns paginated results")
+    public void testGetAllProducts() {
+        var response = productApiClient.getAllProducts(0, 10);
+        var body = response.as(java.util.Map.class);
+
+        assertThat(body.get("products")).isNotNull();
+        assertThat(body.get("page")).isEqualTo(0);
+        assertThat(body.get("size")).isEqualTo(10);
+    }
+
+    @Test(priority = 7, dependsOnMethods = "testCreateProduct")
+    @Story("Search Products")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify product search returns relevant results")
+    public void testSearchProducts() {
+        String searchQuery = productRequest.getName().split(" ")[0];
+
+        var response = productApiClient.searchProducts(searchQuery);
+        var body = response.as(java.util.Map.class);
+
+        assertThat(body.get("products")).isNotNull();
+    }
+
+    @Test(priority = 8, dependsOnMethods = "testCreateProduct")
+    @Story("Update Product")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify seller can update their product")
+    public void testUpdateProduct() {
+        TestModels.ProductRequest updateReq = TestModels.ProductRequest.builder()
+                .name("Updated Product Name")
+                .price(BigDecimal.valueOf(99.99))
                 .build();
-        return requireSuccess(executor.execute(request), 200);
+
+        TestModels.ProductResponse updated = productApiClient.updateProduct(sellerAuth, createdProduct.getId(), updateReq);
+
+        assertThat(updated.getName()).isEqualTo("Updated Product Name");
+        assertThat(updated.getPrice()).isEqualByComparingTo(BigDecimal.valueOf(99.99));
     }
 
-    public TestModels.ProductResponse createProduct(TestModels.AuthResponse sellerData, double price, int stockQuantity) {
-        return createProductInternal(sellerData, TestDataFactory.createProductWithPriceAndStock(price, stockQuantity), 201)
-                .as(TestModels.ProductResponse.class);
-    }
-
-    /** Non-throwing variant for negative tests — caller inspects status/body directly. */
-    public ServiceResponse createProductRaw(TestModels.AuthResponse sellerData, TestModels.ProductRequest payload) {
-        return buildAndExecuteCreate(sellerData, payload);
-    }
-
-    private ServiceResponse createProductInternal(TestModels.AuthResponse sellerData,
-                                                  TestModels.ProductRequest payload, int expectedStatus) {
-        ServiceResponse response = buildAndExecuteCreate(sellerData, payload);
-        TestModels.ProductResponse product = requireSuccess(response, expectedStatus).as(TestModels.ProductResponse.class);
-        assertThat(product.getId()).isNotBlank();
-        assertThat(product.getStatus()).isEqualTo("ACTIVE");
-        log.info("Product created: {} - {} (${})", product.getId(), product.getName(), product.getPrice());
-        return response;
-    }
-
-    private ServiceResponse buildAndExecuteCreate(TestModels.AuthResponse sellerData, TestModels.ProductRequest payload) {
-        ServiceRequest.ServiceRequestBuilder builder = ServiceRequest.builder()
-                .method(HttpMethod.POST)
-                .endpoint("/api/v1/products")
-                .payload(payload)
-                .targetService(ServiceType.PRODUCT);
-
-        if (sellerData != null) {
-            builder.token(sellerData.getAccessToken())
-                    .header("X-User-Id", sellerData.getUser().getId());
-        }
-        return executor.execute(builder.build());
-    }
-
-    // ============================================================
-    // READ
-    // ============================================================
-
-    public TestModels.ProductResponse getProduct(String id) {
-        return requireSuccess(getProductRaw(id), 200).as(TestModels.ProductResponse.class);
-    }
-
-    public ServiceResponse getProductRaw(String id) {
-        ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.GET)
-                .endpoint("/api/v1/products/{id}")
-                .attribute(RequestAttributes.PATH_PARAMS, Map.of("id", id))
-                .targetService(ServiceType.PRODUCT)
-                .build();
-        return executor.execute(request);
-    }
-
-    public ServiceResponse getAllProducts(int page, int size) {
-        ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.GET)
-                .endpoint("/api/v1/products")
-                .attribute(RequestAttributes.QUERY_PARAMS, Map.of("page", page, "size", size))
-                .targetService(ServiceType.PRODUCT)
-                .build();
-        return requireSuccess(executor.execute(request), 200);
-    }
-
-    public ServiceResponse searchProducts(String query) {
-        ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.GET)
-                .endpoint("/api/v1/products/search")
-                .attribute(RequestAttributes.QUERY_PARAMS, Map.of("q", query))
-                .targetService(ServiceType.PRODUCT)
-                .build();
-        return requireSuccess(executor.execute(request), 200);
+    @Test(priority = 9, dependsOnMethods = "testCreateProduct")
+    @Story("Stock Management")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify stock can be updated for a product")
+    public void testUpdateProductStock() {
+        productApiClient.updateStock(createdProduct.getId(), 50); // throws if not 204
+        logStep("Stock updated successfully");
     }
 
     /**
-     * ⭐ NEW — GET /api/v1/products/category/{categoryId}, previously had
-     * no client method at all. Follows the exact same shape as
-     * getAllProducts()/searchProducts().
+     * ⭐ NEW — GET /api/v1/products/category/{categoryId} previously had
+     * ZERO test coverage. Self-contained: creates its OWN product with an
+     * explicit categoryId, rather than depending on the shared
+     * class-level createdProduct fixture, whose categoryId is not
+     * confirmed to be set by TestDataFactory.createRandomProduct().
+     *
+     * NOTE: TestModels.ProductRequest.builder().categoryId() takes a
+     * String, not a UUID directly — confirmed via a compile error on the
+     * first attempt (it took UUID). Fixed to pass categoryId.toString().
      */
-    public ServiceResponse getProductsByCategory(UUID categoryId, int page, int size) {
-        ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.GET)
-                .endpoint("/api/v1/products/category/{categoryId}")
-                .attribute(RequestAttributes.PATH_PARAMS, Map.of("categoryId", categoryId.toString()))
-                .attribute(RequestAttributes.QUERY_PARAMS, Map.of("page", page, "size", size))
-                .targetService(ServiceType.PRODUCT)
+    @Test(priority = 11)
+    @Story("Get Products By Category")
+    @Severity(SeverityLevel.CRITICAL)
+    @Description("Verify products can be listed filtered by category")
+    public void testGetProductsByCategory() {
+        logStep("TEST: Creating a product with a known category, then verifying it's returned by category listing");
+
+        UUID categoryId = UUID.randomUUID();
+        TestModels.ProductRequest categorizedRequest = TestModels.ProductRequest.builder()
+                .name("Category Test Product " + System.nanoTime())
+                .price(BigDecimal.valueOf(29.99))
+                .stockQuantity(50)
+                .categoryId(categoryId.toString())
                 .build();
-        return requireSuccess(executor.execute(request), 200);
-    }
 
-    // ============================================================
-    // UPDATE
-    // ============================================================
-
-    public TestModels.ProductResponse updateProduct(TestModels.AuthResponse sellerData, String productId,
-                                                    TestModels.ProductRequest payload) {
-        return requireSuccess(updateProductRaw(sellerData, productId, payload), 200)
+        TestModels.ProductResponse categorizedProduct = productApiClient
+                .createProductRaw(sellerAuth, categorizedRequest)
                 .as(TestModels.ProductResponse.class);
+        logStep("  ✓ Product created with categoryId=" + categoryId + ": " + categorizedProduct.getId());
+
+        var response = productApiClient.getProductsByCategory(categoryId, 0, 10);
+        var body = response.as(java.util.Map.class);
+
+        assertThat(body.get("products")).as("Response should contain a products list").isNotNull();
+
+        @SuppressWarnings("unchecked")
+        java.util.List<java.util.Map<String, Object>> products =
+                (java.util.List<java.util.Map<String, Object>>) body.get("products");
+
+        boolean found = products.stream()
+                .anyMatch(p -> categorizedProduct.getId().equals(p.get("id")));
+
+        assertThat(found)
+                .as("The product created with categoryId=" + categoryId + " should appear in that category's listing")
+                .isTrue();
+
+        logStep("✅ Category listing correctly returned the product created for that category");
     }
 
-    public ServiceResponse updateProductRaw(TestModels.AuthResponse sellerData, String productId,
-                                            TestModels.ProductRequest payload) {
-        ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.PUT)
-                .endpoint("/api/v1/products/{id}")
-                .attribute(RequestAttributes.PATH_PARAMS, Map.of("id", productId))
-                .payload(payload)
-                .token(sellerData.getAccessToken())
-                .header("X-User-Id", sellerData.getUser().getId())
-                .targetService(ServiceType.PRODUCT)
-                .build();
-        return executor.execute(request);
-    }
+    @Test(priority = 10, dependsOnMethods = { "testUpdateProductStock"})
+    @Story("Delete Product")
+    @Severity(SeverityLevel.NORMAL)
+    @Description("Verify seller can delete their product")
+    public void testDeleteProduct() {
+        logStep("Deleting product: " + createdProduct.getId());
 
-    public void updateStock(String productId, int quantity) {
-        requireSuccess(updateStockRaw(productId, quantity), 204);
-    }
+        productApiClient.deleteProduct(sellerAuth, createdProduct.getId()); // throws if not 204
 
-    public ServiceResponse updateStockRaw(String productId, int quantity) {
-        ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.PATCH)
-                .endpoint("/api/v1/products/{id}/stock")
-                .attribute(RequestAttributes.PATH_PARAMS, Map.of("id", productId))
-                .attribute(RequestAttributes.QUERY_PARAMS, Map.of("quantity", quantity))
-                .targetService(ServiceType.PRODUCT)
-                .build();
-        return executor.execute(request);
-    }
-
-    // ============================================================
-    // DELETE
-    // ============================================================
-
-    public void deleteProduct(TestModels.AuthResponse sellerData, String productId) {
-        requireSuccess(deleteProductRaw(sellerData, productId), 204);
-    }
-
-    public ServiceResponse deleteProductRaw(TestModels.AuthResponse sellerData, String productId) {
-        ServiceRequest request = ServiceRequest.builder()
-                .method(HttpMethod.DELETE)
-                .endpoint("/api/v1/products/{id}")
-                .attribute(RequestAttributes.PATH_PARAMS, Map.of("id", productId))
-                .token(sellerData.getAccessToken())
-                .header("X-User-Id", sellerData.getUser().getId())
-                .targetService(ServiceType.PRODUCT)
-                .build();
-        return executor.execute(request);
-    }
-
-    // ============================================================
-    // BULK CREATE
-    // ============================================================
-
-    public List<TestModels.ProductResponse> createProducts(TestModels.AuthResponse sellerData, int count, ProductType type) {
-        List<TestModels.ProductResponse> products = new ArrayList<>();
-        for (int i = 0; i < count; i++) products.add(createProduct(sellerData, type));
-        return products;
-    }
-
-    public List<TestModels.ProductResponse> createProducts(TestModels.AuthResponse sellerData, int count) {
-        List<TestModels.ProductResponse> products = new ArrayList<>();
-        for (int i = 0; i < count; i++) products.add(createProduct(sellerData));
-        return products;
-    }
-
-    // ============================================================
-    // PRIVATE HELPERS
-    // ============================================================
-
-    private ServiceResponse requireSuccess(ServiceResponse response, int expectedStatus) {
-        if (response.getStatusCode() != expectedStatus) {
-            throw new IllegalStateException(String.format(
-                    "Expected status %d but got %d. Body: %s",
-                    expectedStatus, response.getStatusCode(), response.getBody()));
-        }
-        return response;
+        var afterDelete = productApiClient.getProductRaw(createdProduct.getId());
+        assertThat(afterDelete.getStatusCode()).isIn(200, 404);
     }
 }
