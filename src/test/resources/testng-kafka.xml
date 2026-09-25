@@ -12,12 +12,38 @@
     </packages>-->
     <!--<classes><class name="validation.failures.kafka.com.amazon.tests.UserRegistrationValidationTest"/></classes>-->
     <classes>
-      <class name="com.amazon.tests.regression.kafka.sagaFlow.OrderPaymentSagaFlowTest"/>
+      <!-- SAGA FLOW-->
+      <!--<class name="com.amazon.tests.regression.kafka.sagaFlow.OrderPaymentSagaFlowTest"/>
       <class name="com.amazon.tests.regression.kafka.sagaFlow.PaymentFailureScenariosTest"/>
       <class name="com.amazon.tests.regression.kafka.sagaFlow.SagaCancellationTest"/>
       <class name="com.amazon.tests.regression.kafka.sagaFlow.SagaPartialFailureRecoveryTest"/>
       <class name="com.amazon.tests.regression.kafka.sagaFlow.SagaTimeoutTest"/>
 
+      <class name="com.amazon.tests.regression.kafka.failures.consistency.UserEventConsistencyTest"/>
+      <class name="com.amazon.tests.regression.kafka.failures.idempotency.UserEventIdempotencyTest"/>
+      <class name="com.amazon.tests.regression.kafka.failures.resilience.UserEventResilienceTest"/>
+      <class name="com.amazon.tests.regression.kafka.failures.validation.UserRegistrationValidationTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.configuration.KafkaRetentionPoliciesTest"/>-->
+      <!-- consumption tests-->
+     <!-- <class name="com.amazon.tests.regression.kafka.orders.consumption.advanced.KafkaMetadataRefreshTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.advanced.KafkaPartitionAssignmentTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.guarantees.KafkaExactlyOnceTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.deserialization.KafkaDeserializationFailureTests"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.deserialization.KafkaSchemaRegistryTest_ENHANCED"/>-->
+      <!--DLQ-->
+      <!--<class name="com.amazon.tests.regression.kafka.orders.consumption.negative.dlq.KafkaDLQReplayTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.dlq.KafkaDLQTests"/>-->
+      <!--Idempotency FAIL-YET TO FIX-->
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaConsumerIdempotencyTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaRebalanceIdempotencyTest"/>
+      <!--Offset management-->
+     <!-- <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.offsetManagement.KafkaOffsetManagementTest"/>-->
+      <!--Reslience-->
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.resilience.KafkaConsumerCoordinatorFailureTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.resilience.KafkaConsumerErrorHandlingTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.positive.CreateOrderEventConsumptionTest"/>
+      <!--Monitoring-->
+      <class name="com.amazon.tests.regression.kafka.orders.monitoring.KafkaConsumerMetricsTest"/>
     </classes>
   </test>
 </suite>

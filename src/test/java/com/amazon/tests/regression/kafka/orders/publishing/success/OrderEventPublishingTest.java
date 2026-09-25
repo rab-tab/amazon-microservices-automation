@@ -11,6 +11,7 @@ import com.amazon.tests.workflows.PurchaseWorkflow;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
 import lombok.extern.slf4j.Slf4j;
+import org.testcontainers.shaded.com.google.common.collect.Lists;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -370,7 +371,7 @@ public class OrderEventPublishingTest extends BaseTest {
 
         assertThat(eventData).isNotNull();
         assertThat(eventData.isObject()).isTrue();
-        assertThat(eventData.fields()).isNotEmpty();
+        assertThat(Lists.newArrayList(eventData.fields())).isNotEmpty();
 
         logStep("  ✓ Event is valid JSON object");
         logStep("  ✓ Fields present: " + eventData.size());

@@ -199,7 +199,7 @@ public class KafkaRebalanceIdempotencyTest extends BaseTest {
     @Story("Manual Offset Reset")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Offset reset to earlier position — old events reprocessed, idempotency prevents duplicate")
-    public void test02_OffsetReset_OldEventsReprocessed_IdempotencyPrevents Duplicates() throws Exception {
+    public void test02_OffsetReset_OldEventsReprocessed_IdempotencyPrevents_Duplicates() throws Exception {
         logStep("TEST 2: Offset reset to earlier position — old events reprocessed");
 
         String orderId = UUID.randomUUID().toString();
