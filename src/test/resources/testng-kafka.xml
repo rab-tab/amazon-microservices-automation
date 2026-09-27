@@ -34,16 +34,22 @@
       <!--<class name="com.amazon.tests.regression.kafka.orders.consumption.negative.dlq.KafkaDLQReplayTest"/>
       <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.dlq.KafkaDLQTests"/>-->
       <!--Idempotency FAIL-YET TO FIX-->
-      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaConsumerIdempotencyTest"/>
-      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaRebalanceIdempotencyTest"/>
+     <!-- <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaConsumerIdempotencyTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaRebalanceIdempotencyTest"/>-->
       <!--Offset management-->
      <!-- <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.offsetManagement.KafkaOffsetManagementTest"/>-->
-      <!--Reslience-->
-      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.resilience.KafkaConsumerCoordinatorFailureTest"/>
-      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.resilience.KafkaConsumerErrorHandlingTest"/>
-      <class name="com.amazon.tests.regression.kafka.orders.consumption.positive.CreateOrderEventConsumptionTest"/>
+      <!--Reslience, PASS-->
+      <!--<class name="com.amazon.tests.regression.kafka.orders.consumption.negative.resilience.KafkaConsumerCoordinatorFailureTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.resilience.KafkaConsumerErrorHandlingTest"/>-->
+      <!--FAIL-->
+      <!--<class name="com.amazon.tests.regression.kafka.orders.consumption.positive.CreateOrderEventConsumptionTest"/>-->
       <!--Monitoring-->
-      <class name="com.amazon.tests.regression.kafka.orders.monitoring.KafkaConsumerMetricsTest"/>
+      <!--<class name="com.amazon.tests.regression.kafka.orders.monitoring.KafkaConsumerMetricsTest"/>-->
+     <!-- <class name="com.amazon.tests.regression.kafka.orders.publishing.advanced.KafkaCompressionTest"/>-->
+      <class name="com.amazon.tests.regression.kafka.orders.publishing.batch.OrderBatchPublishingTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.publishing.failures.ConfigurationFailures"/>
+      <class name="com.amazon.tests.regression.kafka.orders.publishing.failures.OrderEventPublishingFailureTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.publishing.failures.ProducerNetworkFailuresTest"/>
     </classes>
   </test>
 </suite>

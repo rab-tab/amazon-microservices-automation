@@ -40,24 +40,18 @@ public class KafkaTestConsumer implements AutoCloseable {
 
 
     public KafkaTestConsumer(String... topics) {
-
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "test-consumer-" + UUID.randomUUID());
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "50");
 
         this.consumer = new KafkaConsumer<>(props);
-       // this.consumer.subscribe(Arrays.asList(topics));
         this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
-        // Initial dummy poll to trigger partition assignment
-        //consumer.poll(Duration.ofMillis(500));
-
-        // ✅ Manual partition assignment
         List<TopicPartition> partitions = new ArrayList<>();
         for (String topic : topics) {
             consumer.partitionsFor(topic).forEach(info ->
@@ -66,9 +60,13 @@ public class KafkaTestConsumer implements AutoCloseable {
         }
         consumer.assign(partitions);
 
-        // Seek to beginning of all partitions to consume all messages
-        consumer.seekToBeginning(partitions);
-        log.info("KafkaTestConsumer subscribed to topics: {}", Arrays.toString(topics));
+        // ✅ Seek to end IMMEDIATELY after assignment
+        consumer.seekToEnd(partitions);
+
+        // ✅ Do initial poll to trigger position
+        consumer.poll(Duration.ofMillis(100));
+
+        log.info("KafkaTestConsumer subscribed to topics and positioned at END: {}", Arrays.toString(topics));
     }
 
     /**
