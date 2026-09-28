@@ -11,9 +11,13 @@ import com.amazon.tests.workflows.PurchaseWorkflow;
 import io.qameta.allure.*;
 import io.qameta.allure.testng.Tag;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.admin.*;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.config.ConfigResource;
 import org.testng.annotations.AfterMethod;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 import java.util.Collections;
@@ -64,7 +68,8 @@ public class ConfigurationFailures extends BaseTest {
                 .execute();
     }
 
-    @Test
+    @Test(enabled = false)
+    @Ignore("Requires multi-broker Kafka cluster (min 3 replicas) — local single-node can't enforce ISR > 1")
     @Story("Kafka Configuration")
     @Severity(SeverityLevel.CRITICAL)
     @Description("Order creation fails when order.events topic has insufficient in-sync replicas")
@@ -96,7 +101,8 @@ public class ConfigurationFailures extends BaseTest {
         logStep("✅ Real Kafka configuration caused actual ISR failure");
     }
 
-    @Test
+    @Test(enabled = false)
+    @Ignore("Destructive test: Deletes and recreates Kafka topics — dev-only, not for CI/standard suite")
     @Story("Kafka Configuration")
     @Severity(SeverityLevel.NORMAL)
     @Description("Order creation fails when the order.events topic doesn't exist")

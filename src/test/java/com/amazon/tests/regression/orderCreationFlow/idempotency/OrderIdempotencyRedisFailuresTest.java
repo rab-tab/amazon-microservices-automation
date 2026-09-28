@@ -7,22 +7,18 @@ import com.amazon.tests.auth.BearerAuthStrategy;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.transport.ServiceResponse;
 import com.amazon.tests.utils.RedisValidator;
+import com.amazon.tests.utils.ToxiproxyManager;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.utils.testData.TestDataFactory;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
 import eu.rekawek.toxiproxy.Proxy;
-import eu.rekawek.toxiproxy.ToxiproxyClient;
 import eu.rekawek.toxiproxy.model.ToxicDirection;
 import io.qameta.allure.*;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.*;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -44,13 +40,12 @@ import static org.awaitility.Awaitility.await;
  * instead of talking to Redis directly (127.0.0.1:6379) — see
  * scripts/toxiproxy/README.md for one-time setup.
  *
- * This suite is self-managing for the proxy process itself: @BeforeSuite
- * checks whether toxiproxy-server's admin API is already reachable. If a
- * persistent instance is already running (recommended for regular local
- * dev, per the README), it's reused and left alone. If nothing is running,
- * this suite starts its own toxiproxy-server subprocess with
- * scripts/toxiproxy/toxiproxy.json and tears it down in @AfterSuite — no
- * manual "start it first" step required for a one-off run.
+ * The toxiproxy-server process is NOT managed here. BaseTest.setupSuite()
+ * starts (or reuses) it via ToxiproxyManager BEFORE its pre-suite health
+ * checks, when the test JVM is run with -Dtoxiproxy.enabled=true. This class
+ * only fetches the "redis" proxy handle it injects faults through. It cannot
+ * start Toxiproxy from its own @BeforeSuite: TestNG runs the base class's
+ * @BeforeSuite first, so the health check would already have failed.
  *
  * order-service itself is NOT managed here — it must already be running,
  * separately, pointed at the proxy port (8666), before this suite runs.
@@ -67,128 +62,23 @@ import static org.awaitility.Awaitility.await;
 @Feature("Redis Network Failures (Realistic)")
 public class OrderIdempotencyRedisFailuresTest extends BaseTest {
 
-    private static final String TOXIPROXY_ADMIN_HOST = "127.0.0.1";
-    private static final int TOXIPROXY_ADMIN_PORT = 8474; // toxiproxy-server default
     private static final String REDIS_PROXY_NAME = "redis";
 
-    // Override with -Dtoxiproxy.binary=/some/other/path if it's not on PATH
-    // for however this suite gets launched (IDE run configs don't always
-    // inherit a shell's PATH the way a terminal does).
-    private static final String TOXIPROXY_BINARY =
-            System.getProperty("toxiproxy.binary", "toxiproxy-server");
-    private static final Path TOXIPROXY_CONFIG =
-            Paths.get("scripts/toxiproxy/toxiproxy.json").toAbsolutePath();
-
     private static Proxy redisProxy;
-    // Only set if THIS suite run started toxiproxy-server itself — null means
-    // an already-running instance was reused, and @AfterSuite must leave it alone.
-    private static Process ownedToxiproxyProcess;
 
     private PurchaseResult purchase;
     private OrderApiClient orderApiClient;
 
     // ══════════════════════════════════════════════════════════════
-    // CONNECT TO THE ALREADY-RUNNING PROXY (no container lifecycle)
+    // GET THE REDIS PROXY HANDLE (Toxiproxy itself is started by BaseTest)
     // ══════════════════════════════════════════════════════════════
 
-    @BeforeSuite
-    public static void startProxyIfNeededAndConnect() throws IOException {
-        if (isAdminApiReachable()) {
-            log.info("🔌 Toxiproxy admin API already reachable at {}:{} — reusing existing instance",
-                    TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT);
-        } else {
-            log.info("🚀 Toxiproxy not running — starting toxiproxy-server (config: {})", TOXIPROXY_CONFIG);
-            ProcessBuilder pb = new ProcessBuilder(TOXIPROXY_BINARY, "-config", TOXIPROXY_CONFIG.toString());
-            pb.redirectErrorStream(true);
-            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-            try {
-                ownedToxiproxyProcess = pb.start();
-            } catch (IOException e) {
-                throw new IllegalStateException(
-                        "Failed to start toxiproxy-server ('" + TOXIPROXY_BINARY + "'). If it's not on PATH " +
-                                "for this run, pass -Dtoxiproxy.binary=/full/path/to/toxiproxy-server. " +
-                                "See scripts/toxiproxy/README.md.", e);
-            }
-            waitForAdminApiReady(Duration.ofSeconds(10));
-            log.info("✅ toxiproxy-server started by this suite (PID {})", ownedToxiproxyProcess.pid());
-        }
-
-        ToxiproxyClient toxiproxyClient = new ToxiproxyClient(TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT);
-
-        try {
-            redisProxy = toxiproxyClient.getProxy(REDIS_PROXY_NAME);
-        } catch (IOException e) {
-            throw new IllegalStateException(
-                    "Could not reach Toxiproxy at " + TOXIPROXY_ADMIN_HOST + ":" + TOXIPROXY_ADMIN_PORT +
-                            ", or the '" + REDIS_PROXY_NAME + "' proxy isn't defined. " +
-                            "Make sure scripts/toxiproxy/toxiproxy.json defines it correctly " +
-                            "(see scripts/toxiproxy/README.md).", e);
-        }
-
-        if (redisProxy == null) {
-            throw new IllegalStateException(
-                    "Toxiproxy admin API reachable, but no proxy named '" + REDIS_PROXY_NAME + "' exists. " +
-                            "Check scripts/toxiproxy/toxiproxy.json was loaded on toxiproxy-server startup.");
-        }
-
-        log.info("✅ Connected to '{}' proxy — confirm order-service's local profile points " +
-                "spring.data.redis.port at the proxy port (see scripts/toxiproxy/README.md), " +
-                "not directly at Redis, or injected chaos will have no effect.", REDIS_PROXY_NAME);
-    }
-
-    @AfterSuite
-    public static void stopProxyIfThisSuiteStartedIt() {
-        if (ownedToxiproxyProcess == null) {
-            log.info("🔌 Leaving Toxiproxy running — this suite reused an already-running instance");
-            return;
-        }
-        log.info("🛑 Stopping toxiproxy-server (started by this suite run)...");
-        ownedToxiproxyProcess.destroy();
-
-        long deadline = System.currentTimeMillis() + 5000; // 5s grace period
-        boolean exited = false;
-        while (System.currentTimeMillis() < deadline) {
-            if (!ownedToxiproxyProcess.isAlive()) {
-                exited = true;
-                break;
-            }
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-        if (!exited && ownedToxiproxyProcess.isAlive()) {
-            log.warn("toxiproxy-server didn't stop within 5s — forcing termination");
-            ownedToxiproxyProcess.destroyForcibly();
-        }
-    }
-
-    private static boolean isAdminApiReachable() {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(TOXIPROXY_ADMIN_HOST, TOXIPROXY_ADMIN_PORT), 300);
-            return true;
-        } catch (IOException e) {
-            return false;
-        }
-    }
-
-    private static void waitForAdminApiReady(Duration timeout) {
-        long deadline = System.currentTimeMillis() + timeout.toMillis();
-        while (System.currentTimeMillis() < deadline) {
-            if (isAdminApiReachable()) {
-                return;
-            }
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrupted while waiting for toxiproxy-server to start", e);
-            }
-        }
-        throw new IllegalStateException(
-                "toxiproxy-server did not become ready within " + timeout.getSeconds() + "s of starting it");
+    @BeforeClass
+    public void connectToRedisProxy() {
+        redisProxy = ToxiproxyManager.requireProxy(REDIS_PROXY_NAME);
+        log.info("✅ Connected to '{}' proxy — confirm order-service is running with the redis-chaos " +
+                        "profile (spring.data.redis.port = the proxy port), or injected chaos will have no effect.",
+                REDIS_PROXY_NAME);
     }
 
     // ══════════════════════════════════════════════════════════════

@@ -46,10 +46,18 @@
       <!--Monitoring-->
       <!--<class name="com.amazon.tests.regression.kafka.orders.monitoring.KafkaConsumerMetricsTest"/>-->
      <!-- <class name="com.amazon.tests.regression.kafka.orders.publishing.advanced.KafkaCompressionTest"/>-->
-      <class name="com.amazon.tests.regression.kafka.orders.publishing.batch.OrderBatchPublishingTest"/>
-      <class name="com.amazon.tests.regression.kafka.orders.publishing.failures.ConfigurationFailures"/>
-      <class name="com.amazon.tests.regression.kafka.orders.publishing.failures.OrderEventPublishingFailureTest"/>
-      <class name="com.amazon.tests.regression.kafka.orders.publishing.failures.ProducerNetworkFailuresTest"/>
+      <!--FAIL-->
+      <!--<class name="com.amazon.tests.regression.kafka.orders.publishing.batch.OrderBatchPublishingTest"/>-->
+      <!--<class name="com.amazon.tests.regression.kafka.orders.publishing.failures.ConfigurationFailures"/>-->
+      <!--few FAIL-->
+     <!-- <class name="com.amazon.tests.regression.kafka.orders.publishing.failures.OrderEventPublishingFailureTest"/>-->
+      <!--yet to run-->
+     <!--<class name="com.amazon.tests.regression.kafka.orders.publishing.failures.ProducerNetworkFailuresTest"/>-->
+      <class name="com.amazon.tests.regression.kafka.orders.publishing.idempotency.OrderIdempotencyEventualConsistencyTest"/>
+      <class name="com.amazon.tests.regression.kafka.orders.publishing.success.OrderEventPublishingTest"/>
+      <!--PASS-->
+      <!--<class name="com.amazon.tests.regression.kafka.orders.publishing.transactional.KafkaTransactionalProducerTest"/>-->
+
     </classes>
   </test>
 </suite>

@@ -15,6 +15,7 @@ import com.amazon.tests.reports.TestReporterFactory;
 import com.amazon.tests.transport.RequestExecutor;
 import com.amazon.tests.transport.RestHttpClient;
 import com.amazon.tests.utils.RedisValidator;
+import com.amazon.tests.utils.ToxiproxyManager;
 import com.amazon.tests.utils.metrics.MetricsHttpServer;
 import com.amazon.tests.utils.metrics.MetricsSupport;
 import com.amazon.tests.utils.retry.RetryHandler;
@@ -126,6 +127,16 @@ public abstract class BaseTest {
                 ConfigManager.getInstance().getUserServiceUrl(),
                 ConfigManager.getInstance().getProductServiceUrl(),
                 ConfigManager.getInstance().getOrderServiceUrl());
+
+        // Toxiproxy must be up BEFORE the health checks: when order-service is pointed
+        // at the proxy port (8666), its /actuator/health probes Redis through it, and
+        // with no proxy listening that probe reports DOWN and aborts the suite. Opt-in
+        // via -Dtoxiproxy.enabled=true on the TEST run configuration, so regular runs
+        // never need the toxiproxy binary. A chaos test class then fetches its proxy
+        // handle with ToxiproxyManager.requireProxy(name).
+        if (ToxiproxyManager.isEnabled()) {
+            ToxiproxyManager.startIfNeeded("redis");
+        }
 
         // ⭐ NEW — fail the whole suite fast, with one clear message listing
         // everything that's down, instead of letting the first
@@ -299,6 +310,10 @@ public abstract class BaseTest {
     @AfterSuite(alwaysRun = true)
     public void tearDownSuite() throws InterruptedException {
         log.info("Shutting down test suite...");
+
+        // First, so a failure in any later teardown step can't leak the subprocess.
+        // No-op unless this run actually started toxiproxy-server.
+        ToxiproxyManager.stopIfOwned();
 
         DatabaseValidator.getInstance().shutdown();
 
