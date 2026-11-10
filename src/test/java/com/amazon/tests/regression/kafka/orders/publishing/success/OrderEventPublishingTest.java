@@ -3,14 +3,17 @@ package com.amazon.tests.regression.kafka.orders.publishing.success;
 import com.amazon.tests.BaseTest;
 import com.amazon.tests.models.TestModels;
 import com.amazon.tests.utils.apiClients.OrderApiClient;
+import com.amazon.tests.utils.apiClients.PaymentApiClient;
 import com.amazon.tests.utils.apiClients.ProductApiClient;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.amazon.tests.utils.testData.TestDataFactory;
+import com.amazon.tests.validators.PurchaseValidator;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -19,6 +22,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 @Slf4j
 @Epic("Amazon Microservices")
@@ -29,6 +34,9 @@ public class OrderEventPublishingTest extends BaseTest {
     private PurchaseResult purchase;
     private OrderApiClient orderApiClient;
     private ProductApiClient productApiClient;
+    PaymentApiClient paymentApiClient;
+    PurchaseValidator purchaseValidator ;
+
 
     @BeforeMethod
     public void setup() {
@@ -44,6 +52,7 @@ public class OrderEventPublishingTest extends BaseTest {
                 new com.amazon.tests.auth.BearerAuthStrategy(purchase.getCustomer().getAccessToken()),
                 context.getExecutor());
         productApiClient = new ProductApiClient(context.getExecutor());
+        purchaseValidator = new PurchaseValidator(productApiClient, orderApiClient, paymentApiClient);
 
         kafkaConsumer = new KafkaTestConsumer("order.events");
         kafkaConsumer.seekToEnd();
@@ -290,85 +299,255 @@ public class OrderEventPublishingTest extends BaseTest {
         logStep("✅ Idempotent request published exactly one event");
     }
 
+
     @Test(priority = 7)
     @Story("Event Publishing - Positive")
     @Severity(SeverityLevel.NORMAL)
-    @Description("Events are distributed across Kafka partitions based on partition key")
-    public void test07_EventsDistributedAcrossPartitions() {
-        logStep("TEST 7: Events distributed across partitions");
+    @Description("Events are published using orderId as the Kafka partition key")
+    public void test07_DifferentOrderKeysArePartitionedByKafka() throws Exception {
+
+        logStep("TEST 7: Different order keys are partitioned by Kafka");
 
         int orderCount = 10;
-        List<String> orderIds = new ArrayList<>();
 
-        logStep("  Creating " + orderCount + " orders from same user...");
+        List<String> expectedOrderIds = new ArrayList<>();
+
+        logStep("  Creating " + orderCount + " orders...");
+
         for (int i = 0; i < orderCount; i++) {
+
             TestModels.OrderResponse order = orderApiClient.createOrder(
-                    userId(), TestDataFactory.newIdempotencyKey(), purchase.getProducts());
-            orderIds.add(order.getId());
+                    userId(),
+                    TestDataFactory.newIdempotencyKey(),
+                    purchase.getProducts()
+            );
+
+            expectedOrderIds.add(order.getId());
         }
 
-        List<JsonNode> events = kafkaConsumer.collectMessages(
-                node -> node.has("orderId") && orderIds.contains(node.get("orderId").asText()),
-                10
+        logStep("  Collecting ORDER_CREATED events from Kafka...");
+
+        List<ConsumerRecord<String, String>> records =
+                kafkaConsumer.collectRecords(
+                        record -> {
+                            try {
+                                JsonNode event = objectMapper.readTree(record.value());
+
+                                return event.has("orderId")
+                                        && event.has("eventType")
+                                        && "ORDER_CREATED".equals(
+                                        event.get("eventType").asText())
+                                        && expectedOrderIds.contains(
+                                        event.get("orderId").asText());
+
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        },
+                        10
+                );
+
+        // Verify expected event count
+        assertEquals(
+                records.size(),
+                orderCount,
+                "Expected one ORDER_CREATED event per order"
         );
 
+        Set<String> actualOrderIds = new HashSet<>();
         Set<Integer> partitions = new HashSet<>();
-        for (JsonNode event : events) {
-            if (event.has("partition")) {
-                partitions.add(event.get("partition").asInt());
-            }
+
+        logStep("  Verifying Kafka record keys and partitions...");
+
+        for (ConsumerRecord<String, String> record : records) {
+
+            JsonNode event = objectMapper.readTree(record.value());
+
+            String orderId = event.get("orderId").asText();
+            String kafkaKey = record.key();
+
+            // Verify Kafka key matches orderId
+            assertEquals(
+                    kafkaKey,
+                    orderId,
+                    "Kafka record key should match the orderId"
+            );
+
+            // Verify valid partition
+            assertTrue(
+                    record.partition() >= 0,
+                    "Kafka record should have a valid partition"
+            );
+
+            actualOrderIds.add(orderId);
+            partitions.add(record.partition());
+
+            logStep("  Order: " + orderId
+                    + " | Key: " + kafkaKey
+                    + " | Partition: " + record.partition());
         }
 
-        logStep("  Events distributed across " + partitions.size() + " partition(s)");
-        logStep("✅ Partition distribution verified");
+        // Verify no missing or duplicate order events
+        assertEquals(
+                actualOrderIds.size(),
+                orderCount,
+                "Expected one unique ORDER_CREATED event per order"
+        );
+
+        assertEquals(
+                actualOrderIds,
+                new HashSet<>(expectedOrderIds),
+                "Received order IDs should match the created order IDs"
+        );
+
+        logStep("  Total events received: " + records.size());
+        logStep("  Unique Kafka keys: " + actualOrderIds.size());
+        logStep("  Partitions used: " + partitions);
+
+        logStep("TEST 7 PASSED");
     }
 
 
 
     @Test(priority = 9)
-    @Story("Event Publishing - Positive")
+    @Story("Event Ordering")
     @Severity(SeverityLevel.NORMAL)
-    @Description("Multiple orders from same user maintain ordering guarantees")
-    public void test09_OrderingGuaranteeWithinUserPartition() {
-        logStep("TEST 9: Ordering guarantees within user partition");
+    @Description("Events for the same order are published to the same Kafka partition in the correct order")
+    public void test09_OrderingGuaranteeWithinOrderPartition() throws Exception {
 
-        int orderCount = 5;
-        List<String> orderIds = new ArrayList<>();
-        List<Long> timestamps = new ArrayList<>();
+        logStep("TEST 9: Ordering guarantee within order partition");
 
-        logStep("  Creating " + orderCount + " orders in sequence...");
-        for (int i = 0; i < orderCount; i++) {
-            long beforeCreate = System.currentTimeMillis();
-            TestModels.OrderResponse order = orderApiClient.createOrder(
-                    userId(), TestDataFactory.newIdempotencyKey(), purchase.getProducts());
-            long afterCreate = System.currentTimeMillis();
+        // 1. Create an order and complete the successful purchase workflow
+        PurchaseResult purchase = PurchaseWorkflow.start(
+                        context.getExecutor(),
+                        authStrategy
+                )
+                .registerCustomer()
+                .loginCustomer()
+                .registerSeller()
+                .createProduct(1)
+                .viewProduct()
+                .browseProducts()
+                .createOrder()
+                .execute();
 
-            orderIds.add(order.getId());
-            timestamps.add(afterCreate);
-        }
+        // Verify that the order eventually reaches CONFIRMED status
+        purchaseValidator.verifyPurchaseCompleted(purchase);
 
-        List<JsonNode> events = kafkaConsumer.collectMessages(
-                node -> node.has("orderId") && orderIds.contains(node.get("orderId").asText()),
-                10
+        // Extract the order ID from your PurchaseResult.
+        // Use the actual accessor available in your PurchaseResult class.
+        //UUID orderId = /* purchase order ID accessor */;
+        UUID orderId = UUID.fromString(purchase.getOrder().getId());
+
+        logStep("Created order: " + orderId);
+
+        // 2. Collect Kafka records belonging to this order
+        List<ConsumerRecord<String, String>> records =
+                kafkaConsumer.collectRecords(
+                        record -> {
+                            try {
+                                JsonNode event = objectMapper.readTree(record.value());
+
+                                return orderId.toString().equals(
+                                        event.path("orderId").asText()
+                                );
+
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        },
+                        20
+                );
+
+        // 3. Separate the two lifecycle events
+        List<ConsumerRecord<String, String>> createdEvents =
+                records.stream()
+                        .filter(record ->
+                                readEventType(record).equals("ORDER_CREATED"))
+                        .toList();
+
+        List<ConsumerRecord<String, String>> updatedEvents =
+                records.stream()
+                        .filter(record ->
+                                readEventType(record).equals("ORDER_STATUS_UPDATED"))
+                        .toList();
+
+        // 4. Verify expected event counts
+        assertEquals(
+                createdEvents.size(),
+                1,
+                "Expected exactly one ORDER_CREATED event"
         );
 
-        List<Long> eventTimestamps = events.stream()
-                .filter(e -> e.has("timestamp"))
-                .map(e -> e.get("timestamp").asLong())
-                .sorted()
-                .collect(Collectors.toList());
+        assertEquals(
+                updatedEvents.size(),
+                1,
+                "Expected exactly one ORDER_STATUS_UPDATED event"
+        );
 
-        logStep("  Order creation timestamps: " + timestamps.size());
-        logStep("  Event timestamps: " + eventTimestamps.size());
+        ConsumerRecord<String, String> createdRecord = createdEvents.get(0);
+        ConsumerRecord<String, String> updatedRecord = updatedEvents.get(0);
 
-        if (eventTimestamps.size() >= 2) {
-            for (int i = 1; i < eventTimestamps.size(); i++) {
-                assertThat(eventTimestamps.get(i)).isGreaterThanOrEqualTo(eventTimestamps.get(i - 1));
-            }
-        }
+        // 5. Verify both events use the same order ID as their Kafka key
+        assertEquals(
+                createdRecord.key(),
+                orderId.toString(),
+                "ORDER_CREATED key should be the order ID"
+        );
 
-        logStep("✅ Ordering preserved within user partition");
+        assertEquals(
+                updatedRecord.key(),
+                orderId.toString(),
+                "ORDER_STATUS_UPDATED key should be the order ID"
+        );
+
+        // 6. Verify both events are published to the same partition
+        assertEquals(
+                createdRecord.partition(),
+                updatedRecord.partition(),
+                "Events with the same key should be routed to the same partition"
+        );
+
+        // 7. Verify Kafka append order using offsets
+        assertTrue(
+                createdRecord.offset() < updatedRecord.offset(),
+                "ORDER_CREATED must have a lower offset than ORDER_STATUS_UPDATED"
+        );
+
+        // 8. Verify event statuses
+        JsonNode createdEvent = objectMapper.readTree(createdRecord.value());
+        JsonNode updatedEvent = objectMapper.readTree(updatedRecord.value());
+
+        assertEquals(
+                createdEvent.path("status").asText(),
+                "PENDING",
+                "ORDER_CREATED should contain PENDING status"
+        );
+
+        assertEquals(
+                updatedEvent.path("status").asText(),
+                "CONFIRMED",
+                "ORDER_STATUS_UPDATED should contain CONFIRMED status"
+        );
+
+        logStep("ORDER_CREATED partition: " + createdRecord.partition());
+        logStep("ORDER_CREATED offset: " + createdRecord.offset());
+        logStep("ORDER_STATUS_UPDATED offset: " + updatedRecord.offset());
+
+        logStep("TEST 9 PASSED: Correct event ordering verified");
     }
+
+    private String readEventType(ConsumerRecord<String, String> record) {
+        try {
+            JsonNode event = objectMapper.readTree(record.value());
+            return event.path("eventType").asText();
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Unable to parse Kafka event: " + record.value(), e
+            );
+        }
+    }
+
 
 
 }

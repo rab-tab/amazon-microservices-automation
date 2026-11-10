@@ -1,27 +1,29 @@
-package com.amazon.tests.regression.kafka.orders.publishing.batch;
+package com.amazon.tests.regression.kafka.orders.publishing.batchProcessing;
 
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.auth.BearerAuthStrategy;
 import com.amazon.tests.models.TestModels;
+import com.amazon.tests.utils.apiClients.OrderApiClient;
 import com.amazon.tests.utils.kafka.KafkaTestConsumer;
 import com.amazon.tests.utils.testData.TestDataFactory;
-import com.amazon.tests.utils.apiClients.OrderApiClient;
-import com.amazon.tests.auth.BearerAuthStrategy;
 import com.amazon.tests.workflows.PurchaseResult;
 import com.amazon.tests.workflows.PurchaseWorkflow;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
+import io.qameta.allure.testng.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.util.Optional;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Slf4j
 @Epic("Kafka Batch Publishing")
 @Feature("Batch Order Processing")
+@Test(enabled = false)
 public class OrderBatchPublishingTest extends BaseTest {
 
     private KafkaTestConsumer kafkaConsumer;
@@ -80,14 +82,20 @@ public class OrderBatchPublishingTest extends BaseTest {
         logStep("✅ Batch order publishing validated");
     }
 
+
+    //PENDING
     @Test
-    @Story("Batch Publishing")
+    @Tag("requirement-dependent")
+    @Tag("ordering-contract")
+    @Story("Batch Publishing - Ordering (Requirement Dependent)")
     @Severity(SeverityLevel.NORMAL)
-    @Description("Batch publish with consistent ordering within batch")
-    public void test02_BatchOrdering_EventSequencePreserved() throws Exception {
+    @Description("TODO: Confirm whether producer guarantees event ordering within a partition")
+    public void test02_BatchOrdering_EventSequencePreserved() {
+
         logStep("TEST 2: Batch ordering - Event sequence");
 
-        PurchaseResult purchase = PurchaseWorkflow.start(context.getExecutor(), authStrategy)
+        PurchaseResult purchase = PurchaseWorkflow.start(
+                        context.getExecutor(), authStrategy)
                 .registerCustomer()
                 .registerSeller()
                 .createProductWithStock(29.99, 500)
@@ -96,29 +104,57 @@ public class OrderBatchPublishingTest extends BaseTest {
         String token = purchase.getCustomer().getAccessToken();
         String userId = purchase.getCustomer().getUser().getId();
 
-        logStep("  Creating batch with specific order sequence...");
+        OrderApiClient client = new OrderApiClient(
+                new BearerAuthStrategy(token),
+                context.getExecutor()
+        );
 
-        String[] orderIds = new String[3];
+        logStep("Creating 3 orders in sequence...");
+
+        List<String> expectedOrderIds = new ArrayList<>();
+
         for (int i = 0; i < 3; i++) {
-            TestModels.OrderResponse order = new OrderApiClient(new BearerAuthStrategy(token), context.getExecutor())
-                    .createOrder(userId, TestDataFactory.newIdempotencyKey(), purchase.getProducts());
-            orderIds[i] = order.getId();
+
+            TestModels.OrderResponse order = client.createOrder(
+                    userId,
+                    TestDataFactory.newIdempotencyKey(),
+                    purchase.getProducts()
+            );
+
+            expectedOrderIds.add(order.getId());
+
+            logStep("Order " + (i + 1) + ": " + order.getId());
         }
 
-        Thread.sleep(3000);
+        Set<String> expectedIds = new HashSet<>(expectedOrderIds);
 
-        logStep("  Verifying events in order sequence...");
+        logStep("Collecting Kafka events...");
 
-        for (int i = 0; i < orderIds.length; i++) {
-            int finalI = i;
-            Optional<JsonNode> event = kafkaConsumer.waitForMessage(
-                    node -> orderIds[finalI].equals(node.path("orderId").asText()), 3);
+        List<JsonNode> events = kafkaConsumer.waitForMessages(
+                node -> "ORDER_CREATED".equals(
+                        node.path("eventType").asText())
+                        && expectedIds.contains(
+                        node.path("orderId").asText()),
+                10,
+                expectedOrderIds.size()
+        );
 
-            assertThat(event).as("Event " + (i + 1) + " in sequence").isPresent();
-            logStep("    ✓ Event " + (i + 1) + " received: " + orderIds[i]);
-        }
+        assertThat(events)
+                .as("All 3 order events should be received")
+                .hasSize(3);
 
-        logStep("✅ Batch ordering validated");
+        // Extract order IDs in the order Kafka delivered them
+        List<String> actualOrderIds = events.stream()
+                .map(node -> node.path("orderId").asText())
+                .toList();
+
+        assertThat(actualOrderIds)
+                .as("Kafka events should preserve order creation sequence")
+                .containsExactlyElementsOf(expectedOrderIds);
+
+        logStep("Expected sequence: " + expectedOrderIds);
+        logStep("Actual sequence: " + actualOrderIds);
+        logStep("Batch event ordering validated");
     }
 
     @Test

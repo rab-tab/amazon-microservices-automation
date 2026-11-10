@@ -47,7 +47,7 @@
       <!--<class name="com.amazon.tests.regression.kafka.orders.monitoring.KafkaConsumerMetricsTest"/>-->
      <!-- <class name="com.amazon.tests.regression.kafka.orders.publishing.advanced.KafkaCompressionTest"/>-->
       <!--FAIL-->
-      <!--<class name="com.amazon.tests.regression.kafka.orders.publishing.batch.OrderBatchPublishingTest"/>-->
+      <!--<class name="com.amazon.tests.regression.kafka.orders.publishing.batchProcessing.OrderBatchPublishingTest"/>-->
       <!--<class name="com.amazon.tests.regression.kafka.orders.publishing.failures.ConfigurationFailures"/>-->
       <!--few FAIL-->
      <!-- <class name="com.amazon.tests.regression.kafka.orders.publishing.failures.OrderEventPublishingFailureTest"/>-->

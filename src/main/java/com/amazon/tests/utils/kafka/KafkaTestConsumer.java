@@ -3,9 +3,11 @@ package com.amazon.tests.utils.kafka;
 import com.amazon.tests.utils.TestMetrics;
 import com.amazon.tests.utils.metrics.KafkaMetrics;
 import com.amazon.tests.utils.metrics.MetricsManager;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import edu.emory.mathcs.backport.java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -145,6 +147,78 @@ public class KafkaTestConsumer implements AutoCloseable {
         return Optional.empty();
     }
 
+    public List<JsonNode> waitForMessages(
+            Predicate<JsonNode> predicate,
+            int timeoutSeconds,
+            int expectedCount) {
+
+        List<JsonNode> matchedMessages = new ArrayList<>();
+
+        long deadline = System.nanoTime()
+                + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+
+        while (System.nanoTime() < deadline) {
+
+            long remainingNanos = deadline - System.nanoTime();
+
+            Duration pollDuration = Duration.ofNanos(
+                    Math.min(
+                            TimeUnit.MILLISECONDS.toNanos(500),
+                            remainingNanos
+                    )
+            );
+
+            ConsumerRecords<String, String> records =
+                    consumer.poll(pollDuration);
+
+            // Process EVERY record returned by this poll
+            for (ConsumerRecord<String, String> record : records) {
+
+                MetricsManager.recordKafkaConsumed();
+
+                JsonNode node;
+
+                try {
+                    node = objectMapper.readTree(record.value());
+                } catch (JsonProcessingException e) {
+                    log.warn("Invalid JSON received: {}", record.value());
+                    continue;
+                }
+
+                if (predicate.test(node)) {
+
+                    matchedMessages.add(node);
+
+                    MetricsManager.recordKafkaMatched();
+
+                    log.info(
+                            "Matching event received. topic={}, partition={}, offset={}",
+                            record.topic(),
+                            record.partition(),
+                            record.offset()
+                    );
+                }
+            }
+
+            // Check after processing the entire poll batch
+            if (matchedMessages.size() >= expectedCount) {
+                log.info(
+                        "Received {} matching events",
+                        matchedMessages.size()
+                );
+                return matchedMessages;
+            }
+        }
+
+        log.warn(
+                "Expected {} matching events, but received {} within {} seconds",
+                expectedCount,
+                matchedMessages.size(),
+                timeoutSeconds
+        );
+
+        return matchedMessages;
+    }
     /**
      * Collect all messages matching predicate within timeout.
      */
@@ -173,6 +247,38 @@ public class KafkaTestConsumer implements AutoCloseable {
      */
     public int countMessages(Predicate<JsonNode> predicate, int timeoutSeconds) {
         return collectMessages(predicate, timeoutSeconds).size();
+    }
+    public List<ConsumerRecord<String, String>> collectRecords(
+            Predicate<ConsumerRecord<String, String>> predicate,
+            int timeoutSeconds) {
+
+        List<ConsumerRecord<String, String>> collectedRecords = new ArrayList<>();
+
+        long deadline = System.currentTimeMillis()
+                + (timeoutSeconds * 1000L);
+
+        while (System.currentTimeMillis() < deadline) {
+
+            Duration remaining = Duration.ofMillis(
+                    Math.max(0, deadline - System.currentTimeMillis())
+            );
+
+            Duration pollDuration = Duration.ofMillis(
+                    Math.min(500, remaining.toMillis())
+            );
+
+            ConsumerRecords<String, String> records =
+                    consumer.poll(pollDuration);
+
+            for (ConsumerRecord<String, String> record : records) {
+
+                if (predicate.test(record)) {
+                    collectedRecords.add(record);
+                }
+            }
+        }
+
+        return collectedRecords;
     }
 
     /**
