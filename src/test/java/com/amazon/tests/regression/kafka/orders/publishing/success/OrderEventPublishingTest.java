@@ -11,7 +11,6 @@ import com.amazon.tests.workflows.PurchaseWorkflow;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.qameta.allure.*;
 import lombok.extern.slf4j.Slf4j;
-import org.testcontainers.shaded.com.google.common.collect.Lists;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -164,32 +163,79 @@ public class OrderEventPublishingTest extends BaseTest {
         logStep("✅ Large order event published with all items");
     }
 
+
     @Test(priority = 4)
     @Story("Event Publishing - Positive")
     @Severity(SeverityLevel.NORMAL)
-    @Description("Event contains timestamp and metadata for payment service")
-    public void test04_EventContainsTimestampAndMetadata() {
-        logStep("TEST 4: Event contains metadata");
+    @Description("Verify Kafka event payload structure, metadata and schema version")
+    public void test04_OrderCreatedEventContract() {
+
+        logStep("TEST 4: Verify ORDER_CREATED event contract");
+
+        String expectedUserId = userId();
 
         TestModels.OrderResponse order = orderApiClient.createOrder(
-                userId(), TestDataFactory.newIdempotencyKey(), purchase.getProducts());
+                expectedUserId,
+                TestDataFactory.newIdempotencyKey(),
+                purchase.getProducts()
+        );
 
         Optional<JsonNode> event = kafkaConsumer.waitForMessage(
-                node -> node.has("orderId") && order.getId().equals(node.get("orderId").asText()),
+                node -> node.has("eventType")
+                        && "ORDER_CREATED".equals(node.get("eventType").asText())
+                        && node.has("orderId")
+                        && order.getId().equals(node.get("orderId").asText()),
                 10
         );
 
-        assertThat(event).isPresent();
+        assertThat(event)
+                .as("ORDER_CREATED event should be published")
+                .isPresent();
+
         JsonNode eventData = event.get();
 
-        assertThat(eventData.has("eventType")).isTrue();
-        assertThat(eventData.has("timestamp")).isTrue();
-        assertThat(eventData.has("orderId")).isTrue();
-        assertThat(eventData.has("userId")).isTrue();
+        // 1. Validate JSON structure
+        assertThat(eventData.isObject()).isTrue();
+        assertThat(eventData.size()).isGreaterThan(0);
 
-        logStep("✅ Event contains all required metadata");
+        // 2. Validate required event metadata
+        assertThat(eventData.hasNonNull("eventType")).isTrue();
+        assertThat(eventData.hasNonNull("orderId")).isTrue();
+        assertThat(eventData.hasNonNull("userId")).isTrue();
+        assertThat(eventData.hasNonNull("timestamp")).isTrue();
+
+        // 3. Validate event data
+        assertThat(eventData.get("eventType").asText())
+                .isEqualTo("ORDER_CREATED");
+
+        assertThat(eventData.get("orderId").asText())
+                .isEqualTo(order.getId());
+
+        assertThat(eventData.get("userId").asText())
+                .isEqualTo(expectedUserId);
+
+        // 4. Validate timestamp
+        assertThat(eventData.get("timestamp").asText())
+                .isNotBlank();
+
+        // 5. Validate schema version
+        JsonNode version = eventData.hasNonNull("schemaVersion")
+                ? eventData.get("schemaVersion")
+                : eventData.get("version");
+
+        assertThat(version)
+                .as("Event should contain schemaVersion or version")
+                .isNotNull();
+
+        assertThat(version.asText()).isNotBlank();
+
+        logStep("Schema version: " + version.asText());
+        logStep("Event fields: " + eventData.size());
+        logStep("✅ ORDER_CREATED event contract validated");
     }
 
+
+    //  NOT VALID - DELAY REQUIRED
     @Test(priority = 5)
     @Story("Event Publishing - Positive")
     @Severity(SeverityLevel.CRITICAL)
@@ -277,34 +323,7 @@ public class OrderEventPublishingTest extends BaseTest {
         logStep("✅ Partition distribution verified");
     }
 
-    @Test(priority = 8)
-    @Story("Event Publishing - Positive")
-    @Severity(SeverityLevel.NORMAL)
-    @Description("Event contains schema version for compatibility")
-    public void test08_EventContainsSchemaVersion() {
-        logStep("TEST 8: Event contains schema version");
 
-        TestModels.OrderResponse order = orderApiClient.createOrder(
-                userId(), TestDataFactory.newIdempotencyKey(), purchase.getProducts());
-
-        Optional<JsonNode> event = kafkaConsumer.waitForMessage(
-                node -> node.has("orderId") && order.getId().equals(node.get("orderId").asText()),
-                10
-        );
-
-        assertThat(event).isPresent();
-        JsonNode eventData = event.get();
-
-        if (eventData.has("schemaVersion")) {
-            logStep("  Schema version: " + eventData.get("schemaVersion").asText());
-            assertThat(eventData.get("schemaVersion")).isNotNull();
-        } else if (eventData.has("version")) {
-            logStep("  Version: " + eventData.get("version").asText());
-            assertThat(eventData.get("version")).isNotNull();
-        }
-
-        logStep("✅ Event contains version information");
-    }
 
     @Test(priority = 9)
     @Story("Event Publishing - Positive")
@@ -351,31 +370,5 @@ public class OrderEventPublishingTest extends BaseTest {
         logStep("✅ Ordering preserved within user partition");
     }
 
-    @Test(priority = 10)
-    @Story("Event Publishing - Positive")
-    @Severity(SeverityLevel.NORMAL)
-    @Description("Event payload is serialized correctly in JSON format")
-    public void test10_EventPayloadValidJSON() {
-        logStep("TEST 10: Event payload is valid JSON");
 
-        TestModels.OrderResponse order = orderApiClient.createOrder(
-                userId(), TestDataFactory.newIdempotencyKey(), purchase.getProducts());
-
-        Optional<JsonNode> event = kafkaConsumer.waitForMessage(
-                node -> node.has("orderId") && order.getId().equals(node.get("orderId").asText()),
-                10
-        );
-
-        assertThat(event).isPresent();
-        JsonNode eventData = event.get();
-
-        assertThat(eventData).isNotNull();
-        assertThat(eventData.isObject()).isTrue();
-        assertThat(Lists.newArrayList(eventData.fields())).isNotEmpty();
-
-        logStep("  ✓ Event is valid JSON object");
-        logStep("  ✓ Fields present: " + eventData.size());
-
-        logStep("✅ Event payload is valid JSON");
-    }
 }
