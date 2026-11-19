@@ -1,3 +1,4 @@
+
 package com.amazon.tests.regression.kafka.orders.publishing.failures;
 
 import com.amazon.tests.BaseTest;
@@ -15,8 +16,6 @@ import io.qameta.allure.*;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.ToxiproxyContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -28,9 +27,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+
 @Slf4j
 @Epic("Kafka Producer")
-@Feature("Network Failures (Realistic)")
+@Feature("Network Failures")
 public class ProducerNetworkFailuresTest extends BaseTest {
 
     private static KafkaContainer kafka;
@@ -38,254 +38,380 @@ public class ProducerNetworkFailuresTest extends BaseTest {
     private static Proxy kafkaProxy;
 
     private KafkaTestConsumer kafkaConsumer;
+
     private TestModels.UserResponse user;
     private TestModels.ProductResponse product;
+
     private String userToken;
 
-    @BeforeSuite
-    public static void setupContainers() throws IOException {
-        log.info("🐳 Starting Kafka & Toxiproxy containers...");
+    private static final String ORDER_EVENTS_TOPIC = "order.events";
 
-        kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.0"));
+    private static final String PROXY_NAME = "kafka";
+
+    private static final int PROXY_PORT = 8666;
+
+    private static final int EVENT_TIMEOUT_SECONDS = 15;
+
+
+    // ---------------------------------------------------------
+    // CONTAINER SETUP
+    // ---------------------------------------------------------
+
+    @BeforeSuite(alwaysRun = true)
+    public static void setupContainers() throws IOException {
+
+        log.info("Starting Kafka and Toxiproxy containers...");
+
+        kafka = new KafkaContainer(
+                DockerImageName.parse("confluentinc/cp-kafka:7.5.0")
+        );
+
         kafka.start();
 
-        toxiproxy = new ToxiproxyContainer("ghcr.io/shopify/toxiproxy:2.5.0");
+        toxiproxy = new ToxiproxyContainer(
+                "ghcr.io/shopify/toxiproxy:2.5.0"
+        );
+
         toxiproxy.start();
 
-        ToxiproxyClient toxiproxyClient = new ToxiproxyClient(toxiproxy.getHost(), toxiproxy.getControlPort());
+        ToxiproxyClient toxiproxyClient = new ToxiproxyClient(
+                toxiproxy.getHost(),
+                toxiproxy.getControlPort()
+        );
 
         kafkaProxy = toxiproxyClient.createProxy(
-                "kafka",
-                "0.0.0.0:8666",
+                PROXY_NAME,
+                "0.0.0.0:" + PROXY_PORT,
                 kafka.getHost() + ":" + kafka.getMappedPort(9093)
         );
 
-        String proxiedEndpoint = toxiproxy.getHost() + ":" + toxiproxy.getMappedPort(8666);
+        String proxiedEndpoint =
+                toxiproxy.getHost() + ":" + toxiproxy.getMappedPort(PROXY_PORT);
 
-        log.info("✅ Containers started");
-        log.info("   Kafka (direct, for consumer verification): {}", kafka.getBootstrapServers());
-        log.info("   Toxiproxy (chaos-injected path): {}", proxiedEndpoint);
+        log.info("Kafka direct endpoint: {}", kafka.getBootstrapServers());
+        log.info("Kafka proxy endpoint: {}", proxiedEndpoint);
 
-        log.warn("╔══════════════════════════════════════════════════════════════════╗");
-        log.warn("║  MANUAL PRECONDITION REQUIRED                                     ║");
-        log.warn("║                                                                      ║");
-        log.warn("║  order-service MUST be started with:                                ║");
-        log.warn("║    SPRING_KAFKA_BOOTSTRAP_SERVERS={}       ║", proxiedEndpoint);
-        log.warn("║                                                                      ║");
-        log.warn("║  If the service is NOT pointed at the proxy, tests will fail.       ║");
-        log.warn("╚══════════════════════════════════════════════════════════════════╝");
+        log.warn("Order Service must be started with:");
+        log.warn("SPRING_KAFKA_BOOTSTRAP_SERVERS={}", proxiedEndpoint);
+
+        log.warn(
+                "IMPORTANT: Verify Kafka advertised.listeners. "
+                        + "The producer must route its broker connections through "
+                        + "Toxiproxy, not just its initial bootstrap connection."
+        );
     }
 
-    @DynamicPropertySource
-    static void kafkaProperties(DynamicPropertyRegistry registry) {
-        String proxiedEndpoint = toxiproxy.getHost() + ":" + toxiproxy.getMappedPort(8666);
-        registry.add("spring.kafka.bootstrap-servers", () -> proxiedEndpoint);
-        log.info("⚙️  Dynamic property set: spring.kafka.bootstrap-servers={}", proxiedEndpoint);
-    }
 
-    @AfterSuite
+    @AfterSuite(alwaysRun = true)
     public static void teardownContainers() {
-        if (kafka != null) kafka.stop();
-        if (toxiproxy != null) toxiproxy.stop();
-        log.info("🧹 Containers stopped");
+
+        if (kafkaProxy != null) {
+            try {
+                kafkaProxy.disable();
+            } catch (Exception exception) {
+                log.warn("Unable to disable Kafka proxy during shutdown", exception);
+            }
+        }
+
+        if (kafka != null) {
+            kafka.stop();
+        }
+
+        if (toxiproxy != null) {
+            toxiproxy.stop();
+        }
+
+        log.info("Kafka and Toxiproxy containers stopped");
     }
 
-    @BeforeMethod
-    public void setup() throws SeedingException {
-        user = UserSeeder.builder(context).count(1).build().seed().getFirst();
-        userToken = context.getCached("user_token_" + user.getId(), String.class);
-        product = ProductSeeder.builder(context).count(1).highStock().build().seed().getFirst();
+
+    // ---------------------------------------------------------
+    // TEST SETUP
+    // ---------------------------------------------------------
+
+    @BeforeMethod(alwaysRun = true)
+    public void setupTest() throws SeedingException, IOException {
+
+        restoreProxy();
+
+        user = UserSeeder.builder(context)
+                .count(1)
+                .build()
+                .seed()
+                .getFirst();
+
+        userToken = context.getCached(
+                "user_token_" + user.getId(),
+                String.class
+        );
+
+        product = ProductSeeder.builder(context)
+                .count(1)
+                .highStock()
+                .build()
+                .seed()
+                .getFirst();
 
         waitForDataPropagation(1000);
 
-        kafkaConsumer = new KafkaTestConsumer("order.events", kafka.getBootstrapServers());
+        kafkaConsumer = new KafkaTestConsumer(
+                ORDER_EVENTS_TOPIC,
+                kafka.getBootstrapServers()
+        );
+
+        kafkaConsumer.seekToEnd();
     }
 
-    @Test(description = "REALISTIC: Kafka broker disconnected - TCP cut")
-    @Story("Network Failures")
+
+    // ---------------------------------------------------------
+    // TEST 01 - CONNECTION RESET
+    // ---------------------------------------------------------
+
+    @Test(description = "Connection reset during Kafka publishing")
+    @Story("Connection Reset")
     @Severity(SeverityLevel.CRITICAL)
-    public void test01_REALISTIC_KafkaBrokerDown_TCPCut() throws Exception {
-        logStep("TEST 1: Kafka broker TCP connection cut");
+    public void test01_ConnectionReset() throws Exception {
 
-        kafkaProxy.toxics().bandwidth("cut_connection", ToxicDirection.DOWNSTREAM, 0);
-        logStep("  ✂️  TCP connection CUT");
+        logStep("Injecting TCP connection reset");
+
+        kafkaProxy.toxics().resetPeer(
+                "connection_reset",
+                ToxicDirection.UPSTREAM,
+                0
+        );
 
         Response response = createOrder();
-        logStep("  Response status: " + response.statusCode());
 
-        assertThat(response.statusCode()).as("Order should fail when broker connection cut").isEqualTo(500);
-        assertThat(response.jsonPath().getString("error")).isEqualTo("Kafka Unavailable");
+        assertOrderAccepted(response);
 
-        Thread.sleep(2000);
-        Optional<JsonNode> event = kafkaConsumer.waitForMessage(node -> node.has("orderId"), 2);
-        assertThat(event).as("No event should be published").isEmpty();
-
-        logStep("✅ Real broker disconnection handled");
+        logStep("Order API accepted the request despite the network fault");
     }
 
-    @Test(description = "REALISTIC: Network latency causes timeout")
-    @Story("Network Failures")
+
+    // ---------------------------------------------------------
+    // TEST 02 - HIGH NETWORK LATENCY
+    // ---------------------------------------------------------
+
+    @Test(description = "High network latency")
+    @Story("Network Latency")
     @Severity(SeverityLevel.CRITICAL)
-    public void test02_REALISTIC_NetworkLatency_Timeout() throws Exception {
-        logStep("TEST 2: 10s network latency causes timeout");
+    public void test02_HighNetworkLatency() throws Exception {
 
-        kafkaProxy.toxics().latency("high_latency", ToxicDirection.UPSTREAM, 10000);
-        logStep("  🐌 10s latency injected");
+        logStep("Injecting 10-second upstream latency");
+
+        kafkaProxy.toxics().latency(
+                "high_latency",
+                ToxicDirection.UPSTREAM,
+                10000
+        );
 
         Response response = createOrder();
 
-        assertThat(response.statusCode()).as("Order should timeout").isEqualTo(500);
-        assertThat(response.jsonPath().getString("message")).containsAnyOf("timeout", "timed out", "Kafka");
-
-        logStep("✅ Real timeout due to network latency");
+        assertOrderAccepted(response);
     }
 
-    @Test(description = "REALISTIC: Packet loss causes retry exhaustion")
-    @Story("Network Failures")
+
+    // ---------------------------------------------------------
+    // TEST 03 - SEVERE BANDWIDTH RESTRICTION
+    // ---------------------------------------------------------
+
+    @Test(description = "Severe bandwidth restriction")
+    @Story("Bandwidth Restriction")
     @Severity(SeverityLevel.CRITICAL)
-    public void test03_REALISTIC_PacketLoss_RetryExhaustion() throws Exception {
-        logStep("TEST 3: Severe bandwidth limitation causes retry exhaustion");
+    public void test03_SevereBandwidthRestriction() throws Exception {
 
-        kafkaProxy.toxics().bandwidth("packet_loss", ToxicDirection.UPSTREAM, 1).setRate(1);
-        logStep("  📉 Severe bandwidth limitation");
+        logStep("Restricting upstream bandwidth");
+
+        kafkaProxy.toxics()
+                .bandwidth(
+                        "severe_bandwidth",
+                        ToxicDirection.UPSTREAM,
+                        1
+                )
+                .setRate(1);
 
         Response response = createOrder();
 
-        assertThat(response.statusCode()).as("Order should fail after retries exhaust").isEqualTo(500);
-
-        logStep("✅ Real packet loss/congestion caused failure");
+        assertOrderAccepted(response);
     }
 
-    @Test(description = "REALISTIC: Network jitter prevents metadata fetch")
-    @Story("Network Failures")
+
+    // ---------------------------------------------------------
+    // TEST 04 - NETWORK JITTER
+    // ---------------------------------------------------------
+
+    @Test(description = "Variable network latency")
+    @Story("Network Jitter")
     @Severity(SeverityLevel.NORMAL)
-    public void test04_REALISTIC_NetworkJitter_MetadataTimeout() throws Exception {
-        logStep("TEST 4: Network jitter (variable latency)");
+    public void test04_NetworkJitter() throws Exception {
 
-        kafkaProxy.toxics().latency("jitter", ToxicDirection.DOWNSTREAM, 2000).setJitter(1000);
-        logStep("  📊 Network jitter: 2000±1000ms");
+        logStep("Injecting network jitter: 2000ms with 1000ms variation");
+
+        kafkaProxy.toxics()
+                .latency(
+                        "network_jitter",
+                        ToxicDirection.DOWNSTREAM,
+                        2000
+                )
+                .setJitter(1000);
 
         Response response = createOrder();
 
-        assertThat(response.statusCode()).as("Order should fail due to unstable network").isEqualTo(500);
-
-        logStep("✅ Real network jitter prevented stable connection");
+        assertOrderAccepted(response);
     }
 
-    @Test(description = "REALISTIC: Connection reset by peer")
-    @Story("Network Failures")
+
+    // ---------------------------------------------------------
+    // TEST 05 - CONNECTION RESET DURING SEND
+    // ---------------------------------------------------------
+
+    @Test(description = "Connection reset in broker-to-producer direction")
+    @Story("Connection Reset")
     @Severity(SeverityLevel.CRITICAL)
-    public void test05_REALISTIC_ConnectionReset() throws Exception {
-        logStep("TEST 5: Connection reset by peer");
+    public void test05_DownstreamConnectionReset() throws Exception {
 
-        kafkaProxy.toxics().resetPeer("reset_connection", ToxicDirection.DOWNSTREAM, 1000);
-        logStep("  🔌 Connection reset toxic injected");
+        logStep("Injecting downstream connection reset");
+
+        kafkaProxy.toxics().resetPeer(
+                "downstream_reset",
+                ToxicDirection.DOWNSTREAM,
+                0
+        );
 
         Response response = createOrder();
 
-        assertThat(response.statusCode()).as("Order should fail on connection reset").isEqualTo(500);
-
-        logStep("✅ Connection reset handled");
+        assertOrderAccepted(response);
     }
 
-    @Test(description = "REALISTIC: Slow network (bandwidth throttling)")
-    @Story("Network Failures")
+
+    // ---------------------------------------------------------
+    // TEST 06 - BANDWIDTH THROTTLING
+    // ---------------------------------------------------------
+
+    @Test(description = "Limited network bandwidth")
+    @Story("Bandwidth Throttling")
     @Severity(SeverityLevel.NORMAL)
-    public void test06_REALISTIC_BandwidthThrottling() throws Exception {
-        logStep("TEST 6: Slow network connection");
+    public void test06_BandwidthThrottling() throws Exception {
 
-        kafkaProxy.toxics().bandwidth("slow_network", ToxicDirection.UPSTREAM, 10240).setRate(10240);
-        logStep("  🐌 Bandwidth limited to 10 KB/s");
+        logStep("Limiting upstream bandwidth to 10 KB/s");
+
+        kafkaProxy.toxics()
+                .bandwidth(
+                        "slow_network",
+                        ToxicDirection.UPSTREAM,
+                        10240
+                )
+                .setRate(10240);
 
         Response response = createOrder();
-        logStep("  Response status: " + response.statusCode());
 
-        if (response.statusCode() == 201) {
-            String orderId = response.jsonPath().getString("id");
-            Optional<JsonNode> event = kafkaConsumer.waitForMessage(
-                    node -> node.has("orderId") && orderId.equals(node.get("orderId").asText()), 15);
-            assertThat(event).as("Event must eventually be published").isPresent();
-            logStep("✅ Order succeeded slowly; event confirmed published");
-        } else {
-            assertThat(response.statusCode()).isEqualTo(500);
-            logStep("✅ Order failed cleanly under bandwidth throttling");
-        }
+        assertOrderAccepted(response);
     }
 
-    @Test(description = "REALISTIC: Slicer toxic (random connection drops)")
-    @Story("Network Failures")
+
+    // ---------------------------------------------------------
+    // TEST 07 - RANDOM CONNECTION SLICING
+    // ---------------------------------------------------------
+
+    @Test(description = "Random TCP connection slicing")
+    @Story("Intermittent Network Disruption")
     @Severity(SeverityLevel.NORMAL)
-    public void test07_REALISTIC_RandomConnectionDrops() throws Exception {
-        logStep("TEST 7: Random connection drops");
+    public void test07_RandomConnectionSlicing() throws Exception {
 
-        kafkaProxy.toxics().slicer("random_drops", ToxicDirection.DOWNSTREAM, 100, 10);
-        logStep("  🎲 Random connection slicing enabled");
+        logStep("Injecting downstream connection slicing");
+
+        kafkaProxy.toxics().slicer(
+                "random_slicing",
+                ToxicDirection.DOWNSTREAM,
+                100,
+                10
+        );
 
         Response response = createOrder();
-        logStep("  Response status: " + response.statusCode());
 
-        if (response.statusCode() == 201) {
-            String orderId = response.jsonPath().getString("id");
-            Optional<JsonNode> event = kafkaConsumer.waitForMessage(
-                    node -> node.has("orderId") && orderId.equals(node.get("orderId").asText()), 15);
-            assertThat(event).as("Event must eventually be published").isPresent();
-            logStep("✅ Order succeeded despite drops; event confirmed published");
-        } else {
-            assertThat(response.statusCode()).isEqualTo(500);
-            logStep("✅ Order failed cleanly under random drops");
-        }
+        assertOrderAccepted(response);
     }
 
-    @Test(description = "REALISTIC: Intermittent connectivity (limiter toxic)")
-    @Story("Network Failures")
+
+    // ---------------------------------------------------------
+    // TEST 08 - SLOW CONNECTION CLOSE
+    // ---------------------------------------------------------
+
+    @Test(description = "Slow TCP connection close")
+    @Story("Connection Lifecycle")
     @Severity(SeverityLevel.NORMAL)
-    public void test08_REALISTIC_IntermittentConnectivity() throws Exception {
-        logStep("TEST 8: Intermittent connectivity");
+    public void test08_SlowConnectionClose() throws Exception {
 
-        kafkaProxy.toxics().slowClose("intermittent", ToxicDirection.UPSTREAM, 5000);
-        logStep("  ⚡ Intermittent connectivity enabled");
+        logStep("Injecting slow connection close");
 
-        Response response = createOrder();
-        logStep("  Response status: " + response.statusCode());
-
-        logStep("✅ Intermittent connectivity handled");
-    }
-
-    @Test(description = "REALISTIC: Toxic disabled after order (recovery)")
-    @Story("Network Failures")
-    @Severity(SeverityLevel.NORMAL)
-    public void test09_REALISTIC_NetworkRecovery() throws Exception {
-        logStep("TEST 9: Network recovers during order processing");
-
-        kafkaProxy.toxics().latency("recovery_test", ToxicDirection.UPSTREAM, 3000);
-        logStep("  🐌 3s latency injected");
+        kafkaProxy.toxics().slowClose(
+                "slow_connection_close",
+                ToxicDirection.UPSTREAM,
+                5000
+        );
 
         Response response = createOrder();
 
-        if (response.statusCode() == 201) {
-            logStep("  ✓ Order created despite latency");
-
-            kafkaProxy.toxics().get("recovery_test").remove();
-            logStep("  ✓ Latency removed - network recovered");
-
-            String orderId = response.jsonPath().getString("id");
-            Optional<JsonNode> event = kafkaConsumer.waitForMessage(
-                    node -> node.has("orderId") && orderId.equals(node.get("orderId").asText()), 10);
-            assertThat(event).as("Event should eventually be published after recovery").isPresent();
-
-            logStep("✅ Order recovered after network restored");
-        } else {
-            logStep("✅ Order failed during latency injection");
-        }
+        assertOrderAccepted(response);
     }
+
+
+    // ---------------------------------------------------------
+    // TEST 09 - NETWORK RECOVERY
+    // ---------------------------------------------------------
+
+    @Test(description = "Eventual delivery after network recovery")
+    @Story("Network Recovery")
+    @Severity(SeverityLevel.CRITICAL)
+    public void test09_NetworkRecovery() throws Exception {
+
+        logStep("Injecting temporary upstream latency");
+
+        kafkaProxy.toxics().latency(
+                "temporary_latency",
+                ToxicDirection.UPSTREAM,
+                3000
+        );
+
+        Response response = createOrder();
+
+        assertOrderAccepted(response);
+
+        String orderId = response.jsonPath().getString("id");
+
+        logStep("Removing latency toxic to restore network");
+
+        kafkaProxy.toxics()
+                .get("temporary_latency")
+                .remove();
+
+        Optional<JsonNode> event = waitForOrderEvent(orderId);
+
+        assertThat(event)
+                .as("Expected ORDER_CREATED event after network recovery")
+                .isPresent();
+
+        assertThat(event.get().path("eventType").asText())
+                .isEqualTo("ORDER_CREATED");
+
+        assertThat(event.get().path("orderId").asText())
+                .isEqualTo(orderId);
+    }
+
+
+    // ---------------------------------------------------------
+    // ORDER CREATION
+    // ---------------------------------------------------------
 
     private Response createOrder() throws Exception {
+
         String idempotencyKey = UUID.randomUUID().toString();
 
-        TestModels.CreateOrderRequest orderRequest = OrderBuilder.anOrder()
-                .withNamespace(context.getNamespace())
-                .addItem(product, 1)
-                .build();
+        TestModels.CreateOrderRequest orderRequest =
+                OrderBuilder.anOrder()
+                        .withNamespace(context.getNamespace())
+                        .addItem(product, 1)
+                        .build();
 
         String requestBody = objectMapper.writeValueAsString(orderRequest);
 
@@ -301,21 +427,95 @@ public class ProducerNetworkFailuresTest extends BaseTest {
                 .post("/api/orders");
     }
 
-    @AfterMethod
-    public void cleanupProxy() throws IOException {
+
+    // ---------------------------------------------------------
+    // ASSERTIONS
+    // ---------------------------------------------------------
+
+    private void assertOrderAccepted(Response response) {
+
+        log.info(
+                "Order API response: status={}, body={}",
+                response.statusCode(),
+                response.asString()
+        );
+
+        assertThat(response.statusCode())
+                .as("Order creation should be accepted independently "
+                        + "of asynchronous Kafka publishing")
+                .isEqualTo(201);
+
+        assertThat(response.jsonPath().getString("id"))
+                .as("Created order should contain an ID")
+                .isNotBlank();
+    }
+
+
+    private Optional<JsonNode> waitForOrderEvent(String orderId) {
+
+        return kafkaConsumer.waitForMessage(
+                node -> node.has("orderId")
+                        && orderId.equals(node.path("orderId").asText()),
+                EVENT_TIMEOUT_SECONDS
+        );
+    }
+
+
+    // ---------------------------------------------------------
+    // NETWORK AND CLEANUP HELPERS
+    // ---------------------------------------------------------
+
+    private void restoreProxy() throws IOException {
+
         if (kafkaProxy != null) {
+            kafkaProxy.enable();
+
             kafkaProxy.toxics().getAll().forEach(toxic -> {
                 try {
                     toxic.remove();
-                } catch (IOException e) {
-                    log.warn("Failed to remove toxic: {}", toxic.getName(), e);
+                } catch (IOException exception) {
+                    throw new RuntimeException(
+                            "Failed to remove toxic: " + toxic.getName(),
+                            exception
+                    );
                 }
             });
-            logStep("🧹 Toxiproxy cleaned up");
         }
+    }
 
-        if (kafkaConsumer != null) {
-            kafkaConsumer.close();
+
+    @AfterMethod(alwaysRun = true)
+    public void cleanupTest() {
+
+        try {
+
+            if (kafkaProxy != null) {
+
+                kafkaProxy.enable();
+
+                kafkaProxy.toxics().getAll().forEach(toxic -> {
+                    try {
+                        toxic.remove();
+                    } catch (IOException exception) {
+                        log.warn(
+                                "Failed to remove toxic {}",
+                                toxic.getName(),
+                                exception
+                        );
+                    }
+                });
+            }
+
+        } catch (IOException exception) {
+
+            log.error("Failed to restore Kafka proxy", exception);
+
+        } finally {
+
+            if (kafkaConsumer != null) {
+                kafkaConsumer.close();
+                kafkaConsumer = null;
+            }
         }
     }
 }

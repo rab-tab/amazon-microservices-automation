@@ -1,4 +1,4 @@
-package com.amazon.tests.regression.kafka.orders.publishing.failures;
+package com.amazon.tests.regression.kafka.orders.publishing.reliability;
 
 import com.amazon.tests.utils.kafka.BrokerController;
 import org.apache.kafka.clients.admin.AdminClient;
