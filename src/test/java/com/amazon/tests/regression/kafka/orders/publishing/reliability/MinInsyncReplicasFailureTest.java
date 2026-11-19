@@ -55,11 +55,7 @@ public class MinInsyncReplicasFailureTest {
         try (AdminClient admin = AdminClient.create(adminProperties)) {
 
             // 1. Create a dedicated topic with RF=3 and min ISR=3.
-            NewTopic newTopic = new NewTopic(
-                    topic,
-                    1,
-                    REPLICATION_FACTOR
-            ).configs(Map.of(
+            NewTopic newTopic = new NewTopic(topic, 1, REPLICATION_FACTOR).configs(Map.of(
                     "min.insync.replicas",
                     String.valueOf(MIN_INSYNC_REPLICAS)
             ));
@@ -72,8 +68,7 @@ public class MinInsyncReplicasFailureTest {
             topicCreated = true;
 
             // 2. Wait until all three replicas are in the ISR.
-            TopicPartitionInfo initialPartition =
-                    waitForIsrSize(admin, topic, 3, 60);
+            TopicPartitionInfo initialPartition = waitForIsrSize(admin, topic, 3, 60);
 
             assertThat(initialPartition.isr()).hasSize(3);
 
