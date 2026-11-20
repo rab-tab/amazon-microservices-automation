@@ -34,7 +34,7 @@
       <!--<class name="com.amazon.tests.regression.kafka.orders.consumption.negative.dlq.KafkaDLQReplayTest"/>
       <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.dlq.KafkaDLQTests"/>-->
       <!--Idempotency FAIL-YET TO FIX-->
-     <!-- <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaConsumerIdempotencyTest"/>
+     <!-- <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaConsumerIdempotencyTestOld"/>
       <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.idempotency.KafkaRebalanceIdempotencyTest"/>-->
       <!--Offset management-->
      <!-- <class name="com.amazon.tests.regression.kafka.orders.consumption.negative.offsetManagement.KafkaOffsetManagementTest"/>-->
