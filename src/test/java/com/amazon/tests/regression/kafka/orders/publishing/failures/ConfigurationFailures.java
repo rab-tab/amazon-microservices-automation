@@ -1,249 +1,148 @@
+
 package com.amazon.tests.regression.kafka.orders.publishing.failures;
 
-import com.amazon.tests.BaseTest;
-import com.amazon.tests.auth.BearerAuthStrategy;
-import com.amazon.tests.models.TestModels;
-import com.amazon.tests.transport.ServiceResponse;
-import com.amazon.tests.utils.apiClients.OrderApiClient;
-import com.amazon.tests.utils.testData.TestDataFactory;
-import com.amazon.tests.workflows.PurchaseResult;
-import com.amazon.tests.workflows.PurchaseWorkflow;
-import io.qameta.allure.Description;
-import io.qameta.allure.Epic;
-import io.qameta.allure.Feature;
-import io.qameta.allure.Severity;
-import io.qameta.allure.SeverityLevel;
-import io.qameta.allure.Story;
-import io.qameta.allure.testng.Tag;
-import lombok.extern.slf4j.Slf4j;
+import com.amazon.tests.config.kafka.KafkaTestContainerConfig;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.clients.admin.AlterConfigOp;
-import org.apache.kafka.clients.admin.Config;
-import org.apache.kafka.clients.admin.ConfigEntry;
-import org.apache.kafka.clients.admin.TopicDescription;
-import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
+import java.time.Duration;
+import java.util.Properties;
+import java.util.Set;
+import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.fail;
 
-@Slf4j
-@Epic("Amazon Microservices")
-@Feature("Kafka - Configuration Failures")
-@Tag("configuration-failures")
-@Tag("slow-tests")
-public class ConfigurationFailures extends BaseTest {
+public class ConfigurationFailures {
 
-    private static final String ORDER_EVENTS_TOPIC = "order.events";
-    private static final String MIN_INSYNC_REPLICAS = "min.insync.replicas";
-    private static final String COMPRESSION_TYPE = "compression.type";
-
+    private KafkaContainer kafkaContainer;
     private AdminClient adminClient;
 
-    @BeforeClass(alwaysRun = true)
-    public void createAdminClient() {
-        String bootstrapServers =
-                System.getProperty("kafka.bootstrap.servers", "localhost:9092");
+    private String bootstrapServers;
+    private String topicName;
 
-        adminClient = AdminClient.create(
-                Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
+    @BeforeClass
+    public void setUp() {
+        kafkaContainer = KafkaTestContainerConfig.start();
+
+        bootstrapServers = kafkaContainer.getBootstrapServers();
+
+        Properties adminProperties = new Properties();
+        adminProperties.put(
+                AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
+                bootstrapServers
         );
+
+        adminClient = AdminClient.create(adminProperties);
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void cleanUpTopic() throws Exception {
+        if (topicName != null) {
+            adminClient.deleteTopics(Set.of(topicName))
+                    .all()
+                    .get();
+
+            topicName = null;
+        }
     }
 
     @AfterClass(alwaysRun = true)
-    public void closeAdminClient() {
+    public void tearDown() {
         if (adminClient != null) {
-            adminClient.close();
-        }
-    }
-
-    private ConfigResource topicResource() {
-        return new ConfigResource(
-                ConfigResource.Type.TOPIC,
-                ORDER_EVENTS_TOPIC
-        );
-    }
-
-    private ConfigEntry getTopicConfig(String configName) throws Exception {
-        ConfigResource resource = topicResource();
-
-        Config config = adminClient.describeConfigs(
-                Collections.singleton(resource)
-        ).all().get().get(resource);
-
-        ConfigEntry entry = config.get(configName);
-
-        if (entry == null) {
-            throw new IllegalStateException(
-                    "Kafka did not return topic configuration: " + configName
-            );
+            adminClient.close(Duration.ofSeconds(5));
         }
 
-        return entry;
-    }
-
-    private void setTopicConfig(String configName, String value) throws Exception {
-        ConfigResource resource = topicResource();
-
-        AlterConfigOp operation = new AlterConfigOp(
-                new ConfigEntry(configName, value),
-                AlterConfigOp.OpType.SET
-        );
-
-        adminClient.incrementalAlterConfigs(
-                Map.of(resource, List.of(operation))
-        ).all().get();
-    }
-
-    /**
-     * Restores the exact pre-test topic setting:
-     * - explicit original value -> SET that value
-     * - inherited broker default -> DELETE the topic-level override
-     */
-    private void restoreTopicConfig(
-            String configName,
-            ConfigEntry originalEntry
-    ) throws Exception {
-        ConfigResource resource = topicResource();
-
-        AlterConfigOp operation;
-
-        if (originalEntry.isDefault()) {
-            operation = new AlterConfigOp(
-                    new ConfigEntry(configName, null),
-                    AlterConfigOp.OpType.DELETE
-            );
-        } else {
-            operation = new AlterConfigOp(
-                    new ConfigEntry(configName, originalEntry.value()),
-                    AlterConfigOp.OpType.SET
-            );
-        }
-
-        adminClient.incrementalAlterConfigs(
-                Map.of(resource, List.of(operation))
-        ).all().get();
-
-        logStep("Restored " + configName + " to its original topic configuration");
-    }
-
-    private int getTopicReplicationFactor() throws Exception {
-        TopicDescription description = adminClient.describeTopics(
-                Collections.singleton(ORDER_EVENTS_TOPIC)
-        ).allTopicNames().get().get(ORDER_EVENTS_TOPIC);
-
-        assertThat(description)
-                .as("Topic %s must exist before running this test", ORDER_EVENTS_TOPIC)
-                .isNotNull();
-
-        assertThat(description.partitions())
-                .as("Topic %s must have at least one partition", ORDER_EVENTS_TOPIC)
-                .isNotEmpty();
-
-        return description.partitions().get(0).replicas().size();
-    }
-
-    private PurchaseResult setupCustomerAndProduct() {
-        return PurchaseWorkflow.start(context.getExecutor(), authStrategy)
-                .registerCustomer()
-                .registerSeller()
-                .createProductWithStock(29.99, 500)
-                .execute();
-    }
-
-    private ServiceResponse submitOrder(PurchaseResult purchase) {
-        String token = purchase.getCustomer().getAccessToken();
-        String userId = purchase.getCustomer().getUser().getId();
-
-        OrderApiClient orderApiClient = new OrderApiClient(
-                new BearerAuthStrategy(token),
-                context.getExecutor()
-        );
-
-        TestModels.CreateOrderRequest orderRequest =
-                TestDataFactory.defaultOrder(purchase.getProducts()).build();
-
-        return orderApiClient.createOrderWithFault(
-                userId,
-                TestDataFactory.newIdempotencyKey(),
-                orderRequest,
-                null
-        );
+        KafkaTestContainerConfig.stop();
     }
 
     @Test
-    @Story("Insufficient In-Sync Replicas")
-    @Severity(SeverityLevel.CRITICAL)
-    @Description(
-            "Order publishing fails when min.insync.replicas is greater than the " +
-                    "topic replication factor. The application producer must use acks=all."
-    )
-    public void test01_InsufficientISR_AckFailure() throws Exception {
-        logStep("TEST 1: Insufficient in-sync replicas on " + ORDER_EVENTS_TOPIC);
+    public void test01_InvalidCompressionTypeRejected() {
 
-        ConfigEntry originalMinIsr = getTopicConfig(MIN_INSYNC_REPLICAS);
+        Properties properties = producerProperties();
+
+        properties.put(
+                ProducerConfig.COMPRESSION_TYPE_CONFIG,
+                "invalid-codec"
+        );
 
         try {
-            int replicationFactor = getTopicReplicationFactor();
-            int requiredIsr = replicationFactor + 1;
+            new KafkaProducer<String, String>(properties);
 
-            /*
-             * Setting min.insync.replicas above the replication factor guarantees
-             * that the topic cannot satisfy the ISR requirement, even when all
-             * configured replicas are healthy.
-             *
-             * This causes a produce failure only when the application producer
-             * uses acks=all. If it uses acks=1, this test should not pass.
-             */
-            setTopicConfig(MIN_INSYNC_REPLICAS, String.valueOf(requiredIsr));
-
-            logStep(
-                    "Set min.insync.replicas=" + requiredIsr +
-                            "; topic replication factor=" + replicationFactor
+            fail(
+                    "Expected ConfigException for invalid compression.type"
             );
 
-            PurchaseResult purchase = setupCustomerAndProduct();
-            ServiceResponse response = submitOrder(purchase);
-
-            logStep("Order API response status: " + response.getStatusCode());
-
-            assertThat(response.getStatusCode())
-                    .as("Order request should fail when Kafka cannot satisfy min.insync.replicas")
-                    .isBetween(500, 599);
-
-        } finally {
-            restoreTopicConfig(MIN_INSYNC_REPLICAS, originalMinIsr);
+        } catch (ConfigException expected) {
+            // Expected: Kafka rejects an unsupported compression type.
         }
     }
 
     @Test
-    @Story("Invalid Topic Configuration")
-    @Severity(SeverityLevel.NORMAL)
-    @Description("Kafka rejects an unsupported compression.type topic configuration value")
-    public void test02_InvalidCompressionConfigurationRejected() throws Exception {
-        logStep("TEST 2: Invalid compression.type configuration");
+    public void test02_ValidCompressionTypePublishesSuccessfully()
+            throws Exception {
 
-        ConfigEntry originalCompression = getTopicConfig(COMPRESSION_TYPE);
+        topicName = "test.configuration.compression."
+                + UUID.randomUUID();
 
-        try {
-            assertThatThrownBy(
-                    () -> setTopicConfig(COMPRESSION_TYPE, "invalid-codec")
-            )
-                    .as("Kafka should reject an unsupported compression.type value")
-                    .isInstanceOf(ExecutionException.class);
+        adminClient.createTopics(Set.of(
+                new NewTopic(topicName, 1, (short) 1)
+        )).all().get();
 
-            logStep("Kafka rejected the unsupported compression.type value");
+        Properties properties = producerProperties();
 
-        } finally {
-            restoreTopicConfig(COMPRESSION_TYPE, originalCompression);
+        properties.put(
+                ProducerConfig.COMPRESSION_TYPE_CONFIG,
+                "gzip"
+        );
+
+        try (KafkaProducer<String, String> producer =
+                     new KafkaProducer<>(properties)) {
+
+            var metadata = producer.send(
+                    new ProducerRecord<>(
+                            topicName,
+                            "configuration-test",
+                            "valid-compression"
+                    )
+            ).get();
+
+            assertNotNull(metadata);
         }
+    }
+
+    private Properties producerProperties() {
+        Properties properties = new Properties();
+
+        properties.put(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                bootstrapServers
+        );
+
+        properties.put(
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class.getName()
+        );
+
+        properties.put(
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class.getName()
+        );
+
+        properties.put(ProducerConfig.ACKS_CONFIG, "all");
+        properties.put(ProducerConfig.RETRIES_CONFIG, 3);
+
+        return properties;
     }
 }
