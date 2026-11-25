@@ -1,8 +1,10 @@
+
 package com.amazon.tests.regression.kafka.orders.consumption.compaction;
 
-
 import com.amazon.tests.BaseTest;
+import com.amazon.tests.config.kafka.KafkaTestContainerConfig;
 import io.qameta.allure.*;
+import io.qameta.allure.testng.Tag;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -29,24 +31,29 @@ import java.util.*;
 
 import static org.testng.Assert.*;
 
+@Epic("Amazon Microservices")
 @Feature("Kafka Log Compaction")
+@Tag("log-compaction")
+@Tag("slow-tests")
 public class LogCompactionTest extends BaseTest {
-
-    private static final String BOOTSTRAP_SERVERS =
-            System.getProperty("kafka.bootstrap.servers", "localhost:9092");
 
     private static final long SEGMENT_MS = 1_000L;
     private static final long COMPACTION_TIMEOUT_MS = 60_000L;
 
+    private String bootstrapServers;
     private AdminClient adminClient;
     private String topicName;
 
-    @BeforeClass
+    @BeforeClass(alwaysRun = true)
     public void setUpAdminClient() {
+
+        bootstrapServers =
+                KafkaTestContainerConfig.getBootstrapServers();
+
         Properties properties = new Properties();
         properties.put(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
-                BOOTSTRAP_SERVERS
+                bootstrapServers
         );
 
         adminClient = AdminClient.create(properties);
@@ -54,7 +61,9 @@ public class LogCompactionTest extends BaseTest {
 
     @AfterMethod(alwaysRun = true)
     public void deleteTestTopic() throws Exception {
-        if (topicName != null) {
+
+        if (topicName != null && adminClient != null) {
+
             adminClient.deleteTopics(Set.of(topicName))
                     .all()
                     .get();
@@ -65,9 +74,14 @@ public class LogCompactionTest extends BaseTest {
 
     @AfterClass(alwaysRun = true)
     public void closeAdminClient() {
+
         if (adminClient != null) {
             adminClient.close(Duration.ofSeconds(5));
         }
+
+        // If KafkaTestContainerConfig is shared across the entire TestNG suite,
+        // move this stop call to the suite-level teardown instead.
+        KafkaTestContainerConfig.stop();
     }
 
     @Test
@@ -79,6 +93,7 @@ public class LogCompactionTest extends BaseTest {
                     "the latest value and records belonging to other keys."
     )
     public void test01_CompactionRetainsLatestValuePerKey() throws Exception {
+
         verifyLogCleanerEnabled();
         createCompactedTopic();
 
@@ -92,10 +107,19 @@ public class LogCompactionTest extends BaseTest {
             sendAndWait(producer, sharedKey, "old-value");
             sendAndWait(producer, sharedKey, "latest-value");
 
-            sendAndWait(producer, independentKeyOne, "customer-200-value");
-            sendAndWait(producer, independentKeyTwo, "customer-300-value");
+            sendAndWait(
+                    producer,
+                    independentKeyOne,
+                    "customer-200-value"
+            );
 
-            // The next record causes the previous segment to roll.
+            sendAndWait(
+                    producer,
+                    independentKeyTwo,
+                    "customer-300-value"
+            );
+
+            // Allow the active segment to roll before waiting for compaction.
             Thread.sleep(SEGMENT_MS + 500);
 
             sendAndWait(
@@ -110,7 +134,10 @@ public class LogCompactionTest extends BaseTest {
 
         List<ConsumerRecord<String, String>> records = new ArrayList<>();
 
+        boolean compactionCompleted = false;
+
         while (System.currentTimeMillis() < deadline) {
+
             records = readAllRecords();
 
             boolean oldValueRemoved = records.stream().noneMatch(record ->
@@ -118,13 +145,18 @@ public class LogCompactionTest extends BaseTest {
                             && "old-value".equals(record.value())
             );
 
-            boolean latestValuePresent = records.stream().anyMatch(record ->
-                    sharedKey.equals(record.key())
-                            && "latest-value".equals(record.value())
+            boolean latestValuePresent = containsValue(
+                    records,
+                    sharedKey,
+                    "latest-value"
             );
 
             boolean independentRecordsPresent =
-                    containsValue(records, independentKeyOne, "customer-200-value")
+                    containsValue(
+                            records,
+                            independentKeyOne,
+                            "customer-200-value"
+                    )
                             && containsValue(
                             records,
                             independentKeyTwo,
@@ -134,18 +166,26 @@ public class LogCompactionTest extends BaseTest {
             if (oldValueRemoved
                     && latestValuePresent
                     && independentRecordsPresent) {
+
+                compactionCompleted = true;
                 break;
             }
 
             Thread.sleep(2_000);
         }
 
+        assertTrue(
+                compactionCompleted,
+                "Compaction did not remove the older value within "
+                        + COMPACTION_TIMEOUT_MS + " ms"
+        );
+
         assertFalse(
                 records.stream().anyMatch(record ->
                         sharedKey.equals(record.key())
                                 && "old-value".equals(record.value())
                 ),
-                "The older value should eventually be removed by compaction"
+                "The older value should be removed by compaction"
         );
 
         assertTrue(
@@ -190,6 +230,7 @@ public class LogCompactionTest extends BaseTest {
                     "Kafka tombstone. The tombstone marks the key for deletion during compaction."
     )
     public void test02_TombstoneIsWrittenAsNullValue() throws Exception {
+
         verifyLogCleanerEnabled();
         createCompactedTopic();
 
@@ -226,6 +267,7 @@ public class LogCompactionTest extends BaseTest {
     }
 
     private void createCompactedTopic() throws Exception {
+
         topicName = "test.compaction." + UUID.randomUUID();
 
         Map<String, String> configs = new HashMap<>();
@@ -245,11 +287,13 @@ public class LogCompactionTest extends BaseTest {
     }
 
     private void verifyLogCleanerEnabled() throws Exception {
+
         Collection<Node> brokers = adminClient.describeCluster()
                 .nodes()
                 .get();
 
         for (Node broker : brokers) {
+
             ConfigResource resource = new ConfigResource(
                     ConfigResource.Type.BROKER,
                     String.valueOf(broker.id())
@@ -321,6 +365,7 @@ public class LogCompactionTest extends BaseTest {
             String key,
             String expectedValue
     ) {
+
         return records.stream().anyMatch(record ->
                 key.equals(record.key())
                         && expectedValue.equals(record.value())
@@ -332,56 +377,71 @@ public class LogCompactionTest extends BaseTest {
             String key,
             String value
     ) throws Exception {
+
         producer.send(
                 new ProducerRecord<>(topicName, key, value)
         ).get();
     }
 
     private Properties producerProperties() {
+
         Properties properties = new Properties();
+
         properties.put(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
-                BOOTSTRAP_SERVERS
+                bootstrapServers
         );
+
         properties.put(
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
                 StringSerializer.class.getName()
         );
+
         properties.put(
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
                 StringSerializer.class.getName()
         );
+
         properties.put(ProducerConfig.ACKS_CONFIG, "all");
         properties.put(ProducerConfig.RETRIES_CONFIG, 3);
+
         return properties;
     }
 
     private Properties consumerProperties() {
+
         Properties properties = new Properties();
+
         properties.put(
                 ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
-                BOOTSTRAP_SERVERS
+                bootstrapServers
         );
+
         properties.put(
                 ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
                 StringDeserializer.class.getName()
         );
+
         properties.put(
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 StringDeserializer.class.getName()
         );
+
         properties.put(
                 ConsumerConfig.GROUP_ID_CONFIG,
                 "compaction-test-" + UUID.randomUUID()
         );
+
         properties.put(
                 ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
                 "earliest"
         );
+
         properties.put(
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,
                 false
         );
+
         return properties;
     }
 }
